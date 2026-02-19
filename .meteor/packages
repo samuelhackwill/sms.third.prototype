@@ -1,0 +1,11 @@
+meteor-base
+mobile-experience
+mongo
+blaze-html-templates
+session
+jquery
+tracker
+standard-minifier-css
+standard-minifier-js
+ecmascript
+shell-server
