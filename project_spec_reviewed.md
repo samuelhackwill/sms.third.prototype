@@ -65,8 +65,8 @@ Runs on the Mac mini and contains:
 
 - NDJSON file(s)
 - Two hot append-only files (one per source):
-  - `data/raw/hot_messages_app.ndjson`
-  - `data/raw/hot_router_sms.ndjson`
+  - `data/raw/hot_osx_messages_app.ndjson`
+  - `data/raw/hot_sim_router.ndjson`
 - During manual import, hot files are drained into timestamped batch files, then merged at canonical `Messages` collection level.
 
 ### 3.3 Optional content checks (future)
