@@ -171,13 +171,13 @@ Focus: **simplicity, operability, and offline-first**. No formal test suite; use
 **Implement**
 
 - `imports/startup/server/jobs/messagesPoller.js`
-- Poll every 100–300ms (configurable).
-- Read “new since last” (rowid/date) and append to raw log.
+- Poll every 1000ms (add configuration handle).
+- Read “new since last” using meteor server boot time to get initial ROWID from date and append to raw log.
 - Read-only; never writes to Messages DB.
 
 **Acceptance**
 
-- With sample DB or dev mode, produces NDJSON lines.
+- Produces NDJSON lines.
 - Doesn’t block Meteor (async IO).
 
 **Quiz**
