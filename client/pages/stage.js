@@ -16,6 +16,8 @@ const BITMAP_FONT_NAME = "StageBulletFont"
 const BRIGHTNESS_MIN = 150
 const BRIGHTNESS_MAX = 245
 const USE_BITMAP_TEXT = true
+// const LANEATTRIBUTION = "RANDOM"
+const LANEATTRIBUTION = "ROUND_ROBIN"
 
 function randomInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min
@@ -97,6 +99,7 @@ export function createPixiStage({ mountEl }) {
 
   const activeBullets = new Map()
   const phoneColors = new Map()
+  let nextLaneIndex = 0
 
   function laneCount() {
     return Math.max(1, Math.floor(app.screen.height / LANE_HEIGHT))
@@ -129,13 +132,26 @@ export function createPixiStage({ mountEl }) {
     }
   }
 
+  function pickLaneIndex() {
+    const count = laneCount()
+
+    if (LANEATTRIBUTION === "RANDOM") {
+      return randomInt(0, count - 1)
+    }
+
+    // Round-robin lane attribution: 0,1,2,... then loop.
+    const laneIndex = nextLaneIndex % count
+    nextLaneIndex = (nextLaneIndex + 1) % count
+    return laneIndex
+  }
+
   function spawnMessage(message) {
     if (activeBullets.size >= MAX_BULLETS) {
       return
     }
 
     const id = message?.id ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`
-    const laneIndex = randomInt(0, laneCount() - 1)
+    const laneIndex = pickLaneIndex()
     const color = phoneColor(message?.phone)
     const display = createPixiText({ body: message?.body, color })
     const speedPxPerSec = randomInRange(SPEED_MIN, SPEED_MAX)
