@@ -48,3 +48,8 @@ This baseline covers `T-000` from `TASKS - Sms System (third prototype).md`:
 - Open all changes through pull requests.
 - Use `.github/pull_request_template.md`.
 - `main` is configured to require PR-based merges.
+
+## Data model (T-010)
+
+- Canonical collection: `Messages` in `imports/api/messages/messages.js`.
+- Indexed fields: unique `id`, plus `receivedAt`, `status`, and `source`.

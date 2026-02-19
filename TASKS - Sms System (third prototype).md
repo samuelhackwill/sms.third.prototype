@@ -11,7 +11,7 @@ Focus: **simplicity, operability, and offline-first**. No formal test suite; use
 - Runs locally (Mac mini/dev machine).
 - Has a short doc snippet added to `README.md` or `docs/ops.md`.
 - Ends with a Codex **code review** request on the PR.
-- Adds a quiz: `docs/quizzes/<task-id>.md` with 5–10 questions using `<details>` answers.
+- Adds a quiz: `docs/quizzes/<task-id>.md` with ~15 MCQ questions using `<details>` answers.
 
 ### Target repo structure
 - `imports/api/…` collections + methods
@@ -102,10 +102,12 @@ Focus: **simplicity, operability, and offline-first**. No formal test suite; use
 **Goal:** Track import position for raw logs.
 
 **Implement**
+
 - Collection: `IngestCheckpoints`
 - Fields: `source`, `logFile`, `byteOffset`, `updatedAt`
 
 **Acceptance**
+
 - Checkpoint can be written/read and updated.
 
 **Quiz**
@@ -212,7 +214,7 @@ Focus: **simplicity, operability, and offline-first**. No formal test suite; use
 **Goal:** `/admin` route that isn’t public.
 
 **Implement**
-- Simple shared password gate (env) OR Meteor Accounts.
+- Simple shared password gate (env variable stored in a config file)
 - Admin shell page: nav + status panel.
 
 **Acceptance**
