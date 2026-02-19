@@ -19,7 +19,7 @@ Primary runtime is **offline-first**. Internet is optional and used mainly for b
 
 ### 2.1 Deployment environments
 
-- **Production environment (Mac mini):** primary runtime, two sources (`messages_app` primary, `router_sms` fallback), one local Mongo instance.
+- **Production environment (Mac mini):** primary runtime, two sources (`osx_messages_app` primary, `sim_router` fallback), one local Mongo instance.
 - **Test environment (separate machine):** isolated local Mongo instance and isolated local raw logs.
 - Test and production do **not** share raw logs or Mongo databases.
 
@@ -169,7 +169,7 @@ This keeps the RPi independent from Mongo internals and is easier to debug on to
 Each message record should include:
 
 - `id` (UUID)
-- `source` (`messages_app` | `router_sms`)
+- `source` (`osx_messages_app` | `sim_router`)
 - `phoneNumberId` (`primary` | `fallback`)
 - `toPhoneNumber` (number)
 - `receivedAt` (timestamp)
