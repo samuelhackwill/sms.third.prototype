@@ -1,0 +1,16 @@
+<template name="stage">
+  <div class="h-screen w-screen bg-black">
+    <div id="stageCanvasHost" class="h-screen w-screen"></div>
+    <div class="fixed bottom-3 left-3 max-w-[96vw] rounded-md border border-cyan-300/35 bg-black/60 p-2.5 font-mono text-xs leading-snug text-cyan-200">
+      <strong>last event:</strong>
+      <code>{{lastEvent}}</code>
+    </div>
+  </div>
+</template>
+
+<template name="home">
+  <main class="mx-auto max-w-3xl p-6">
+    <h1 class="text-2xl font-semibold">SMS System - Third Prototype</h1>
+    <p class="mt-3">Open <code>/stage</code> or <code>/admin/stage</code>.</p>
+  </main>
+</template>

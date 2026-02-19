@@ -1,0 +1,15 @@
+<template name="adminStage">
+  <main class="mx-auto max-w-4xl p-6 font-sans">
+    <h1 class="text-2xl font-semibold">Admin Stage Test</h1>
+    <p class="mt-2 text-sm text-slate-700">Channel: <code class="rounded bg-slate-100 px-1 py-0.5">stage_test</code></p>
+
+    <div class="mt-4 mb-5 flex flex-wrap gap-2.5">
+      <button class="rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm hover:bg-slate-100" type="button" data-action="send-1">Send 1</button>
+      <button class="rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm hover:bg-slate-100" type="button" data-action="send-5">Send 5</button>
+      <button class="rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm hover:bg-slate-100" type="button" data-action="send-10">Send 10</button>
+      <button class="rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm hover:bg-slate-100" type="button" data-action="clear">Clear</button>
+    </div>
+
+    <pre class="min-h-24 whitespace-pre-wrap break-words rounded-lg border border-slate-300 bg-slate-100 p-3">{{lastPayload}}</pre>
+  </main>
+</template>

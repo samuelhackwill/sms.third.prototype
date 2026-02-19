@@ -16,5 +16,11 @@
     "@babel/runtime": "^7.28.6",
     "jquery": "^4.0.0",
     "sqlite3": "^5.1.7"
+  },
+  "meteor": {
+    "mainModule": {
+      "client": "client/routes.js",
+      "server": "server/main.js"
+    }
   }
 }
