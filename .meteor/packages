@@ -9,3 +9,4 @@ standard-minifier-css
 standard-minifier-js
 ecmascript
 shell-server
+ostrio:flow-router-extra

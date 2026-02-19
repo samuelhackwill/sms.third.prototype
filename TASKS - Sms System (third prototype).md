@@ -1,7 +1,7 @@
 # TASKS.md — Sms System (third prototype)
 
 This file turns the project spec into small, PR-sized implementation tasks for a **Meteor + Blaze** repo.
-Focus: **simplicity, operability, and offline-first**. No formal test suite; use **code reviews + quizzes**.
+Focus: **simplicity, operability, and offline-first**. No formal test suite; use **code reviews + quizzes**. Coding style : legibility and simplicity over brevity.
 
 ---
 
@@ -32,6 +32,7 @@ Focus: **simplicity, operability, and offline-first**. No formal test suite; use
 
 ---
 
+<!--
 ## 0) Repo + GitHub bootstrap
 
 ### T-000 — Initialize Git repo and Meteor app skeleton
@@ -78,8 +79,8 @@ Focus: **simplicity, operability, and offline-first**. No formal test suite; use
 
 - `docs/quizzes/T-001.md`
 
----
-
+--- -->
+<!--
 ## 1) Core data model + collections
 
 ### T-010 — Define canonical message collection
@@ -112,10 +113,11 @@ Focus: **simplicity, operability, and offline-first**. No formal test suite; use
 
 - `docs/quizzes/T-010.md`
 
----
+--- --> -->
 
 ## 2) RAW log writing (two scrapers)
 
+<!--
 ### T-020 — Implement RAW log writer utility
 
 **Goal:** Append NDJSON records safely and predictably.
@@ -140,7 +142,7 @@ Focus: **simplicity, operability, and offline-first**. No formal test suite; use
 
 - `docs/quizzes/T-020.md`
 
----
+--- -->
 
 ### T-021 — Scraper #2: 4G router poller → RAW log
 
@@ -164,6 +166,7 @@ Focus: **simplicity, operability, and offline-first**. No formal test suite; use
 
 ---
 
+<!--
 ### T-022 — Scraper #1: Messages.app prototype poller → RAW log
 
 **Goal:** Prototype ingestion by reading new entries from Messages storage.
@@ -184,7 +187,7 @@ Focus: **simplicity, operability, and offline-first**. No formal test suite; use
 
 - `docs/quizzes/T-022.md`
 
----
+--- -->
 
 ## 3) Import worker: RAW log → Mongo
 
