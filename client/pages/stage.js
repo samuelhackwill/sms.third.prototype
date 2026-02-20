@@ -1,6 +1,7 @@
 import { Template } from "meteor/templating"
 import { ReactiveVar } from "meteor/reactive-var"
 import * as PIXI from "pixi.js"
+import { streamer } from "/imports/both/streamer"
 
 import "./stage.html"
 
@@ -274,6 +275,7 @@ export function createPixiStage({ mountEl }) {
 Template.stage.onCreated(function onCreated() {
   this.lastEvent = new ReactiveVar("no event yet")
   this.stageTestChannel = null
+  this.rawSpawnHandler = null
   this.pixiStage = null
 })
 
@@ -304,6 +306,18 @@ Template.stage.onRendered(function onRendered() {
       this.pixiStage.clear()
     }
   }
+
+  this.rawSpawnHandler = (payload) => {
+    this.lastEvent.set(JSON.stringify(payload))
+
+    if (!payload || typeof payload !== "object") {
+      return
+    }
+
+    this.pixiStage.spawnMessages(payload.messages)
+  }
+
+  streamer.on("stage.raw.spawn", this.rawSpawnHandler)
 })
 
 Template.stage.onDestroyed(function onDestroyed() {
@@ -311,6 +325,11 @@ Template.stage.onDestroyed(function onDestroyed() {
 
   this.stageTestChannel?.close()
   this.stageTestChannel = null
+
+  if (this.rawSpawnHandler) {
+    streamer.removeListener("stage.raw.spawn", this.rawSpawnHandler)
+    this.rawSpawnHandler = null
+  }
 
   this.pixiStage?.destroy()
   this.pixiStage = null
