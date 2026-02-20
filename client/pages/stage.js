@@ -4,13 +4,32 @@ import * as PIXI from "pixi.js"
 
 import "./stage.html"
 
+const PIXI_CHARS_FR =
+  " " + // SPACE (must include)
+  "0123456789" +
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZ" +
+  "abcdefghijklmnopqrstuvwxyz" +
+  // Common French diacritics (both cases) + œ/Œ + ÿ/Ÿ
+  "ÀÂÄÇÉÈÊËÎÏÔÖÙÛÜŸ" +
+  "àâäçéèêëîïôöùûüÿ" +
+  "ÆŒæœ" +
+  // Basic ASCII punctuation
+  ".,;:!?…()[]{}<>\"'`“”‘’«»" +
+  "-–—_" +
+  "/\\|@#&%$€£" +
+  "+*=^~" +
+  // Whitespace / controls you might want
+  "\n\t" +
+  // Misc common symbols in messages
+  "°©®™✓•·"
+
 const CHANNEL_NAME = "stage_test"
 const FONT_SIZE = 36
 const LANE_PADDING = 8
 const LANE_HEIGHT = FONT_SIZE + LANE_PADDING
 const SPAWN_PADDING = 20
-const SPEED_MIN = 120
-const SPEED_MAX = 380
+const SPEED_MIN = 240
+const SPEED_MAX = 800
 const MAX_BULLETS = 200
 const BITMAP_FONT_NAME = "StageBulletFont"
 const BRIGHTNESS_MIN = 150
@@ -18,6 +37,7 @@ const BRIGHTNESS_MAX = 245
 const USE_BITMAP_TEXT = true
 // const LANEATTRIBUTION = "RANDOM"
 const LANEATTRIBUTION = "ROUND_ROBIN"
+const MAX_DISPLAY_CHARS = 150
 
 function randomInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min
@@ -33,6 +53,29 @@ function clamp(value, min, max) {
 
 function brightness(r, g, b) {
   return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
+function messageLengthSpeed(body) {
+  const text = typeof body === "string" ? body : ""
+  const length = text.length
+  const minLength = 8
+  const maxLength = 420
+  const normalized = clamp((length - minLength) / (maxLength - minLength), 0, 1)
+  const baseSpeed = SPEED_MIN + normalized * (SPEED_MAX - SPEED_MIN)
+  const jitter = randomInRange(-12, 12)
+  return clamp(baseSpeed + jitter, SPEED_MIN, SPEED_MAX)
+}
+
+function normalizeDisplayBody(body) {
+  const text = typeof body === "string" ? body : ""
+
+  if (text.length <= MAX_DISPLAY_CHARS) {
+    return text
+  }
+
+  const suffix = "[...]"
+  const prefixLength = Math.max(0, MAX_DISPLAY_CHARS - suffix.length)
+  return `${text.slice(0, prefixLength)}${suffix}`
 }
 
 function randomBrightColor() {
@@ -80,11 +123,15 @@ export function createPixiStage({ mountEl }) {
   mountEl.style.overflow = "hidden"
 
   if (USE_BITMAP_TEXT && !PIXI.BitmapFont.available[BITMAP_FONT_NAME]) {
-    PIXI.BitmapFont.from(BITMAP_FONT_NAME, {
-      fontFamily: "Arial",
-      fontSize: FONT_SIZE,
-      fill: "#ffffff",
-    })
+    PIXI.BitmapFont.from(
+      BITMAP_FONT_NAME,
+      {
+        fontFamily: "Arial",
+        fontSize: FONT_SIZE,
+        fill: "#ffffff",
+      },
+      { chars: PIXI_CHARS_FR },
+    )
   }
 
   const app = new PIXI.Application({
@@ -153,8 +200,9 @@ export function createPixiStage({ mountEl }) {
     const id = message?.id ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`
     const laneIndex = pickLaneIndex()
     const color = phoneColor(message?.phone)
-    const display = createPixiText({ body: message?.body, color })
-    const speedPxPerSec = randomInRange(SPEED_MIN, SPEED_MAX)
+    const displayBody = normalizeDisplayBody(message?.body)
+    const display = createPixiText({ body: displayBody, color })
+    const speedPxPerSec = messageLengthSpeed(displayBody)
 
     display.x = app.screen.width + SPAWN_PADDING
     display.y = clamp(laneIndex * LANE_HEIGHT, 0, Math.max(0, app.screen.height - FONT_SIZE))
@@ -164,7 +212,7 @@ export function createPixiStage({ mountEl }) {
     activeBullets.set(id, {
       id,
       phone: message?.phone ?? null,
-      body: message?.body ?? "",
+      body: displayBody,
       laneIndex,
       speedPxPerSec,
       display,
