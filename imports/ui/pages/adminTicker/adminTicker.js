@@ -12,19 +12,26 @@ import { streamer } from "/imports/both/streamer"
 import { FAKE_MESSAGES } from "/client/pages/stageTestData"
 import "./adminTicker.html"
 
-const MEASURE_FONT_SIZE = 36
-const MEASURE_FONT_FAMILY = "Arial"
+const DEFAULT_MEASURE_FONT_SIZE = 36
+const DEFAULT_MEASURE_FONT_FAMILY = "Times New Roman"
 
 function randomFrom(list) {
   return list[Math.floor(Math.random() * list.length)]
 }
 
-function measureTextWidthPx(text) {
+function measureTextWidthPx(text, { fontFamily, fontSizePx } = {}) {
+  const normalizedFontFamily = typeof fontFamily === "string" && fontFamily.trim()
+    ? fontFamily
+    : DEFAULT_MEASURE_FONT_FAMILY
+  const normalizedFontSize = Number.isFinite(Number(fontSizePx)) && Number(fontSizePx) > 0
+    ? Number(fontSizePx)
+    : DEFAULT_MEASURE_FONT_SIZE
+
   const metrics = PIXI.TextMetrics.measureText(
     text,
     new PIXI.TextStyle({
-      fontFamily: MEASURE_FONT_FAMILY,
-      fontSize: MEASURE_FONT_SIZE,
+      fontFamily: normalizedFontFamily,
+      fontSize: normalizedFontSize,
     }),
   )
 
@@ -55,7 +62,11 @@ Template.AdminTickerPage.onCreated(function onCreated() {
     }
 
     const text = typeof payload.text === "string" ? payload.text : ""
-    const textWidthPx = measureTextWidthPx(text)
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    const textWidthPx = measureTextWidthPx(text, {
+      fontFamily: payload.fontFamily,
+      fontSizePx: payload.fontSizePx ?? wall?.minClientHeight,
+    })
 
     Meteor.call("ticker.startRun", {
       wallId: payload.wallId,

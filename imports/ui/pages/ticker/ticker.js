@@ -10,9 +10,8 @@ import {
 import "/imports/api/ticker/methods"
 import "./ticker.html"
 
-const FONT_FAMILY = "Arial"
-const FONT_SIZE = 36
-const FONT_FILL = 0xffffff
+const FONT_FAMILY = "Times New Roman"
+const FONT_FILL = 0xff0000
 const SESSION_CLIENT_ID_KEY = "clientId"
 const LEGACY_SESSION_CLIENT_ID_KEY = "ticker.clientId"
 
@@ -36,6 +35,7 @@ function createTickerRenderer(mountEl) {
   let playing = null
   let xStart = 0
   let offsetMs = 0
+  let minClientHeight = Math.max(1, Math.floor(app.screen.height))
 
   function drawMask() {
     maskGraphics.clear()
@@ -51,12 +51,25 @@ function createTickerRenderer(mountEl) {
 
     textDisplay = new PIXI.Text("", {
       fontFamily: FONT_FAMILY,
-      fontSize: FONT_SIZE,
+      fontSize: minClientHeight,
       fill: FONT_FILL,
     })
-    textDisplay.y = Math.max(0, (app.screen.height - FONT_SIZE) / 2)
+    textDisplay.y = Math.max(0, app.screen.height - textDisplay.height)
     world.addChild(textDisplay)
     return textDisplay
+  }
+
+  function applyViewportTextStyle() {
+    if (!textDisplay) {
+      return
+    }
+
+    textDisplay.style = new PIXI.TextStyle({
+      fontFamily: FONT_FAMILY,
+      fontSize: minClientHeight,
+      fill: FONT_FILL,
+    })
+    textDisplay.y = Math.max(0, app.screen.height - textDisplay.height)
   }
 
   function clearPlaying() {
@@ -83,7 +96,7 @@ function createTickerRenderer(mountEl) {
     const display = ensureTextDisplay()
     display.text = playing.text
     display.visible = true
-    display.y = Math.max(0, (app.screen.height - display.height) / 2)
+    applyViewportTextStyle()
   }
 
   function setSliceXStart(nextXStart) {
@@ -94,11 +107,17 @@ function createTickerRenderer(mountEl) {
     offsetMs = Number(nextOffsetMs) || 0
   }
 
+  function setMinClientHeight(nextHeight) {
+    const height = Number(nextHeight)
+    if (Number.isFinite(height) && height > 0) {
+      minClientHeight = Math.max(1, Math.floor(height))
+      applyViewportTextStyle()
+    }
+  }
+
   function resize() {
     drawMask()
-    if (textDisplay && textDisplay.visible) {
-      textDisplay.y = Math.max(0, (app.screen.height - textDisplay.height) / 2)
-    }
+    applyViewportTextStyle()
   }
 
   function tick() {
@@ -121,6 +140,7 @@ function createTickerRenderer(mountEl) {
     clearPlaying,
     setSliceXStart,
     setServerOffset,
+    setMinClientHeight,
     resize,
     destroy() {
       app.ticker.remove(tick)
@@ -217,6 +237,7 @@ Template.TickerPage.onRendered(function onRendered() {
 
   this.autorun(() => {
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    this.renderer?.setMinClientHeight(wall?.minClientHeight)
     if (!wall?.playing) {
       this.renderer?.clearPlaying()
       return

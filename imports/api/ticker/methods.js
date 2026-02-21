@@ -17,6 +17,7 @@ import { streamer } from "/imports/both/streamer"
 
 const DEFAULT_TICKER_SPEED_PX_PER_SEC = 120
 const START_RUN_DELAY_MS = 800
+const TICKER_FONT_FAMILY = "Times New Roman"
 const pendingRunTimeouts = new Map()
 
 function withServer(fn) {
@@ -39,6 +40,7 @@ async function ensureWall(wallId = DEFAULT_TICKER_WALL_ID) {
     _id: wallId,
     layoutVersion: 1,
     totalWallWidth: 0,
+    minClientHeight: 0,
     speedPxPerSec: DEFAULT_TICKER_SPEED_PX_PER_SEC,
     playing: null,
     createdAt: now,
@@ -72,6 +74,8 @@ export async function maybeStartNext(wallId = DEFAULT_TICKER_WALL_ID) {
     wallId,
     runId,
     text: String(nextMessage.text ?? ""),
+    fontFamily: TICKER_FONT_FAMILY,
+    fontSizePx: Number(wall.minClientHeight) || 36,
     speedPxPerSec,
     totalWallWidth,
   })
@@ -90,8 +94,10 @@ async function recomputeLayout(wallId = DEFAULT_TICKER_WALL_ID) {
   ).fetchAsync()
 
   let xStart = 0
+  let minClientHeight = Number.POSITIVE_INFINITY
   for (const [index, client] of clients.entries()) {
     const width = Number(client.width) || 0
+    const height = Number(client.height) || 0
     await TickerClients.updateAsync(
       { _id: client._id },
       {
@@ -103,14 +109,19 @@ async function recomputeLayout(wallId = DEFAULT_TICKER_WALL_ID) {
       },
     )
     xStart += width
+    if (height > 0) {
+      minClientHeight = Math.min(minClientHeight, height)
+    }
   }
 
+  const normalizedMinClientHeight = Number.isFinite(minClientHeight) ? minClientHeight : 0
   const wall = await ensureWall(wallId)
   await TickerWalls.updateAsync(
     { _id: wallId },
     {
       $set: {
         totalWallWidth: xStart,
+        minClientHeight: normalizedMinClientHeight,
         layoutVersion: Number(wall.layoutVersion ?? 0) + 1,
         updatedAt: new Date(),
       },
