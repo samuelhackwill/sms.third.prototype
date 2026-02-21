@@ -1,10 +1,17 @@
 import { Meteor } from "meteor/meteor"
+import { Random } from "meteor/random"
 
 import {
   DEFAULT_TICKER_WALL_ID,
   TickerClients,
   TickerWalls,
 } from "/imports/api/ticker/collections"
+import { dequeueTickerMessage, setTickerPlaying } from "/imports/api/ticker/queue"
+import { streamer } from "/imports/both/streamer"
+
+const DEFAULT_TICKER_SPEED_PX_PER_SEC = 120
+const START_RUN_DELAY_MS = 800
+const pendingRunTimeouts = new Map()
 
 function withServer(fn) {
   if (!Meteor.isServer) {
@@ -26,7 +33,7 @@ async function ensureWall(wallId = DEFAULT_TICKER_WALL_ID) {
     _id: wallId,
     layoutVersion: 1,
     totalWallWidth: 0,
-    speedPxPerSec: 200,
+    speedPxPerSec: DEFAULT_TICKER_SPEED_PX_PER_SEC,
     playing: null,
     createdAt: now,
     updatedAt: now,
@@ -34,6 +41,40 @@ async function ensureWall(wallId = DEFAULT_TICKER_WALL_ID) {
 
   await TickerWalls.insertAsync(wall)
   return wall
+}
+
+export async function maybeStartNext(wallId = DEFAULT_TICKER_WALL_ID) {
+  if (!Meteor.isServer) {
+    return null
+  }
+
+  const wall = await ensureWall(wallId)
+  if (wall.playing) {
+    return null
+  }
+
+  const nextMessage = dequeueTickerMessage(wallId)
+  if (!nextMessage) {
+    return null
+  }
+
+  const runId = Random.id()
+  const speedPxPerSec = Number(wall.speedPxPerSec) || DEFAULT_TICKER_SPEED_PX_PER_SEC
+  const totalWallWidth = Number(wall.totalWallWidth) || 0
+
+  streamer.emit("ticker.measure.request", {
+    wallId,
+    runId,
+    text: String(nextMessage.text ?? ""),
+    speedPxPerSec,
+    totalWallWidth,
+  })
+
+  return {
+    runId,
+    wallId,
+    text: String(nextMessage.text ?? ""),
+  }
 }
 
 async function recomputeLayout(wallId = DEFAULT_TICKER_WALL_ID) {
@@ -192,16 +233,103 @@ Meteor.methods({
       await TickerWalls.updateAsync(
         { _id: wallId },
         {
-          $unset: {
-            highlightClientId: "",
-          },
           $set: {
+            highlightClientId: null,
             updatedAt: new Date(),
           },
         },
       )
 
       return { ok: true }
+    })
+  },
+
+  "ticker.time"() {
+    return withServer(() => Date.now())
+  },
+
+  async "ticker.startRun"({ wallId = DEFAULT_TICKER_WALL_ID, runId, text, textWidthPx } = {}) {
+    return withServer(async () => {
+      if (!runId || typeof runId !== "string") {
+        throw new Meteor.Error("ticker.startRun.invalidRunId", "runId is required")
+      }
+
+      if (typeof text !== "string") {
+        throw new Meteor.Error("ticker.startRun.invalidText", "text must be a string")
+      }
+
+      const width = Number(textWidthPx)
+      if (!Number.isFinite(width) || width < 0) {
+        throw new Meteor.Error("ticker.startRun.invalidTextWidth", "textWidthPx must be >= 0")
+      }
+
+      const wall = await ensureWall(wallId)
+      if (wall.playing) {
+        throw new Meteor.Error("ticker.startRun.alreadyPlaying", "wall is already playing")
+      }
+
+      const speedPxPerSec = Number(wall.speedPxPerSec) || DEFAULT_TICKER_SPEED_PX_PER_SEC
+      if (speedPxPerSec <= 0) {
+        throw new Meteor.Error("ticker.startRun.invalidSpeed", "speedPxPerSec must be > 0")
+      }
+
+      const totalWallWidthAtStart = Number(wall.totalWallWidth) || 0
+      const layoutVersionAtStart = Number(wall.layoutVersion) || 1
+      const startedAtServerMs = Date.now() + START_RUN_DELAY_MS
+      const durationMs = ((totalWallWidthAtStart + width) / speedPxPerSec) * 1000
+      const estimatedDoneAt = new Date(startedAtServerMs + durationMs)
+
+      const playing = {
+        runId,
+        text,
+        startedAtServerMs,
+        speedPxPerSec,
+        textWidthPx: width,
+        totalWallWidthAtStart,
+        layoutVersionAtStart,
+        estimatedDoneAt,
+      }
+
+      await TickerWalls.updateAsync(
+        { _id: wallId },
+        {
+          $set: {
+            playing,
+            updatedAt: new Date(),
+          },
+        },
+      )
+      setTickerPlaying(wallId, playing)
+
+      const previousTimeout = pendingRunTimeouts.get(wallId)
+      if (previousTimeout) {
+        Meteor.clearTimeout(previousTimeout)
+      }
+
+      const timeoutMs = Math.max(0, startedAtServerMs + durationMs - Date.now())
+      const timeoutId = Meteor.setTimeout(async () => {
+        await TickerWalls.updateAsync(
+          { _id: wallId },
+          {
+            $set: {
+              playing: null,
+              updatedAt: new Date(),
+            },
+          },
+        )
+        setTickerPlaying(wallId, null)
+        pendingRunTimeouts.delete(wallId)
+        await maybeStartNext(wallId)
+      }, timeoutMs)
+
+      pendingRunTimeouts.set(wallId, timeoutId)
+
+      return {
+        ok: true,
+        runId,
+        startedAtServerMs,
+        estimatedDoneAt,
+      }
     })
   },
 })
