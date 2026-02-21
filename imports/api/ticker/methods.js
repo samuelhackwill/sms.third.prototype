@@ -6,7 +6,13 @@ import {
   TickerClients,
   TickerWalls,
 } from "/imports/api/ticker/collections"
-import { dequeueTickerMessage, setTickerPlaying } from "/imports/api/ticker/queue"
+import {
+  clearTickerQueue,
+  dequeueTickerMessage,
+  enqueueTickerMessage,
+  getTickerQueueSnapshot,
+  setTickerPlaying,
+} from "/imports/api/ticker/queue"
 import { streamer } from "/imports/both/streamer"
 
 const DEFAULT_TICKER_SPEED_PX_PER_SEC = 120
@@ -330,6 +336,85 @@ Meteor.methods({
         startedAtServerMs,
         estimatedDoneAt,
       }
+    })
+  },
+
+  async "ticker.setSpeed"({ wallId = DEFAULT_TICKER_WALL_ID, speedPxPerSec } = {}) {
+    return withServer(async () => {
+      const speed = Number(speedPxPerSec)
+      if (!Number.isFinite(speed) || speed <= 0) {
+        throw new Meteor.Error("ticker.setSpeed.invalidSpeed", "speedPxPerSec must be > 0")
+      }
+
+      await ensureWall(wallId)
+      await TickerWalls.updateAsync(
+        { _id: wallId },
+        {
+          $set: {
+            speedPxPerSec: speed,
+            updatedAt: new Date(),
+          },
+        },
+      )
+
+      return { ok: true, speedPxPerSec: speed }
+    })
+  },
+
+  async "ticker.enqueueText"({ wallId = DEFAULT_TICKER_WALL_ID, text } = {}) {
+    return withServer(async () => {
+      const normalized = typeof text === "string" ? text.trim() : ""
+      if (!normalized) {
+        throw new Meteor.Error("ticker.enqueueText.invalidText", "text must be a non-empty string")
+      }
+
+      const id = Random.id()
+      enqueueTickerMessage(wallId, {
+        id,
+        text: normalized,
+        receivedAt: new Date(),
+      })
+
+      await maybeStartNext(wallId)
+      return { ok: true, id }
+    })
+  },
+
+  "ticker.queueStatus"({ wallId = DEFAULT_TICKER_WALL_ID } = {}) {
+    return withServer(() => {
+      const queue = getTickerQueueSnapshot(wallId)
+      return {
+        wallId,
+        queueLength: queue.length,
+        head: queue[0] ?? null,
+      }
+    })
+  },
+
+  async "ticker.clearQueue"({ wallId = DEFAULT_TICKER_WALL_ID } = {}) {
+    return withServer(async () => {
+      clearTickerQueue(wallId)
+      return { ok: true }
+    })
+  },
+
+  async "ticker.removeClient"({ wallId = DEFAULT_TICKER_WALL_ID, clientId } = {}) {
+    return withServer(async () => {
+      if (!clientId) {
+        throw new Meteor.Error("ticker.removeClient.missingClientId", "clientId is required")
+      }
+
+      await TickerClients.removeAsync({ _id: clientId, wallId })
+      await recomputeLayout(wallId)
+      return { ok: true }
+    })
+  },
+
+  async "ticker.killClients"({ wallId = DEFAULT_TICKER_WALL_ID } = {}) {
+    return withServer(async () => {
+      await TickerClients.removeAsync({ wallId })
+      await recomputeLayout(wallId)
+      return { ok: true }
     })
   },
 })

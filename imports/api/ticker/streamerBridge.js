@@ -16,16 +16,27 @@ export function initTickerStreamerBridge() {
 
   streamer.on("stage.raw.spawn", async (payload) => {
     const messages = Array.isArray(payload?.messages) ? payload.messages : []
+    let enqueuedCount = 0
 
     messages.forEach((message) => {
+      const text = typeof message?.body === "string" ? message.body.trim() : ""
+      if (!text) {
+        return
+      }
+
+      const parsedReceivedAt = message?.receivedAt ? new Date(message.receivedAt) : null
+      const receivedAt =
+        parsedReceivedAt && !Number.isNaN(parsedReceivedAt.getTime()) ? parsedReceivedAt : new Date()
+
       enqueueTickerMessage(DEFAULT_TICKER_WALL_ID, {
         id: message?.id ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-        text: message?.body ?? "",
-        receivedAt: new Date(),
+        text,
+        receivedAt,
       })
+      enqueuedCount += 1
     })
 
-    if (messages.length > 0) {
+    if (enqueuedCount > 0) {
       await maybeStartNext(DEFAULT_TICKER_WALL_ID)
     }
   })

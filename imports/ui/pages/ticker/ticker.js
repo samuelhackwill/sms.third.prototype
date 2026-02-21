@@ -4,6 +4,7 @@ import { Template } from "meteor/templating"
 import {
   DEFAULT_TICKER_WALL_ID,
   TickerClients,
+  TickerWalls,
 } from "/imports/api/ticker/collections"
 import "/imports/api/ticker/methods"
 import "./ticker.html"
@@ -78,5 +79,10 @@ Template.TickerPage.helpers({
     const instance = Template.instance()
     const doc = TickerClients.findOne({ _id: instance.clientId, wallId: DEFAULT_TICKER_WALL_ID })
     return doc?.xStart ?? 0
+  },
+  isHighlighted() {
+    const instance = Template.instance()
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    return wall?.highlightClientId === instance.clientId
   },
 })
