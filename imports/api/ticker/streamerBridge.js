@@ -1,18 +1,11 @@
 import { Meteor } from "meteor/meteor"
 
-import {
-  DEFAULT_TICKER_WALL_ID,
-  TickerClients,
-} from "/imports/api/ticker/collections"
+import { DEFAULT_TICKER_WALL_ID } from "/imports/api/ticker/collections"
 import { maybeStartNext } from "/imports/api/ticker/methods"
 import { enqueueTickerMessage } from "/imports/api/ticker/queue"
 import { streamer } from "/imports/both/streamer"
 
 let bridgeInitialized = false
-let cleanupIntervalId = null
-
-const STALE_CLIENT_SECONDS = 10080
-const CLEANUP_INTERVAL_MS = 60 * 1000
 
 export function initTickerStreamerBridge() {
   if (!Meteor.isServer || bridgeInitialized) {
@@ -34,21 +27,6 @@ export function initTickerStreamerBridge() {
 
     if (messages.length > 0) {
       await maybeStartNext(DEFAULT_TICKER_WALL_ID)
-    }
-  })
-
-  cleanupIntervalId = Meteor.setInterval(async () => {
-    const staleBefore = new Date(Date.now() - (STALE_CLIENT_SECONDS * 1000))
-    await TickerClients.removeAsync({
-      wallId: DEFAULT_TICKER_WALL_ID,
-      lastSeenAt: { $lt: staleBefore },
-    })
-  }, CLEANUP_INTERVAL_MS)
-
-  Meteor.onExit(() => {
-    if (cleanupIntervalId) {
-      Meteor.clearInterval(cleanupIntervalId)
-      cleanupIntervalId = null
     }
   })
 }
