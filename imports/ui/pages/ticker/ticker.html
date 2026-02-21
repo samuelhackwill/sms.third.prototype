@@ -1,5 +1,10 @@
 <template name="TickerPage">
   <main class="h-screen w-screen overflow-hidden bg-black text-white">
     <div id="tickerCanvasHost" class="h-screen w-screen"></div>
+    <div class="pointer-events-none fixed left-3 top-3 rounded bg-black/60 px-2 py-1 font-mono text-xs">
+      <div>client: {{shortCode}}</div>
+      <div>wall: {{wallId}}</div>
+      <div>xStart: {{xStart}}</div>
+    </div>
   </main>
 </template>

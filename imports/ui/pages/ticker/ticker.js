@@ -1,7 +1,10 @@
 import { Meteor } from "meteor/meteor"
 import { Template } from "meteor/templating"
 
-import { DEFAULT_TICKER_WALL_ID } from "/imports/api/ticker/collections"
+import {
+  DEFAULT_TICKER_WALL_ID,
+  TickerClients,
+} from "/imports/api/ticker/collections"
 import "/imports/api/ticker/methods"
 import "./ticker.html"
 
@@ -60,4 +63,20 @@ Template.TickerPage.onRendered(function onRendered() {
 Template.TickerPage.onDestroyed(function onDestroyed() {
   window.removeEventListener("resize", this.handleResize)
   Meteor.clearTimeout(this.resizeTimeout)
+})
+
+Template.TickerPage.helpers({
+  shortCode() {
+    const instance = Template.instance()
+    const doc = TickerClients.findOne({ _id: instance.clientId, wallId: DEFAULT_TICKER_WALL_ID })
+    return doc?.shortCode ?? "-----"
+  },
+  wallId() {
+    return DEFAULT_TICKER_WALL_ID
+  },
+  xStart() {
+    const instance = Template.instance()
+    const doc = TickerClients.findOne({ _id: instance.clientId, wallId: DEFAULT_TICKER_WALL_ID })
+    return doc?.xStart ?? 0
+  },
 })
