@@ -308,6 +308,7 @@ Focus: **simplicity, operability, and offline-first**. No formal test suite; use
 
 ## 5) Stage front office: bullet chat
 
+<!--
 ### T-050 — Stage route + PixiJS renderer skeleton
 
 **Goal:** `/stage` fullscreen bullet renderer with fake messages.
@@ -327,6 +328,7 @@ Focus: **simplicity, operability, and offline-first**. No formal test suite; use
 
 ---
 
+<!--
 ### T-051 — Stage live feed integration
 
 **Goal:** Render live messages from DB.
@@ -345,7 +347,7 @@ Focus: **simplicity, operability, and offline-first**. No formal test suite; use
 
 - `docs/quizzes/T-051.md`
 
----
+--- --> -->
 
 ## 6) Export bundles + offline distribution
 
@@ -563,6 +565,7 @@ Focus: **simplicity, operability, and offline-first**. No formal test suite; use
 
 ---
 
+<!--
 ## Parallelization guide (practical)
 
 Run these tracks in parallel to avoid merge conflicts:
@@ -573,4 +576,4 @@ Run these tracks in parallel to avoid merge conflicts:
 - **Track D (RPi wall):** T-070, T-071, T-072
 - **Track E (export/backups):** T-060, T-061
 
-Avoid parallelizing tasks that heavily overlap the same files (e.g. all admin tasks at once) unless you plan to rebase/merge carefully.
+Avoid parallelizing tasks that heavily overlap the same files (e.g. all admin tasks at once) unless you plan to rebase/merge carefully. -->
