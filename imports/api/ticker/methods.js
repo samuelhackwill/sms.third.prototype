@@ -409,6 +409,32 @@ Meteor.methods({
     })
   },
 
+  async "ticker.panicStop"({ wallId = DEFAULT_TICKER_WALL_ID } = {}) {
+    return withServer(async () => {
+      await ensureWall(wallId)
+
+      const pendingTimeout = pendingRunTimeouts.get(wallId)
+      if (pendingTimeout) {
+        Meteor.clearTimeout(pendingTimeout)
+        pendingRunTimeouts.delete(wallId)
+      }
+
+      await TickerWalls.updateAsync(
+        { _id: wallId },
+        {
+          $set: {
+            playing: null,
+            updatedAt: new Date(),
+          },
+        },
+      )
+
+      setTickerPlaying(wallId, null)
+      await maybeStartNext(wallId)
+      return { ok: true }
+    })
+  },
+
   async "ticker.removeClient"({ wallId = DEFAULT_TICKER_WALL_ID, clientId } = {}) {
     return withServer(async () => {
       if (!clientId) {

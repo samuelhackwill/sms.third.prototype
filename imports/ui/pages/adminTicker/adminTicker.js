@@ -251,6 +251,10 @@ Template.AdminTickerPage.events({
     event.preventDefault()
     Meteor.call("ticker.clearQueue", { wallId: DEFAULT_TICKER_WALL_ID })
   },
+  "click .js-panic-stop"(event) {
+    event.preventDefault()
+    Meteor.call("ticker.panicStop", { wallId: DEFAULT_TICKER_WALL_ID })
+  },
   "click .js-kill-clients"(event) {
     event.preventDefault()
     Meteor.call("ticker.killClients", { wallId: DEFAULT_TICKER_WALL_ID })
