@@ -1,7 +1,7 @@
 import { Template } from "meteor/templating"
 import { ReactiveVar } from "meteor/reactive-var"
 
-import { makeFakeMessages } from "./stageTestData"
+import { makeFakeMessages } from "/imports/ui/pages/stage/stageTestData"
 import "./adminStage.html"
 
 const CHANNEL_NAME = "stage_test"

@@ -1,7 +1,7 @@
 import { FlowRouter } from 'meteor/ostrio:flow-router-extra';
 
-import './pages/stage.js';
-import './pages/adminStage.js';
+import '/imports/ui/pages/stage/stage.js';
+import '/imports/ui/pages/adminStage/adminStage.js';
 import '/imports/ui/pages/ticker/ticker.js';
 import '/imports/ui/pages/adminTicker/adminTicker.js';
 

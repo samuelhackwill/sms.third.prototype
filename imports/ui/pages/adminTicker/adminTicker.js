@@ -9,7 +9,7 @@ import {
   TickerWalls,
 } from "/imports/api/ticker/collections"
 import { streamer } from "/imports/both/streamer"
-import { FAKE_MESSAGES } from "/client/pages/stageTestData"
+import { FAKE_MESSAGES } from "/imports/ui/pages/stage/stageTestData"
 import "./adminTicker.html"
 
 const DEFAULT_MEASURE_FONT_SIZE = 36
