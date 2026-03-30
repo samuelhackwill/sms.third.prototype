@@ -1,11 +1,12 @@
 import { Template } from "meteor/templating"
 import { ReactiveVar } from "meteor/reactive-var"
 
+import { streamer } from "/imports/both/streamer"
 import { makeFakeMessages } from "/imports/ui/pages/stage/stageTestData"
 import "./adminStage.html"
 
 const DEFAULT_SOURCE = "default"
-const CHANNEL_NAME = "stage_test"
+const STAGE_TEST_EVENT = "stage.test.control"
 
 function sendSpawn(instance, count) {
   const source = instance.selectedSource.get()
@@ -14,19 +15,13 @@ function sendSpawn(instance, count) {
     source,
     messages: makeFakeMessages(count, source),
   }
-  instance.stageTestChannel.postMessage(payload)
+  streamer.emit(STAGE_TEST_EVENT, payload)
   instance.lastPayload.set(JSON.stringify(payload, null, 2))
 }
 
 Template.adminStage.onCreated(function onCreated() {
-  this.stageTestChannel = new BroadcastChannel(CHANNEL_NAME)
   this.lastPayload = new ReactiveVar("No payload sent yet.")
   this.selectedSource = new ReactiveVar(DEFAULT_SOURCE)
-})
-
-Template.adminStage.onDestroyed(function onDestroyed() {
-  this.stageTestChannel?.close()
-  this.stageTestChannel = null
 })
 
 Template.adminStage.events({
@@ -45,7 +40,7 @@ Template.adminStage.events({
   'click [data-action="clear"]'(event, instance) {
     event.preventDefault()
     const payload = { type: "clear" }
-    instance.stageTestChannel.postMessage(payload)
+    streamer.emit(STAGE_TEST_EVENT, payload)
     instance.lastPayload.set(JSON.stringify(payload, null, 2))
   },
   'change [name="message-source"]'(event, instance) {

@@ -24,7 +24,7 @@ const PIXI_CHARS_FR =
   // Misc common symbols in messages
   "°©®™✓•·"
 
-const CHANNEL_NAME = "stage_test"
+const STAGE_TEST_EVENT = "stage.test.control"
 const FONT_SIZE = 36
 const LANE_PADDING = 8
 const LANE_HEIGHT = FONT_SIZE + LANE_PADDING
@@ -274,7 +274,7 @@ export function createPixiStage({ mountEl }) {
 
 Template.stage.onCreated(function onCreated() {
   this.lastEvent = new ReactiveVar("no event yet")
-  this.stageTestChannel = null
+  this.stageTestHandler = null
   this.rawSpawnHandler = null
   this.pixiStage = null
 })
@@ -288,9 +288,7 @@ Template.stage.onRendered(function onRendered() {
   this.pixiStage = createPixiStage({ mountEl })
   this.pixiStage.start()
 
-  this.stageTestChannel = new BroadcastChannel(CHANNEL_NAME)
-  this.stageTestChannel.onmessage = (event) => {
-    const payload = event?.data ?? null
+  this.stageTestHandler = (payload) => {
     this.lastEvent.set(JSON.stringify(payload))
 
     if (!payload || typeof payload !== "object") {
@@ -306,6 +304,7 @@ Template.stage.onRendered(function onRendered() {
       this.pixiStage.clear()
     }
   }
+  streamer.on(STAGE_TEST_EVENT, this.stageTestHandler)
 
   this.rawSpawnHandler = (payload) => {
     this.lastEvent.set(JSON.stringify(payload))
@@ -323,8 +322,10 @@ Template.stage.onRendered(function onRendered() {
 Template.stage.onDestroyed(function onDestroyed() {
   document.body.classList.remove("stage-page")
 
-  this.stageTestChannel?.close()
-  this.stageTestChannel = null
+  if (this.stageTestHandler) {
+    streamer.removeListener(STAGE_TEST_EVENT, this.stageTestHandler)
+    this.stageTestHandler = null
+  }
 
   if (this.rawSpawnHandler) {
     streamer.removeListener("stage.raw.spawn", this.rawSpawnHandler)
