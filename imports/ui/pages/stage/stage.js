@@ -2,6 +2,14 @@ import { Template } from "meteor/templating"
 import { ReactiveVar } from "meteor/reactive-var"
 import * as PIXI from "pixi.js"
 import { streamer } from "/imports/both/streamer"
+import {
+  STAGE_BACKGROUND_EVENT,
+  STAGE_TEST_EVENT,
+} from "/imports/ui/pages/stage/stageEvents"
+import {
+  DEFAULT_STAGE_VIDEO_KEY,
+  videoSrcForKey,
+} from "/imports/ui/pages/stage/stageVideos"
 
 import "./stage.html"
 
@@ -24,7 +32,6 @@ const PIXI_CHARS_FR =
   // Misc common symbols in messages
   "°©®™✓•·"
 
-const STAGE_TEST_EVENT = "stage.test.control"
 const FONT_SIZE = 36
 const LANE_PADDING = 8
 const LANE_HEIGHT = FONT_SIZE + LANE_PADDING
@@ -39,7 +46,6 @@ const USE_BITMAP_TEXT = true
 // const LANEATTRIBUTION = "RANDOM"
 const LANEATTRIBUTION = "ROUND_ROBIN"
 const MAX_DISPLAY_CHARS = 150
-
 function randomInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min
 }
@@ -118,9 +124,8 @@ export function createPixiStage({ mountEl }) {
     throw new Error("createPixiStage requires a mountEl.")
   }
 
-  mountEl.style.width = "100vw"
-  mountEl.style.height = "100vh"
-  mountEl.style.background = "#000"
+  mountEl.style.width = "100%"
+  mountEl.style.height = "100%"
   mountEl.style.overflow = "hidden"
 
   if (USE_BITMAP_TEXT && !PIXI.BitmapFont.available[BITMAP_FONT_NAME]) {
@@ -136,14 +141,16 @@ export function createPixiStage({ mountEl }) {
   }
 
   const app = new PIXI.Application({
-    background: 0x000000,
     antialias: false,
     resizeTo: mountEl,
     resolution: 1, // clamp
     autoDensity: true,
+    backgroundAlpha: 0,
   })
 
   mountEl.appendChild(app.view)
+  app.view.style.width = "100%"
+  app.view.style.height = "100%"
 
   const activeBullets = new Map()
   const phoneColors = new Map()
@@ -274,7 +281,10 @@ export function createPixiStage({ mountEl }) {
 
 Template.stage.onCreated(function onCreated() {
   this.lastEvent = new ReactiveVar("no event yet")
+  this.currentVideoKey = new ReactiveVar(null)
+  this.soundEnabled = new ReactiveVar(false)
   this.stageTestHandler = null
+  this.stageBackgroundHandler = null
   this.rawSpawnHandler = null
   this.pixiStage = null
 })
@@ -284,6 +294,8 @@ Template.stage.onRendered(function onRendered() {
 
   document.body.classList.add("stage-page")
   const mountEl = this.find("#stageCanvasHost")
+  const videoEl = this.find("#stageBackgroundVideo")
+  videoEl.muted = !this.soundEnabled.get()
 
   this.pixiStage = createPixiStage({ mountEl })
   this.pixiStage.start()
@@ -306,6 +318,48 @@ Template.stage.onRendered(function onRendered() {
   }
   streamer.on(STAGE_TEST_EVENT, this.stageTestHandler)
 
+  this.stageBackgroundHandler = (payload) => {
+    this.lastEvent.set(JSON.stringify(payload))
+
+    if (!payload || typeof payload !== "object") {
+      return
+    }
+
+    if (payload.action === "stop") {
+      const videoEl = this.find("#stageBackgroundVideo")
+      if (!videoEl) {
+        return
+      }
+
+      videoEl.pause()
+      videoEl.currentTime = 0
+      videoEl.removeAttribute("src")
+      videoEl.load()
+      return
+    }
+
+    const nextVideoKey = payload.videoKey || DEFAULT_STAGE_VIDEO_KEY
+    const nextVideoSrc = payload.videoSrc || videoSrcForKey(nextVideoKey)
+
+    this.currentVideoKey.set(nextVideoKey)
+
+    const videoEl = this.find("#stageBackgroundVideo")
+    if (!videoEl) {
+      return
+    }
+
+    if (videoEl.getAttribute("src") !== nextVideoSrc) {
+      videoEl.src = nextVideoSrc
+      videoEl.load()
+    }
+
+    videoEl.muted = !this.soundEnabled.get()
+    videoEl.currentTime = 0
+    videoEl.play().catch(() => {})
+  }
+
+  streamer.on(STAGE_BACKGROUND_EVENT, this.stageBackgroundHandler)
+
   this.rawSpawnHandler = (payload) => {
     this.lastEvent.set(JSON.stringify(payload))
 
@@ -319,12 +373,37 @@ Template.stage.onRendered(function onRendered() {
   streamer.on("stage.raw.spawn", this.rawSpawnHandler)
 })
 
+Template.stage.events({
+  'click [data-action="toggle-sound"]'(event, instance) {
+    event.preventDefault()
+
+    const nextSoundEnabled = !instance.soundEnabled.get()
+    instance.soundEnabled.set(nextSoundEnabled)
+
+    const videoEl = instance.find("#stageBackgroundVideo")
+    if (!videoEl) {
+      return
+    }
+
+    videoEl.muted = !nextSoundEnabled
+
+    if (nextSoundEnabled && videoEl.getAttribute("src")) {
+      videoEl.play().catch(() => {})
+    }
+  },
+})
+
 Template.stage.onDestroyed(function onDestroyed() {
   document.body.classList.remove("stage-page")
 
   if (this.stageTestHandler) {
     streamer.removeListener(STAGE_TEST_EVENT, this.stageTestHandler)
     this.stageTestHandler = null
+  }
+
+  if (this.stageBackgroundHandler) {
+    streamer.removeListener(STAGE_BACKGROUND_EVENT, this.stageBackgroundHandler)
+    this.stageBackgroundHandler = null
   }
 
   if (this.rawSpawnHandler) {
@@ -337,7 +416,15 @@ Template.stage.onDestroyed(function onDestroyed() {
 })
 
 Template.stage.helpers({
+  soundToggleLabel() {
+    return Template.instance().soundEnabled.get() ? "sound on" : "sound off"
+  },
   lastEvent() {
     return Template.instance().lastEvent.get()
   },
 })
+
+export {
+  DEFAULT_STAGE_VIDEO_KEY,
+  STAGE_BACKGROUND_EVENT,
+}

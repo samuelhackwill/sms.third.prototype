@@ -21,6 +21,22 @@
       </div>
     </fieldset>
 
+    <fieldset class="mt-4 rounded-lg border border-slate-300 p-3">
+      <legend class="px-1 text-sm font-medium text-slate-800">Stage background video</legend>
+      <div class="mt-2 flex flex-wrap items-center gap-3 text-sm text-slate-800">
+        <label class="inline-flex items-center gap-2">
+          <input type="radio" name="stage-video" value="premiere" checked={{isSelectedVideo 'premiere'}} />
+          <span>Premiere</span>
+        </label>
+        <label class="inline-flex items-center gap-2">
+          <input type="radio" name="stage-video" value="deuxieme" checked={{isSelectedVideo 'deuxieme'}} />
+          <span>Deuxieme</span>
+        </label>
+        <button class="rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm hover:bg-slate-100" type="button" data-action="play-stage-video">Play on stage</button>
+        <button class="rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm hover:bg-slate-100" type="button" data-action="stop-stage-video">Stop</button>
+      </div>
+    </fieldset>
+
     <div class="mt-4 mb-5 flex flex-wrap gap-2.5">
       <button class="rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm hover:bg-slate-100" type="button" data-action="send-1">Send 1</button>
       <button class="rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm hover:bg-slate-100" type="button" data-action="send-5">Send 5</button>

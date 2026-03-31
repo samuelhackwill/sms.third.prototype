@@ -1,6 +1,21 @@
 <template name="stage">
-  <div class="h-screen w-screen bg-black">
-    <div id="stageCanvasHost" class="h-screen w-screen"></div>
+  <div class="relative h-screen w-screen overflow-hidden bg-black">
+    <video
+      id="stageBackgroundVideo"
+      class="absolute inset-0 h-full w-full object-cover"
+      muted
+      loop
+      playsinline
+    ></video>
+    <div class="pointer-events-none absolute inset-0 bg-black/35"></div>
+    <div id="stageCanvasHost" class="absolute inset-0 h-full w-full"></div>
+    <button
+      type="button"
+      class="absolute bottom-3 right-3 z-10 rounded border border-white/15 bg-black/20 px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-white/50 transition hover:bg-black/35 hover:text-white/80"
+      data-action="toggle-sound"
+    >
+      {{soundToggleLabel}}
+    </button>
     <!-- <div class="fixed bottom-3 left-3 max-w-[96vw] rounded-md border border-cyan-300/35 bg-black/60 p-2.5 font-mono text-xs leading-snug text-cyan-200">
       <strong>last event:</strong>
       <code>{{lastEvent}}</code>
