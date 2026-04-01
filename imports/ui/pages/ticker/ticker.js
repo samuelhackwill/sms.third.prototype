@@ -14,7 +14,7 @@ import "./ticker.html"
 const FONT_FAMILY = "Times New Roman"
 const FONT_FILL = 0xff0000
 const BITMAP_FONT_NAME = "TickerWallFont"
-const BITMAP_FONT_BASE_SIZE = 256
+const BITMAP_FONT_BASE_SIZE = 192
 const BITMAP_FONT_CHARS =
   " " +
   "0123456789" +
@@ -27,7 +27,6 @@ const BITMAP_FONT_CHARS =
   "-–—_" +
   "/\\|@#&%$€£" +
   "+*=^~" +
-  "\n\t" +
   "°©®™✓•·"
 const TEXT_SEGMENT_CHARS = 12
 const SESSION_CLIENT_ID_KEY = "clientId"
@@ -81,7 +80,7 @@ function createTickerRenderer(mountEl) {
     PIXI.BitmapFont.from(
       BITMAP_FONT_NAME,
       {
-        fontFamily: "Courier New",
+        fontFamily: "Times New Roman",
         fontSize: BITMAP_FONT_BASE_SIZE,
         fill: "#ff0000",
       },
