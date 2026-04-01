@@ -7,36 +7,35 @@ import {
   TickerClients,
   TickerWalls,
 } from "/imports/api/ticker/collections"
-import { streamer } from "/imports/both/streamer"
 import { FAKE_MESSAGES } from "/imports/ui/pages/stage/stageTestData"
 import "/imports/ui/pages/adminTicker/adminTickerPage.html"
 
 const PROVISIONING_ROWS = 6
 const PROVISIONING_COLS = 5
 const PROVISIONING_SLOT_COUNT = PROVISIONING_ROWS * PROVISIONING_COLS
-const TICKER_REFRESH_EVENT = "ticker.refresh"
+const TICKER_CLIENT_STALE_AFTER_MS = 30 * 1000
 
 function randomFrom(list) {
   return list[Math.floor(Math.random() * list.length)]
 }
 
+function isActiveClient(client) {
+  const lastSeenAtMs = new Date(client?.lastSeenAt).getTime()
+  if (!Number.isFinite(lastSeenAtMs)) {
+    return false
+  }
+
+  return (Date.now() - lastSeenAtMs) <= TICKER_CLIENT_STALE_AFTER_MS
+}
+
 Template.AdminTickerPage.onCreated(function onCreated() {
   this.panelWidth = new ReactiveVar(0)
-  this.queueStatus = new ReactiveVar({ queueLength: 0, head: null })
   this.draggingClientId = null
 
   this.autorun(() => {
     this.subscribe("ticker.wall", DEFAULT_TICKER_WALL_ID)
     this.subscribe("ticker.clients", DEFAULT_TICKER_WALL_ID)
   })
-
-  this.queuePollIntervalId = Meteor.setInterval(() => {
-    Meteor.call("ticker.queueStatus", { wallId: DEFAULT_TICKER_WALL_ID }, (error, result) => {
-      if (!error && result) {
-        this.queueStatus.set(result)
-      }
-    })
-  }, 1000)
 })
 
 Template.AdminTickerPage.onRendered(function onRendered() {
@@ -55,10 +54,6 @@ Template.AdminTickerPage.onRendered(function onRendered() {
 })
 
 Template.AdminTickerPage.onDestroyed(function onDestroyed() {
-  if (this.queuePollIntervalId) {
-    Meteor.clearInterval(this.queuePollIntervalId)
-  }
-
   if (this.updatePanelWidth) {
     window.removeEventListener("resize", this.updatePanelWidth)
   }
@@ -115,11 +110,8 @@ Template.AdminTickerPage.helpers({
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
     return wall?.playing?.text ?? "none"
   },
-  queueLength() {
-    return Template.instance().queueStatus.get().queueLength ?? 0
-  },
-  queueHead() {
-    return Template.instance().queueStatus.get().head?.text ?? "none"
+  activeClientCount() {
+    return TickerClients.find({ wallId: DEFAULT_TICKER_WALL_ID }).fetch().filter(isActiveClient).length
   },
   wallDebugJson() {
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
@@ -176,13 +168,13 @@ Template.AdminTickerPage.helpers({
 Template.AdminTickerPage.events({
   "pointerdown .js-client-card"(event) {
     const clientId = event.currentTarget.dataset.clientId
-    Meteor.call("ticker.highlightClient", {
+    Meteor.callAsync("ticker.highlightClient", {
       wallId: DEFAULT_TICKER_WALL_ID,
       clientId,
     })
   },
   "pointerup .js-client-card, pointercancel .js-client-card, pointerleave .js-client-card"() {
-    Meteor.call("ticker.clearHighlight", { wallId: DEFAULT_TICKER_WALL_ID })
+    Meteor.callAsync("ticker.clearHighlight", { wallId: DEFAULT_TICKER_WALL_ID })
   },
   "dragstart .js-client-card"(event, instance) {
     const clientId = event.currentTarget.dataset.clientId
@@ -222,7 +214,7 @@ Template.AdminTickerPage.events({
     orderedIds.splice(fromIndex, 1)
     orderedIds.splice(toIndex, 0, draggedClientId)
 
-    Meteor.call("ticker.setOrder", {
+    Meteor.callAsync("ticker.setOrder", {
       wallId: DEFAULT_TICKER_WALL_ID,
       orderedClientIds: orderedIds,
     })
@@ -231,7 +223,7 @@ Template.AdminTickerPage.events({
     event.preventDefault()
     event.stopPropagation()
 
-    Meteor.call("ticker.removeClient", {
+    Meteor.callAsync("ticker.removeClient", {
       wallId: DEFAULT_TICKER_WALL_ID,
       clientId: event.currentTarget.dataset.clientId,
     })
@@ -241,48 +233,48 @@ Template.AdminTickerPage.events({
     const speedInput = instance.find("#tickerSpeedInput")
     const speedPxPerSec = Number(speedInput?.value)
 
-    Meteor.call("ticker.setSpeed", {
+    Meteor.callAsync("ticker.setSpeed", {
       wallId: DEFAULT_TICKER_WALL_ID,
       speedPxPerSec,
     })
   },
   "click .js-send-random-text"(event) {
     event.preventDefault()
-    Meteor.call("ticker.enqueueText", {
+    Meteor.callAsync("ticker.playNow", {
       wallId: DEFAULT_TICKER_WALL_ID,
       text: randomFrom(FAKE_MESSAGES),
     })
-  },
-  "click .js-clear-queue"(event) {
-    event.preventDefault()
-    Meteor.call("ticker.clearQueue", { wallId: DEFAULT_TICKER_WALL_ID })
   },
   "click .js-toggle-provisioning"(event, instance) {
     event.preventDefault()
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
     const nextEnabled = !Boolean(wall?.provisioningEnabled)
-    Meteor.call("ticker.setProvisioningEnabled", {
+    Meteor.callAsync("ticker.setProvisioningEnabled", {
       wallId: DEFAULT_TICKER_WALL_ID,
       enabled: nextEnabled,
     })
   },
   "change input[name='tickerDisplayMode']"(event) {
     const displayMode = event.currentTarget.value
-    Meteor.call("ticker.setDisplayMode", {
+    Meteor.callAsync("ticker.setDisplayMode", {
       wallId: DEFAULT_TICKER_WALL_ID,
       displayMode,
     })
   },
   "click .js-panic-stop"(event) {
     event.preventDefault()
-    Meteor.call("ticker.panicStop", { wallId: DEFAULT_TICKER_WALL_ID })
+    Meteor.callAsync("ticker.panicStop", { wallId: DEFAULT_TICKER_WALL_ID })
   },
   "click .js-kill-clients"(event) {
     event.preventDefault()
-    Meteor.call("ticker.killClients", { wallId: DEFAULT_TICKER_WALL_ID })
+    Meteor.callAsync("ticker.killClients", { wallId: DEFAULT_TICKER_WALL_ID })
+  },
+  "click .js-reset-ticker"(event) {
+    event.preventDefault()
+    Meteor.callAsync("ticker.resetAll", { wallId: DEFAULT_TICKER_WALL_ID })
   },
   "click .js-refresh-clients"(event) {
     event.preventDefault()
-    streamer.emit(TICKER_REFRESH_EVENT, { wallId: DEFAULT_TICKER_WALL_ID })
+    Meteor.callAsync("ticker.forceRefreshClients", { wallId: DEFAULT_TICKER_WALL_ID })
   },
 })

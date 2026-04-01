@@ -22,6 +22,7 @@ export const FAKE_MESSAGES = [
   "Tu me donnes un peu envie d’envoyer des messages alors que d’habitude je n’ose pas trop.",
   "Je voulais trouver un message intelligent, mais j’ai surtout juste envie de te dire bonsoir.",
   "Je sais pas si c’est maladroit, mais j’aime bien quand on parle tous les deux.",
+  "glop"
 ]
 
 export const FAKE_MESSAGES_DRAGUE = [

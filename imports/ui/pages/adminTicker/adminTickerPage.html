@@ -36,8 +36,8 @@
         <button type="button" class="js-set-speed rounded border border-slate-300 bg-white px-3 py-1.5 text-sm hover:bg-slate-100">Set Speed</button>
 
         <button type="button" class="js-send-random-text rounded border border-slate-300 bg-white px-3 py-1.5 text-sm hover:bg-slate-100">Send Random Text</button>
-        <button type="button" class="js-clear-queue rounded border border-slate-300 bg-white px-3 py-1.5 text-sm hover:bg-slate-100">Clear Queue</button>
         <button type="button" class="js-refresh-clients rounded border border-blue-300 bg-blue-50 px-3 py-1.5 text-sm text-blue-900 hover:bg-blue-100">Force Refresh Clients</button>
+        <button type="button" class="js-reset-ticker rounded border border-red-300 bg-red-50 px-3 py-1.5 text-sm text-red-900 hover:bg-red-100">Reset Ticker State</button>
         <button type="button" class="js-toggle-provisioning rounded border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm text-amber-900 hover:bg-amber-100">{{provisioningButtonLabel}}</button>
         <button type="button" class="js-panic-stop rounded border border-red-500 bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700">PANIC STOP</button>
         <button type="button" class="js-kill-clients rounded border border-red-300 bg-white px-3 py-1.5 text-sm text-red-700 hover:bg-red-50">Kill Clients</button>
@@ -61,12 +61,11 @@
     <section class="mt-4 rounded border border-slate-300 bg-slate-50 p-4">
       <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-700">Status</h2>
       <div class="mt-3 grid gap-2 text-sm">
+        <div><span class="font-semibold">activeClients:</span> {{activeClientCount}}</div>
         <div><span class="font-semibold">totalWallWidth:</span> {{wall.totalWallWidth}}</div>
         <div><span class="font-semibold">displayMode:</span> {{wall.displayMode}}</div>
         <div><span class="font-semibold">provisioningEnabled:</span> {{wall.provisioningEnabled}}</div>
         <div><span class="font-semibold">playing:</span> {{playingText}}</div>
-        <div><span class="font-semibold">queueLength:</span> {{queueLength}}</div>
-        <div><span class="font-semibold">queueHead:</span> {{queueHead}}</div>
       </div>
     </section>
 

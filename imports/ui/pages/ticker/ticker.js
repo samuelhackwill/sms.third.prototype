@@ -13,10 +13,29 @@ import "./ticker.html"
 
 const FONT_FAMILY = "Times New Roman"
 const FONT_FILL = 0xff0000
+const BITMAP_FONT_NAME = "TickerWallFont"
+const BITMAP_FONT_BASE_SIZE = 256
+const BITMAP_FONT_CHARS =
+  " " +
+  "0123456789" +
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZ" +
+  "abcdefghijklmnopqrstuvwxyz" +
+  "ÀÂÄÇÉÈÊËÎÏÔÖÙÛÜŸ" +
+  "àâäçéèêëîïôöùûüÿ" +
+  "ÆŒæœ" +
+  ".,;:!?…()[]{}<>\"'`“”‘’«»" +
+  "-–—_" +
+  "/\\|@#&%$€£" +
+  "+*=^~" +
+  "\n\t" +
+  "°©®™✓•·"
+const TEXT_SEGMENT_CHARS = 12
 const SESSION_CLIENT_ID_KEY = "clientId"
 const LEGACY_SESSION_CLIENT_ID_KEY = "ticker.clientId"
 const LOCAL_STORAGE_CLIENT_ID_KEY = "ticker.clientId"
+const DEVICE_KEY_STORAGE_KEY = "ticker.deviceKey"
 const TICKER_REFRESH_EVENT = "ticker.refresh"
+const TICKER_HEARTBEAT_MS = 5 * 1000
 
 function readStorage(storage, key) {
   try {
@@ -51,10 +70,24 @@ function createTickerRenderer(mountEl) {
   world.mask = maskGraphics
 
   let textDisplay = null
+  let textSegments = []
   let playing = null
   let xStart = 0
   let offsetMs = 0
   let minClientHeight = Math.max(1, Math.floor(app.screen.height))
+  let textScale = Math.max(0.1, minClientHeight / BITMAP_FONT_BASE_SIZE)
+
+  if (!PIXI.BitmapFont.available[BITMAP_FONT_NAME]) {
+    PIXI.BitmapFont.from(
+      BITMAP_FONT_NAME,
+      {
+        fontFamily: "Courier New",
+        fontSize: BITMAP_FONT_BASE_SIZE,
+        fill: "#ff0000",
+      },
+      { chars: BITMAP_FONT_CHARS },
+    )
+  }
 
   function drawMask() {
     maskGraphics.clear()
@@ -68,35 +101,92 @@ function createTickerRenderer(mountEl) {
       return textDisplay
     }
 
-    textDisplay = new PIXI.Text("", {
-      fontFamily: FONT_FAMILY,
-      fontSize: minClientHeight,
-      fill: FONT_FILL,
-    })
-    textDisplay.y = Math.max(0, app.screen.height - textDisplay.height)
+    textDisplay = new PIXI.Container()
     world.addChild(textDisplay)
     return textDisplay
   }
 
-  function applyViewportTextStyle() {
+  function bitmapFontOptions() {
+    return {
+      fontName: BITMAP_FONT_NAME,
+      fontSize: BITMAP_FONT_BASE_SIZE,
+      tint: FONT_FILL,
+    }
+  }
+
+  function tokenizeText(text) {
+    const normalized = String(text ?? "")
+    if (!normalized) {
+      return [""]
+    }
+
+    const segments = []
+    for (let index = 0; index < normalized.length; index += TEXT_SEGMENT_CHARS) {
+      segments.push(normalized.slice(index, index + TEXT_SEGMENT_CHARS))
+    }
+    return segments
+  }
+
+  function layoutTextSegments() {
     if (!textDisplay) {
       return
     }
 
-    textDisplay.style = new PIXI.TextStyle({
-      fontFamily: FONT_FAMILY,
-      fontSize: minClientHeight,
-      fill: FONT_FILL,
-    })
-    textDisplay.y = Math.max(0, app.screen.height - textDisplay.height)
+    let cursorX = 0
+    let maxHeight = 0
+    for (const segment of textSegments) {
+      segment.scale.set(textScale)
+      segment.x = cursorX
+      cursorX += segment.width
+      maxHeight = Math.max(maxHeight, segment.height)
+    }
+
+    textDisplay.y = Math.max(0, app.screen.height - maxHeight)
+    textDisplay.visible = textSegments.length > 0
+  }
+
+  function replaceTextDisplay(nextText) {
+    if (textDisplay) {
+      world.removeChild(textDisplay)
+      textDisplay.destroy()
+      textDisplay = null
+    }
+    textSegments = []
+
+    const display = ensureTextDisplay()
+    for (const token of tokenizeText(nextText)) {
+      const segment = new PIXI.BitmapText(token, bitmapFontOptions())
+      segment.tint = FONT_FILL
+      display.addChild(segment)
+      textSegments.push(segment)
+    }
+
+    layoutTextSegments()
+    return display
+  }
+
+  function applyViewportTextStyle() {
+    if (!textDisplay || textSegments.length === 0) {
+      return
+    }
+
+    for (const segment of textSegments) {
+      segment.fontName = BITMAP_FONT_NAME
+      segment.fontSize = BITMAP_FONT_BASE_SIZE
+      segment.tint = FONT_FILL
+      segment.scale.set(textScale)
+    }
+    layoutTextSegments()
   }
 
   function clearPlaying() {
     playing = null
     if (textDisplay) {
-      textDisplay.text = ""
-      textDisplay.visible = false
+      world.removeChild(textDisplay)
+      textDisplay.destroy()
+      textDisplay = null
     }
+    textSegments = []
   }
 
   function setPlaying(nextPlaying) {
@@ -112,10 +202,7 @@ function createTickerRenderer(mountEl) {
       totalWallWidthAtStart: Number(nextPlaying.totalWallWidthAtStart) || 0,
     }
 
-    const display = ensureTextDisplay()
-    display.text = playing.text
-    display.visible = true
-    applyViewportTextStyle()
+    replaceTextDisplay(playing.text)
   }
 
   function setSliceXStart(nextXStart) {
@@ -130,6 +217,7 @@ function createTickerRenderer(mountEl) {
     const height = Number(nextHeight)
     if (Number.isFinite(height) && height > 0) {
       minClientHeight = Math.max(1, Math.floor(height))
+      textScale = Math.max(0.1, minClientHeight / BITMAP_FONT_BASE_SIZE)
       applyViewportTextStyle()
     }
   }
@@ -191,6 +279,21 @@ function getOrCreateClientId() {
   return nextId
 }
 
+function getOrCreateDeviceKey() {
+  const existing = readStorage(globalThis.localStorage, DEVICE_KEY_STORAGE_KEY)
+    || readStorage(globalThis.sessionStorage, DEVICE_KEY_STORAGE_KEY)
+  if (existing) {
+    writeStorage(globalThis.localStorage, DEVICE_KEY_STORAGE_KEY, existing)
+    writeStorage(globalThis.sessionStorage, DEVICE_KEY_STORAGE_KEY, existing)
+    return existing
+  }
+
+  const nextKey = makeClientId()
+  writeStorage(globalThis.localStorage, DEVICE_KEY_STORAGE_KEY, nextKey)
+  writeStorage(globalThis.sessionStorage, DEVICE_KEY_STORAGE_KEY, nextKey)
+  return nextKey
+}
+
 function makeClientId() {
   const browserCrypto = globalThis.crypto
   if (browserCrypto && typeof browserCrypto.randomUUID === "function") {
@@ -215,9 +318,11 @@ function toShortCode(clientId) {
 
 Template.TickerPage.onCreated(function onCreated() {
   this.clientId = getOrCreateClientId()
+  this.deviceKey = getOrCreateDeviceKey()
   this.shortCode = toShortCode(this.clientId)
   this.resizeTimeout = null
   this.timeSyncIntervalId = null
+  this.heartbeatIntervalId = null
   this.offsetMs = 0
   this.renderer = null
   this.refreshHandler = null
@@ -254,9 +359,10 @@ Template.TickerPage.onRendered(function onRendered() {
   syncServerTimeOffset()
   this.timeSyncIntervalId = Meteor.setInterval(syncServerTimeOffset, 5000)
 
-  Meteor.call("ticker.join", {
+  Meteor.callAsync("ticker.join", {
     wallId: DEFAULT_TICKER_WALL_ID,
     clientId: this.clientId,
+    deviceKey: this.deviceKey,
     shortCode: this.shortCode,
     width: window.innerWidth,
     height: window.innerHeight,
@@ -264,11 +370,18 @@ Template.TickerPage.onRendered(function onRendered() {
     userAgent: navigator.userAgent,
   })
 
+  this.heartbeatIntervalId = Meteor.setInterval(() => {
+    Meteor.callAsync("ticker.heartbeat", {
+      wallId: DEFAULT_TICKER_WALL_ID,
+      clientId: this.clientId,
+    })
+  }, TICKER_HEARTBEAT_MS)
+
   this.handleResize = () => {
     this.renderer?.resize()
     Meteor.clearTimeout(this.resizeTimeout)
     this.resizeTimeout = Meteor.setTimeout(() => {
-      Meteor.call("ticker.updateSize", {
+      Meteor.callAsync("ticker.updateSize", {
         wallId: DEFAULT_TICKER_WALL_ID,
         clientId: this.clientId,
         width: window.innerWidth,
@@ -311,6 +424,9 @@ Template.TickerPage.onDestroyed(function onDestroyed() {
   Meteor.clearTimeout(this.resizeTimeout)
   if (this.timeSyncIntervalId) {
     Meteor.clearInterval(this.timeSyncIntervalId)
+  }
+  if (this.heartbeatIntervalId) {
+    Meteor.clearInterval(this.heartbeatIntervalId)
   }
   if (this.refreshHandler) {
     streamer.removeListener(TICKER_REFRESH_EVENT, this.refreshHandler)
@@ -355,7 +471,7 @@ Template.TickerPage.events({
       return
     }
 
-    Meteor.call("ticker.claimNextSlot", {
+    Meteor.callAsync("ticker.claimNextSlot", {
       wallId: DEFAULT_TICKER_WALL_ID,
       clientId: instance.clientId,
     })
