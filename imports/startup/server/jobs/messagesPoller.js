@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { Meteor } from 'meteor/meteor';
 import sqlite3 from 'sqlite3';
 
-import { appendRawRecord } from '/imports/server/rawLog';
+import { ingestIncomingMessageRecord } from '/imports/api/messages/server/ingest';
 
 const APPLE_EPOCH_MS = Date.UTC(2001, 0, 1, 0, 0, 0, 0);
 const NS_THRESHOLD = 1e12;
@@ -209,7 +209,7 @@ async function tickOnce() {
       continue;
     }
 
-    await appendRawRecord({
+    await ingestIncomingMessageRecord({
       source: 'osx_messages_app',
       phoneNumberId: 'primary',
       receivedAt: appleDateValueToIso(row?.rawDate),

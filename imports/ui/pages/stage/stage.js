@@ -4,6 +4,7 @@ import * as PIXI from "pixi.js"
 import { streamer } from "/imports/both/streamer"
 import {
   STAGE_BACKGROUND_EVENT,
+  STAGE_CURATION_EVENT,
   STAGE_TEST_EVENT,
 } from "/imports/ui/pages/stage/stageEvents"
 import {
@@ -46,6 +47,85 @@ const USE_BITMAP_TEXT = true
 // const LANEATTRIBUTION = "RANDOM"
 const LANEATTRIBUTION = "ROUND_ROBIN"
 const MAX_DISPLAY_CHARS = 150
+
+function curationFontSizePx() {
+  if (typeof window === "undefined") {
+    return 60
+  }
+
+  return window.innerWidth >= 768 ? 60 : 36
+}
+
+function measureTextWidth(text, { fontSizePx, fontFamily = "Arial", fontWeight = "600" } = {}) {
+  if (typeof document === "undefined") {
+    return text.length * fontSizePx * 0.6
+  }
+
+  const canvas = measureTextWidth.canvas ?? document.createElement("canvas")
+  const context = canvas.getContext("2d")
+
+  measureTextWidth.canvas = canvas
+  context.font = `${fontWeight} ${fontSizePx}px ${fontFamily}`
+  return context.measureText(text).width
+}
+
+function splitTextIntoDisplayLines(text, { maxWidthPx, fontSizePx } = {}) {
+  const normalizedText = typeof text === "string" ? text.trim() : ""
+
+  if (!normalizedText) {
+    return []
+  }
+
+  const paragraphs = normalizedText.split(/\n+/)
+  const lines = []
+
+  paragraphs.forEach((paragraph) => {
+    const words = paragraph.split(/\s+/).filter(Boolean)
+
+    if (words.length === 0) {
+      return
+    }
+
+    let currentLine = words[0]
+
+    for (let index = 1; index < words.length; index += 1) {
+      const candidateLine = `${currentLine} ${words[index]}`
+
+      if (measureTextWidth(candidateLine, { fontSizePx }) <= maxWidthPx) {
+        currentLine = candidateLine
+        continue
+      }
+
+      lines.push(currentLine)
+      currentLine = words[index]
+    }
+
+    lines.push(currentLine)
+  })
+
+  return lines
+}
+
+function buildCurationMessageState(payload) {
+  const body = typeof payload?.body === "string" ? payload.body.trim() : ""
+
+  if (!body) {
+    return null
+  }
+
+  const fontSizePx = curationFontSizePx()
+  const maxWidthPx = Math.max(240, Math.floor((typeof window === "undefined" ? 1280 : window.innerWidth) * 0.82))
+  const lines = splitTextIntoDisplayLines(body, { maxWidthPx, fontSizePx })
+
+  return {
+    id: payload?.messageId ?? null,
+    body,
+    sender: payload?.sender ?? null,
+    lines,
+    animationDurationMs: Math.max(300, Number.parseInt(payload?.animationDurationMs, 10) || 420),
+    animationStepMs: Math.max(120, Number.parseInt(payload?.animationStepMs, 10) || 180),
+  }
+}
 function randomInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min
 }
@@ -282,9 +362,11 @@ export function createPixiStage({ mountEl }) {
 Template.stage.onCreated(function onCreated() {
   this.lastEvent = new ReactiveVar("no event yet")
   this.currentVideoKey = new ReactiveVar(null)
+  this.curationMessage = new ReactiveVar(null)
   this.soundEnabled = new ReactiveVar(false)
   this.stageTestHandler = null
   this.stageBackgroundHandler = null
+  this.stageCurationHandler = null
   this.rawSpawnHandler = null
   this.pixiStage = null
 })
@@ -296,6 +378,15 @@ Template.stage.onRendered(function onRendered() {
   const mountEl = this.find("#stageCanvasHost")
   const videoEl = this.find("#stageBackgroundVideo")
   videoEl.muted = !this.soundEnabled.get()
+  this.handleResize = () => {
+    const currentMessage = this.curationMessage.get()
+    if (!currentMessage) {
+      return
+    }
+
+    this.curationMessage.set(buildCurationMessageState(currentMessage))
+  }
+  window.addEventListener("resize", this.handleResize)
 
   this.pixiStage = createPixiStage({ mountEl })
   this.pixiStage.start()
@@ -360,6 +451,23 @@ Template.stage.onRendered(function onRendered() {
 
   streamer.on(STAGE_BACKGROUND_EVENT, this.stageBackgroundHandler)
 
+  this.stageCurationHandler = (payload) => {
+    this.lastEvent.set(JSON.stringify(payload))
+
+    if (!payload || typeof payload !== "object") {
+      return
+    }
+
+    if (payload.action === "hide") {
+      this.curationMessage.set(null)
+      return
+    }
+
+    this.curationMessage.set(buildCurationMessageState(payload))
+  }
+
+  streamer.on(STAGE_CURATION_EVENT, this.stageCurationHandler)
+
   this.rawSpawnHandler = (payload) => {
     this.lastEvent.set(JSON.stringify(payload))
 
@@ -396,6 +504,11 @@ Template.stage.events({
 Template.stage.onDestroyed(function onDestroyed() {
   document.body.classList.remove("stage-page")
 
+  if (this.handleResize) {
+    window.removeEventListener("resize", this.handleResize)
+    this.handleResize = null
+  }
+
   if (this.stageTestHandler) {
     streamer.removeListener(STAGE_TEST_EVENT, this.stageTestHandler)
     this.stageTestHandler = null
@@ -404,6 +517,11 @@ Template.stage.onDestroyed(function onDestroyed() {
   if (this.stageBackgroundHandler) {
     streamer.removeListener(STAGE_BACKGROUND_EVENT, this.stageBackgroundHandler)
     this.stageBackgroundHandler = null
+  }
+
+  if (this.stageCurationHandler) {
+    streamer.removeListener(STAGE_CURATION_EVENT, this.stageCurationHandler)
+    this.stageCurationHandler = null
   }
 
   if (this.rawSpawnHandler) {
@@ -416,6 +534,21 @@ Template.stage.onDestroyed(function onDestroyed() {
 })
 
 Template.stage.helpers({
+  curationMessageLines() {
+    const message = Template.instance().curationMessage.get()
+    const lines = message?.lines ?? []
+    const animationDurationMs = message?.animationDurationMs ?? 420
+    const animationStepMs = message?.animationStepMs ?? 180
+
+    return lines.map((text, index) => ({
+      text,
+      animationStyle: `opacity: 0; animation: curation-line-in ${animationDurationMs}ms ease-out forwards; animation-delay: ${index * animationStepMs}ms;`,
+    }))
+  },
+  hasCurationMessage() {
+    const body = Template.instance().curationMessage.get()?.body ?? ""
+    return body.length > 0
+  },
   soundToggleLabel() {
     return Template.instance().soundEnabled.get() ? "sound on" : "sound off"
   },

@@ -7,6 +7,10 @@ export async function ensureMessagesIndexes() {
 
   // Integrity/validation-like constraints: unique indexes enforce no duplicates at DB level.
   await rawMessages.createIndex({ id: 1 }, { unique: true, name: "messages_id_unique" })
+  await rawMessages.createIndex(
+    { source: 1, externalId: 1 },
+    { unique: true, name: "messages_source_external_id_unique" },
+  )
 
   // Performance: speed up find, sort, and filters.
   await rawMessages.createIndex({ receivedAt: -1 }, { name: "messages_receivedAt_desc" })

@@ -1,8 +1,6 @@
 import { appendFile, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
-import { streamer } from '/imports/both/streamer';
-import { ingestRawRecord } from '/imports/api/ticker/ingest';
 import { dataPath } from '/imports/server/filePaths';
 
 const RAW_LOG_PATHS_BY_SOURCE = {
@@ -40,18 +38,7 @@ export async function appendRawRecord({ source, phoneNumberId, receivedAt, sende
   };
 
   await appendFile(targetPath, `${JSON.stringify(record)}\n`, 'utf8');
-
-  try {
-    await ingestRawRecord(record);
-  } catch (error) {
-    console.error('[rawLog] ticker ingest failed', error);
-  }
-
-  try {
-    streamer.emit('stage.raw.spawn', { messages: [record] });
-  } catch (error) {
-    console.error('[rawLog] stage.raw.spawn emit failed', error);
-  }
+  return record
 }
 
 export const RAW_LOG_HOT_FILES = {

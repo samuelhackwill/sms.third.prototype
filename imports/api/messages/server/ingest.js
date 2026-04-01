@@ -1,0 +1,114 @@
+import { createHash } from "node:crypto"
+
+import { Messages } from "/imports/api/messages/messages"
+import { appendRawRecord } from "/imports/server/rawLog"
+
+function normalizeBody(body) {
+  if (typeof body === "string") {
+    return body
+  }
+
+  if (body == null) {
+    return ""
+  }
+
+  return String(body)
+}
+
+function normalizeReceivedAt(receivedAt) {
+  if (!receivedAt) {
+    return null
+  }
+
+  const value = new Date(receivedAt)
+  return Number.isNaN(value.getTime()) ? null : value
+}
+
+function normalizeIngestedAt(ingestedAt) {
+  if (!ingestedAt) {
+    return new Date()
+  }
+
+  const value = new Date(ingestedAt)
+  return Number.isNaN(value.getTime()) ? new Date() : value
+}
+
+function externalIdForRecord(record) {
+  const source = record?.source ?? "unknown"
+  const meta = record?.meta ?? {}
+
+  if (source === "osx_messages_app" && meta.messagesRowId != null) {
+    return String(meta.messagesRowId)
+  }
+
+  if (source === "sim_router") {
+    if (meta.messageId != null) {
+      return String(meta.messageId)
+    }
+
+    if (meta.routerMessageId != null) {
+      return String(meta.routerMessageId)
+    }
+  }
+
+  const fallbackKey = JSON.stringify({
+    source,
+    phoneNumberId: record?.phoneNumberId ?? null,
+    sender: record?.sender ?? null,
+    body: normalizeBody(record?.body),
+    receivedAt: record?.receivedAt ?? null,
+    meta,
+  })
+
+  return createHash("sha1").update(fallbackKey).digest("hex")
+}
+
+function canonicalIdForRecord(record) {
+  return `${record?.source ?? "unknown"}:${externalIdForRecord(record)}`
+}
+
+function buildCanonicalMessage(record) {
+  const source = record?.source ?? null
+  const externalId = externalIdForRecord(record)
+  const body = normalizeBody(record?.body)
+  const receivedAt = normalizeReceivedAt(record?.receivedAt)
+  const ingestedAt = normalizeIngestedAt(record?.ingestedAt)
+
+  return {
+    id: canonicalIdForRecord(record),
+    source,
+    externalId,
+    phoneNumberId: record?.phoneNumberId ?? null,
+    sender: record?.sender ?? null,
+    body,
+    receivedAt,
+    status: "raw",
+    meta: record?.meta ?? {},
+    rawSchemaVersion: record?.schema_version ?? null,
+    rawIngestedAt: ingestedAt,
+    updatedAt: new Date(),
+  }
+}
+
+export async function upsertIncomingMessage(record) {
+  const message = buildCanonicalMessage(record)
+  const rawMessages = Messages.rawCollection()
+
+  await rawMessages.updateOne(
+    { id: message.id },
+    {
+      $set: message,
+      $setOnInsert: {
+        createdAt: new Date(),
+      },
+    },
+    { upsert: true },
+  )
+
+  return message
+}
+
+export async function ingestIncomingMessageRecord(record) {
+  const rawRecord = await appendRawRecord(record)
+  return upsertIncomingMessage(rawRecord)
+}

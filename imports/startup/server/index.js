@@ -1,6 +1,8 @@
 import { Meteor } from 'meteor/meteor';
 
 import { ensureMessagesIndexes } from '/imports/api/messages/server/indexes';
+import '/imports/api/messages/methods';
+import '/imports/api/messages/publications';
 import { ensureTickerIndexes } from '/imports/api/ticker/server/indexes';
 import '/imports/api/ticker/methods';
 import '/imports/api/ticker/publications';

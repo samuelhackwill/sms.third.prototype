@@ -2,6 +2,7 @@ import { FlowRouter } from 'meteor/ostrio:flow-router-extra';
 
 import '/imports/ui/pages/stage/stage.js';
 import '/imports/ui/pages/adminStage/adminStage.js';
+import '/imports/ui/pages/curation/curation.js';
 import '/imports/ui/pages/ticker/ticker.js';
 import '/imports/ui/pages/adminTicker/adminTicker.js';
 
@@ -16,6 +17,13 @@ FlowRouter.route('/stage', {
   name: 'stage',
   action() {
     this.render('stage');
+  },
+});
+
+FlowRouter.route('/curation', {
+  name: 'curation',
+  action() {
+    this.render('CurationPage');
   },
 });
 

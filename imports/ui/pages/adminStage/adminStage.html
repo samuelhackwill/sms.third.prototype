@@ -37,13 +37,52 @@
       </div>
     </fieldset>
 
-    <div class="mt-4 mb-5 flex flex-wrap gap-2.5">
-      <button class="rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm hover:bg-slate-100" type="button" data-action="send-1">Send 1</button>
-      <button class="rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm hover:bg-slate-100" type="button" data-action="send-5">Send 5</button>
-      <button class="rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm hover:bg-slate-100" type="button" data-action="send-10">Send 10</button>
-      <button class="rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm hover:bg-slate-100" type="button" data-action="clear">Clear</button>
-    </div>
+    <fieldset class="mt-4 rounded-lg border border-slate-300 p-3">
+      <legend class="px-1 text-sm font-medium text-slate-800">Bullet Chat</legend>
+      <div class="mt-2 flex flex-wrap gap-2.5">
+        <button class="rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm hover:bg-slate-100" type="button" data-action="send-1">Send 1</button>
+        <button class="rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm hover:bg-slate-100" type="button" data-action="send-5">Send 5</button>
+        <button class="rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm hover:bg-slate-100" type="button" data-action="send-10">Send 10</button>
+        <button class="rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm hover:bg-slate-100" type="button" data-action="clear">Clear</button>
+      </div>
+    </fieldset>
 
-    <pre class="min-h-24 whitespace-pre-wrap break-words rounded-lg border border-slate-300 bg-slate-100 p-3">{{lastPayload}}</pre>
+    <fieldset class="mt-4 rounded-lg border border-slate-300 p-3">
+      <legend class="px-1 text-sm font-medium text-slate-800">Featured Messages</legend>
+      <div class="mb-3 flex flex-wrap items-center gap-4">
+        <label class="flex min-w-64 flex-1 items-center gap-3 text-sm text-slate-700">
+          <span>Reveal speed</span>
+          <input
+            class="w-full"
+            type="range"
+            name="curation-reveal-ms"
+            min="500"
+            max="3000"
+            step="100"
+            value="{{curationRevealMs}}"
+          />
+          <span class="w-14 text-right font-mono text-xs text-slate-500">{{curationRevealMs}}ms</span>
+        </label>
+        <button class="rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm hover:bg-slate-100" type="button" data-action="hide-curation-message">Hide message</button>
+      </div>
+      {{#if hasFeaturedMessages}}
+        <div class="mt-2 divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white">
+          {{#each featuredMessages}}
+            <article class="cursor-pointer px-4 py-3 transition hover:bg-slate-50" data-action="show-featured-message" data-message-id="{{id}}">
+              <div class="text-xs text-slate-500">
+                <span class="font-medium text-slate-700">{{sender}}</span>
+                <span class="mx-2">·</span>
+                <span>{{receivedAtLabel}}</span>
+              </div>
+              <p class="mt-1 whitespace-pre-wrap break-words text-sm text-slate-900">{{body}}</p>
+            </article>
+          {{/each}}
+        </div>
+      {{else}}
+        <p class="mt-2 text-sm text-slate-500">No featured messages yet.</p>
+      {{/if}}
+    </fieldset>
+
+    <!-- <pre class="min-h-24 whitespace-pre-wrap break-words rounded-lg border border-slate-300 bg-slate-100 p-3">{{lastPayload}}</pre> -->
   </main>
 </template>
