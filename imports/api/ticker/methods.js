@@ -14,6 +14,7 @@ const START_RUN_DELAY_MS = 800
 const TICKER_PROVISIONING_SLOT_COUNT = 30
 const TICKER_DISPLAY_MODE_CHORUS = "chorus"
 const TICKER_DISPLAY_MODE_WALL = "wall"
+const TICKER_DISPLAY_MODE_VERTICAL = "vertical"
 const TICKER_CLIENT_STALE_AFTER_MS = 30 * 1000
 const TICKER_REFRESH_EVENT = "ticker.refresh"
 
@@ -45,6 +46,12 @@ async function ensureWall(wallId = DEFAULT_TICKER_WALL_ID) {
     if (typeof existing.provisioningEnabled !== "boolean") {
       patch.provisioningEnabled = false
     }
+    if (typeof existing.showDebug !== "boolean") {
+      patch.showDebug = true
+    }
+    if (!Number.isFinite(existing.renderHeightPx)) {
+      patch.renderHeightPx = Number(existing.minClientHeight) || 0
+    }
     if (Object.keys(patch).length > 0) {
       patch.updatedAt = new Date()
       await TickerWalls.updateAsync({ _id: wallId }, { $set: patch })
@@ -63,6 +70,8 @@ async function ensureWall(wallId = DEFAULT_TICKER_WALL_ID) {
     speedPxPerSec: DEFAULT_TICKER_SPEED_PX_PER_SEC,
     displayMode: TICKER_DISPLAY_MODE_CHORUS,
     provisioningEnabled: false,
+    showDebug: true,
+    renderHeightPx: 0,
     playing: null,
     createdAt: now,
     updatedAt: now,
@@ -143,7 +152,9 @@ async function recomputeLayout(wallId = DEFAULT_TICKER_WALL_ID) {
   const wall = await ensureWall(wallId)
   const displayMode = wall?.displayMode === TICKER_DISPLAY_MODE_WALL
     ? TICKER_DISPLAY_MODE_WALL
-    : TICKER_DISPLAY_MODE_CHORUS
+    : wall?.displayMode === TICKER_DISPLAY_MODE_VERTICAL
+      ? TICKER_DISPLAY_MODE_VERTICAL
+      : TICKER_DISPLAY_MODE_CHORUS
   const clients = await TickerClients.find(
     { wallId },
     { sort: { slotIndex: 1, orderIndex: 1, lastSeenAt: 1 } },
@@ -153,32 +164,71 @@ async function recomputeLayout(wallId = DEFAULT_TICKER_WALL_ID) {
   const assignedClients = explicitlyAssignedClients.length > 0
     ? explicitlyAssignedClients
     : clients
+  const layoutClients = assignedClients.map((client, index) => {
+    const slotIndex = Number.isInteger(client.slotIndex) ? Number(client.slotIndex) : index
+    const rowIndex = Math.floor(slotIndex / 5)
+    const colIndex = slotIndex % 5
+
+    return {
+      ...client,
+      slotIndex,
+      rowIndex,
+      colIndex,
+    }
+  })
+
+  const columnWidths = Array.from({ length: 5 }, () => 0)
+  const columnStackHeights = Array.from({ length: 5 }, () => 0)
+  for (const client of layoutClients) {
+    columnWidths[client.colIndex] = Math.max(columnWidths[client.colIndex], Number(client.width) || 0)
+    columnStackHeights[client.colIndex] += Number(client.height) || 0
+  }
+  const columnXStarts = []
+  let columnCursorX = 0
+  for (let colIndex = 0; colIndex < 5; colIndex += 1) {
+    columnXStarts[colIndex] = columnCursorX
+    columnCursorX += columnWidths[colIndex]
+  }
+
   let xStart = 0
   let rowWidth = 0
   let minClientHeight = Number.POSITIVE_INFINITY
-  for (const [index, client] of assignedClients.entries()) {
+  const columnYCursor = Array.from({ length: 5 }, () => 0)
+  for (const [index, client] of layoutClients.entries()) {
     const width = Number(client.width) || 0
     const height = Number(client.height) || 0
-    const slotIndex = Number.isInteger(client.slotIndex) ? Number(client.slotIndex) : index
-    const colIndex = slotIndex % 5
+    const { rowIndex, colIndex } = client
 
     if (displayMode === TICKER_DISPLAY_MODE_CHORUS && colIndex === 0) {
       rowWidth = 0
     }
 
-    const nextXStart = displayMode === TICKER_DISPLAY_MODE_WALL ? xStart : rowWidth
+    const nextXStart = displayMode === TICKER_DISPLAY_MODE_WALL
+      ? xStart
+      : displayMode === TICKER_DISPLAY_MODE_VERTICAL
+        ? columnXStarts[colIndex]
+        : rowWidth
+    const nextYStart = displayMode === TICKER_DISPLAY_MODE_VERTICAL ? columnYCursor[colIndex] : 0
+    const stackHeight = displayMode === TICKER_DISPLAY_MODE_VERTICAL
+      ? columnStackHeights[colIndex]
+      : height
     await TickerClients.updateAsync(
       { _id: client._id },
       {
         $set: {
           orderIndex: index,
+          rowIndex,
+          colIndex,
           xStart: nextXStart,
+          yStart: nextYStart,
+          stackHeight,
           updatedAt: new Date(),
         },
       },
     )
     xStart += width
     rowWidth += width
+    columnYCursor[colIndex] += height
     if (height > 0) {
       minClientHeight = Math.min(minClientHeight, height)
     }
@@ -193,6 +243,10 @@ async function recomputeLayout(wallId = DEFAULT_TICKER_WALL_ID) {
       {
         $set: {
           xStart: null,
+          yStart: null,
+          stackHeight: null,
+          rowIndex: null,
+          colIndex: null,
           updatedAt: new Date(),
         },
       },
@@ -202,23 +256,25 @@ async function recomputeLayout(wallId = DEFAULT_TICKER_WALL_ID) {
   const normalizedMinClientHeight = Number.isFinite(minClientHeight) ? minClientHeight : 0
   const normalizedTotalWallWidth = displayMode === TICKER_DISPLAY_MODE_WALL
     ? xStart
+    : displayMode === TICKER_DISPLAY_MODE_VERTICAL
+      ? columnCursorX
     : Math.max(
       0,
-      ...assignedClients.reduce((widths, client) => {
-        const slotIndex = Number.isInteger(client.slotIndex)
-          ? Number(client.slotIndex)
-          : assignedClients.indexOf(client)
-        const rowIndex = Math.floor(slotIndex / 5)
-        widths[rowIndex] = (widths[rowIndex] || 0) + (Number(client.width) || 0)
+      ...layoutClients.reduce((widths, client) => {
+        widths[client.rowIndex] = (widths[client.rowIndex] || 0) + (Number(client.width) || 0)
         return widths
       }, []),
     )
+  const normalizedRenderHeight = displayMode === TICKER_DISPLAY_MODE_VERTICAL
+    ? Math.max(0, ...columnStackHeights)
+    : normalizedMinClientHeight
   await TickerWalls.updateAsync(
     { _id: wallId },
     {
       $set: {
         totalWallWidth: normalizedTotalWallWidth,
         minClientHeight: normalizedMinClientHeight,
+        renderHeightPx: normalizedRenderHeight,
         layoutVersion: Number(wall.layoutVersion ?? 0) + 1,
         updatedAt: new Date(),
       },
@@ -471,6 +527,8 @@ Meteor.methods({
         ? TICKER_DISPLAY_MODE_WALL
         : displayMode === TICKER_DISPLAY_MODE_CHORUS
           ? TICKER_DISPLAY_MODE_CHORUS
+          : displayMode === TICKER_DISPLAY_MODE_VERTICAL
+            ? TICKER_DISPLAY_MODE_VERTICAL
           : null
 
       if (!normalizedDisplayMode) {
@@ -510,6 +568,23 @@ Meteor.methods({
     })
   },
 
+  async "ticker.setShowDebug"({ wallId = DEFAULT_TICKER_WALL_ID, showDebug } = {}) {
+    return withServer(async () => {
+      await ensureWall(wallId)
+      await TickerWalls.updateAsync(
+        { _id: wallId },
+        {
+          $set: {
+            showDebug: Boolean(showDebug),
+            updatedAt: new Date(),
+          },
+        },
+      )
+
+      return { ok: true, showDebug: Boolean(showDebug) }
+    })
+  },
+
   async "ticker.forceRefreshClients"({ wallId = DEFAULT_TICKER_WALL_ID } = {}) {
     return withServer(async () => {
       await ensureWall(wallId)
@@ -545,7 +620,7 @@ Meteor.methods({
 
       const wall = await ensureWall(wallId)
       const runId = Random.id()
-      const textWidthPx = estimateTickerTextWidthPx(normalized, Number(wall.minClientHeight) || 36)
+      const textWidthPx = estimateTickerTextWidthPx(normalized, Number(wall.renderHeightPx) || Number(wall.minClientHeight) || 36)
 
       return startRunInternal({
         wallId,
@@ -607,10 +682,12 @@ Meteor.methods({
           $set: {
             totalWallWidth: 0,
             minClientHeight: 0,
+            renderHeightPx: 0,
             playing: null,
             highlightClientId: null,
             displayMode: TICKER_DISPLAY_MODE_CHORUS,
             provisioningEnabled: false,
+            showDebug: true,
             updatedAt: new Date(),
           },
           $inc: {

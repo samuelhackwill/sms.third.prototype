@@ -39,6 +39,7 @@
         <button type="button" class="js-refresh-clients rounded border border-blue-300 bg-blue-50 px-3 py-1.5 text-sm text-blue-900 hover:bg-blue-100">Force Refresh Clients</button>
         <button type="button" class="js-reset-ticker rounded border border-red-300 bg-red-50 px-3 py-1.5 text-sm text-red-900 hover:bg-red-100">Reset Ticker State</button>
         <button type="button" class="js-toggle-provisioning rounded border border-amber-300 bg-amber-50 px-3 py-1.5 text-sm text-amber-900 hover:bg-amber-100">{{provisioningButtonLabel}}</button>
+        <button type="button" class="js-toggle-debug rounded border border-slate-300 bg-white px-3 py-1.5 text-sm hover:bg-slate-100">{{debugButtonLabel}}</button>
         <button type="button" class="js-panic-stop rounded border border-red-500 bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700">PANIC STOP</button>
         <button type="button" class="js-kill-clients rounded border border-red-300 bg-white px-3 py-1.5 text-sm text-red-700 hover:bg-red-50">Kill Clients</button>
       </div>
@@ -53,6 +54,10 @@
           <label class="inline-flex items-center gap-2">
             <input type="radio" name="tickerDisplayMode" value="wall" checked="{{isDisplayModeWall}}" />
             <span>Delayed canon</span>
+          </label>
+          <label class="inline-flex items-center gap-2">
+            <input type="radio" name="tickerDisplayMode" value="vertical" checked="{{isDisplayModeVertical}}" />
+            <span>One line over matrix</span>
           </label>
         </div>
       </div>

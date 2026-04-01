@@ -35,6 +35,7 @@ const LOCAL_STORAGE_CLIENT_ID_KEY = "ticker.clientId"
 const DEVICE_KEY_STORAGE_KEY = "ticker.deviceKey"
 const TICKER_REFRESH_EVENT = "ticker.refresh"
 const TICKER_HEARTBEAT_MS = 5 * 1000
+const TICKER_DISPLAY_MODE_VERTICAL = "vertical"
 
 function readStorage(storage, key) {
   try {
@@ -72,8 +73,10 @@ function createTickerRenderer(mountEl) {
   let textSegments = []
   let playing = null
   let xStart = 0
+  let yStart = 0
   let offsetMs = 0
   let minClientHeight = Math.max(1, Math.floor(app.screen.height))
+  let displayMode = "chorus"
   let textScale = Math.max(0.1, minClientHeight / BITMAP_FONT_BASE_SIZE)
 
   if (!PIXI.BitmapFont.available[BITMAP_FONT_NAME]) {
@@ -140,7 +143,9 @@ function createTickerRenderer(mountEl) {
       maxHeight = Math.max(maxHeight, segment.height)
     }
 
-    textDisplay.y = Math.max(0, app.screen.height - maxHeight)
+    textDisplay.y = displayMode === TICKER_DISPLAY_MODE_VERTICAL
+      ? -yStart
+      : Math.max(0, app.screen.height - maxHeight)
     textDisplay.visible = textSegments.length > 0
   }
 
@@ -208,17 +213,29 @@ function createTickerRenderer(mountEl) {
     xStart = Number(nextXStart) || 0
   }
 
+  function setSliceYStart(nextYStart) {
+    yStart = Number(nextYStart) || 0
+    layoutTextSegments()
+  }
+
   function setServerOffset(nextOffsetMs) {
     offsetMs = Number(nextOffsetMs) || 0
   }
 
-  function setMinClientHeight(nextHeight) {
+  function setTextRenderHeight(nextHeight) {
     const height = Number(nextHeight)
     if (Number.isFinite(height) && height > 0) {
       minClientHeight = Math.max(1, Math.floor(height))
       textScale = Math.max(0.1, minClientHeight / BITMAP_FONT_BASE_SIZE)
       applyViewportTextStyle()
     }
+  }
+
+  function setDisplayMode(nextDisplayMode) {
+    displayMode = nextDisplayMode === TICKER_DISPLAY_MODE_VERTICAL
+      ? TICKER_DISPLAY_MODE_VERTICAL
+      : "chorus"
+    layoutTextSegments()
   }
 
   function resize() {
@@ -245,8 +262,10 @@ function createTickerRenderer(mountEl) {
     setPlaying,
     clearPlaying,
     setSliceXStart,
+    setSliceYStart,
     setServerOffset,
-    setMinClientHeight,
+    setTextRenderHeight,
+    setDisplayMode,
     resize,
     destroy() {
       app.ticker.remove(tick)
@@ -403,7 +422,7 @@ Template.TickerPage.onRendered(function onRendered() {
 
   this.autorun(() => {
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
-    this.renderer?.setMinClientHeight(wall?.minClientHeight)
+    this.renderer?.setDisplayMode(wall?.displayMode)
     if (!wall?.playing) {
       this.renderer?.clearPlaying()
       return
@@ -414,7 +433,9 @@ Template.TickerPage.onRendered(function onRendered() {
 
   this.autorun(() => {
     const selfClient = TickerClients.findOne({ _id: this.clientId, wallId: DEFAULT_TICKER_WALL_ID })
+    this.renderer?.setTextRenderHeight(selfClient?.stackHeight ?? TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })?.minClientHeight)
     this.renderer?.setSliceXStart(selfClient?.xStart ?? 0)
+    this.renderer?.setSliceYStart(selfClient?.yStart ?? 0)
   })
 })
 
@@ -448,6 +469,10 @@ Template.TickerPage.helpers({
     const instance = Template.instance()
     const doc = TickerClients.findOne({ _id: instance.clientId, wallId: DEFAULT_TICKER_WALL_ID })
     return doc?.xStart ?? 0
+  },
+  showDebug() {
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    return wall?.showDebug !== false
   },
   isHighlighted() {
     const instance = Template.instance()

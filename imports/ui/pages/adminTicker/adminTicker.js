@@ -130,6 +130,10 @@ Template.AdminTickerPage.helpers({
       ? "Disable Provisioning Blink"
       : "Enable Provisioning Blink"
   },
+  debugButtonLabel() {
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    return wall?.showDebug === false ? "Show Debug" : "Hide Debug"
+  },
   isDisplayModeChorus() {
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
     return (wall?.displayMode ?? "chorus") === "chorus"
@@ -137,6 +141,10 @@ Template.AdminTickerPage.helpers({
   isDisplayModeWall() {
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
     return wall?.displayMode === "wall"
+  },
+  isDisplayModeVertical() {
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    return wall?.displayMode === "vertical"
   },
   provisioningRows() {
     const assignedClients = TickerClients.find(
@@ -252,6 +260,14 @@ Template.AdminTickerPage.events({
     Meteor.callAsync("ticker.setProvisioningEnabled", {
       wallId: DEFAULT_TICKER_WALL_ID,
       enabled: nextEnabled,
+    })
+  },
+  "click .js-toggle-debug"(event) {
+    event.preventDefault()
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    Meteor.callAsync("ticker.setShowDebug", {
+      wallId: DEFAULT_TICKER_WALL_ID,
+      showDebug: wall?.showDebug === false,
     })
   },
   "change input[name='tickerDisplayMode']"(event) {
