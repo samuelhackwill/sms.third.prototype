@@ -13,3 +13,14 @@
     transform: translateY(0);
   }
 }
+
+@keyframes ticker-provisioning-blink {
+  0%,
+  100% {
+    opacity: 0.18;
+  }
+
+  50% {
+    opacity: 0.68;
+  }
+}

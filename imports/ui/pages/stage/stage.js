@@ -121,7 +121,10 @@ function buildCurationMessageState(payload) {
     id: payload?.messageId ?? null,
     body,
     sender: payload?.sender ?? null,
+    mode: payload?.mode === "word" ? "word" : "line",
     lines,
+    words: body.split(/\s+/).filter(Boolean),
+    revealedWordCount: payload?.mode === "word" ? 1 : 0,
     animationDurationMs: Math.max(300, Number.parseInt(payload?.animationDurationMs, 10) || 420),
     animationStepMs: Math.max(120, Number.parseInt(payload?.animationStepMs, 10) || 180),
   }
@@ -463,6 +466,23 @@ Template.stage.onRendered(function onRendered() {
       return
     }
 
+    if (payload.action === "advance-word") {
+      const currentMessage = this.curationMessage.get()
+
+      if (!currentMessage || currentMessage.mode !== "word") {
+        return
+      }
+
+      this.curationMessage.set({
+        ...currentMessage,
+        revealedWordCount: Math.min(
+          currentMessage.words.length,
+          (currentMessage.revealedWordCount ?? 0) + 1,
+        ),
+      })
+      return
+    }
+
     this.curationMessage.set(buildCurationMessageState(payload))
   }
 
@@ -545,9 +565,33 @@ Template.stage.helpers({
       animationStyle: `opacity: 0; animation: curation-line-in ${animationDurationMs}ms ease-out forwards; animation-delay: ${index * animationStepMs}ms;`,
     }))
   },
+  curationVisibleWords() {
+    const message = Template.instance().curationMessage.get()
+
+    if (!message || message.mode !== "word") {
+      return ""
+    }
+
+    return message.words.slice(0, message.revealedWordCount).join(" ")
+  },
+  curationWordTokens() {
+    const message = Template.instance().curationMessage.get()
+
+    if (!message || message.mode !== "word") {
+      return []
+    }
+
+    return message.words.map((word, index) => ({
+      text: index < message.words.length - 1 ? `${word} ` : word,
+      visibilityStyle: index < message.revealedWordCount ? "visibility: visible;" : "visibility: hidden;",
+    }))
+  },
   hasCurationMessage() {
     const body = Template.instance().curationMessage.get()?.body ?? ""
     return body.length > 0
+  },
+  isWordRevealMode() {
+    return Template.instance().curationMessage.get()?.mode === "word"
   },
   soundToggleLabel() {
     return Template.instance().soundEnabled.get() ? "sound on" : "sound off"

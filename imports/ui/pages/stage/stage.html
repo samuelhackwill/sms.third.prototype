@@ -10,13 +10,25 @@
     <div class="pointer-events-none absolute inset-0 bg-black/35"></div>
     <div id="stageCanvasHost" class="absolute inset-0 h-full w-full"></div>
     {{#if hasCurationMessage}}
-      <div class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center px-10">
-        <div class="max-w-5xl text-center text-4xl font-semibold leading-tight text-white drop-shadow-[0_4px_24px_rgba(0,0,0,0.85)] md:text-6xl">
-          {{#each curationMessageLines}}
-            <div style="{{animationStyle}}">{{text}}</div>
-          {{/each}}
+      {{#if isWordRevealMode}}
+        <div class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center px-10">
+          <div class="relative inline-block max-w-[50vw]">
+            <div class="inline-block rounded-[2.25rem] bg-[#0a84ff] px-8 py-6 text-left text-3xl font-medium leading-tight text-white shadow-[0_14px_40px_rgba(10,132,255,0.28)] md:px-10 md:py-7 md:text-5xl">
+              {{#each curationWordTokens}}
+                <span style="{{visibilityStyle}}">{{text}}</span>
+              {{/each}}
+            </div>
+          </div>
         </div>
-      </div>
+      {{else}}
+        <div class="pointer-events-none absolute inset-0 z-10 flex items-center justify-center px-10">
+          <div class="max-w-5xl text-center text-4xl font-semibold leading-tight text-white drop-shadow-[0_4px_24px_rgba(0,0,0,0.85)] md:text-6xl">
+            {{#each curationMessageLines}}
+              <div style="{{animationStyle}}">{{text}}</div>
+            {{/each}}
+          </div>
+        </div>
+      {{/if}}
     {{/if}}
     <button
       type="button"

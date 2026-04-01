@@ -8,12 +8,31 @@ import {
   TickerWalls,
 } from "/imports/api/ticker/collections"
 import "/imports/api/ticker/methods"
+import { streamer } from "/imports/both/streamer"
 import "./ticker.html"
 
 const FONT_FAMILY = "Times New Roman"
 const FONT_FILL = 0xff0000
 const SESSION_CLIENT_ID_KEY = "clientId"
 const LEGACY_SESSION_CLIENT_ID_KEY = "ticker.clientId"
+const LOCAL_STORAGE_CLIENT_ID_KEY = "ticker.clientId"
+const TICKER_REFRESH_EVENT = "ticker.refresh"
+
+function readStorage(storage, key) {
+  try {
+    return storage?.getItem(key) ?? null
+  } catch (error) {
+    return null
+  }
+}
+
+function writeStorage(storage, key, value) {
+  try {
+    storage?.setItem(key, value)
+  } catch (error) {
+    // Ignore storage access failures and fall back to the other store.
+  }
+}
 
 function createTickerRenderer(mountEl) {
   const app = new PIXI.Application({
@@ -150,19 +169,25 @@ function createTickerRenderer(mountEl) {
 }
 
 function getOrCreateClientId() {
-  const existing = sessionStorage.getItem(SESSION_CLIENT_ID_KEY)
+  const existing = readStorage(globalThis.localStorage, LOCAL_STORAGE_CLIENT_ID_KEY)
+    || readStorage(globalThis.sessionStorage, SESSION_CLIENT_ID_KEY)
   if (existing) {
+    writeStorage(globalThis.localStorage, LOCAL_STORAGE_CLIENT_ID_KEY, existing)
+    writeStorage(globalThis.sessionStorage, SESSION_CLIENT_ID_KEY, existing)
     return existing
   }
 
-  const legacy = sessionStorage.getItem(LEGACY_SESSION_CLIENT_ID_KEY)
+  const legacy = readStorage(globalThis.localStorage, LEGACY_SESSION_CLIENT_ID_KEY)
+    || readStorage(globalThis.sessionStorage, LEGACY_SESSION_CLIENT_ID_KEY)
   if (legacy) {
-    sessionStorage.setItem(SESSION_CLIENT_ID_KEY, legacy)
+    writeStorage(globalThis.localStorage, LOCAL_STORAGE_CLIENT_ID_KEY, legacy)
+    writeStorage(globalThis.sessionStorage, SESSION_CLIENT_ID_KEY, legacy)
     return legacy
   }
 
   const nextId = makeClientId()
-  sessionStorage.setItem(SESSION_CLIENT_ID_KEY, nextId)
+  writeStorage(globalThis.localStorage, LOCAL_STORAGE_CLIENT_ID_KEY, nextId)
+  writeStorage(globalThis.sessionStorage, SESSION_CLIENT_ID_KEY, nextId)
   return nextId
 }
 
@@ -195,6 +220,7 @@ Template.TickerPage.onCreated(function onCreated() {
   this.timeSyncIntervalId = null
   this.offsetMs = 0
   this.renderer = null
+  this.refreshHandler = null
 
   this.autorun(() => {
     this.subscribe("ticker.wall", DEFAULT_TICKER_WALL_ID)
@@ -253,6 +279,16 @@ Template.TickerPage.onRendered(function onRendered() {
 
   window.addEventListener("resize", this.handleResize)
 
+  this.refreshHandler = (payload) => {
+    if (payload?.wallId && payload.wallId !== DEFAULT_TICKER_WALL_ID) {
+      return
+    }
+
+    window.location.reload()
+  }
+
+  streamer.on(TICKER_REFRESH_EVENT, this.refreshHandler)
+
   this.autorun(() => {
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
     this.renderer?.setMinClientHeight(wall?.minClientHeight)
@@ -276,6 +312,10 @@ Template.TickerPage.onDestroyed(function onDestroyed() {
   if (this.timeSyncIntervalId) {
     Meteor.clearInterval(this.timeSyncIntervalId)
   }
+  if (this.refreshHandler) {
+    streamer.removeListener(TICKER_REFRESH_EVENT, this.refreshHandler)
+    this.refreshHandler = null
+  }
   this.renderer?.destroy()
   this.renderer = null
 })
@@ -298,5 +338,26 @@ Template.TickerPage.helpers({
     const instance = Template.instance()
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
     return wall?.highlightClientId === instance.clientId
+  },
+  isProvisioningMode() {
+    const instance = Template.instance()
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    const doc = TickerClients.findOne({ _id: instance.clientId, wallId: DEFAULT_TICKER_WALL_ID })
+    return Boolean(wall?.provisioningEnabled) && !Number.isInteger(doc?.slotIndex)
+  },
+})
+
+Template.TickerPage.events({
+  "click main"(event, instance) {
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    const doc = TickerClients.findOne({ _id: instance.clientId, wallId: DEFAULT_TICKER_WALL_ID })
+    if (!wall?.provisioningEnabled || Number.isInteger(doc?.slotIndex)) {
+      return
+    }
+
+    Meteor.call("ticker.claimNextSlot", {
+      wallId: DEFAULT_TICKER_WALL_ID,
+      clientId: instance.clientId,
+    })
   },
 })

@@ -1,7 +1,6 @@
 import { Meteor } from "meteor/meteor"
 import { Template } from "meteor/templating"
 import { ReactiveVar } from "meteor/reactive-var"
-import * as PIXI from "pixi.js"
 
 import {
   DEFAULT_TICKER_WALL_ID,
@@ -10,32 +9,15 @@ import {
 } from "/imports/api/ticker/collections"
 import { streamer } from "/imports/both/streamer"
 import { FAKE_MESSAGES } from "/imports/ui/pages/stage/stageTestData"
-import "./adminTicker.html"
+import "/imports/ui/pages/adminTicker/adminTickerPage.html"
 
-const DEFAULT_MEASURE_FONT_SIZE = 36
-const DEFAULT_MEASURE_FONT_FAMILY = "Times New Roman"
+const PROVISIONING_ROWS = 6
+const PROVISIONING_COLS = 5
+const PROVISIONING_SLOT_COUNT = PROVISIONING_ROWS * PROVISIONING_COLS
+const TICKER_REFRESH_EVENT = "ticker.refresh"
 
 function randomFrom(list) {
   return list[Math.floor(Math.random() * list.length)]
-}
-
-function measureTextWidthPx(text, { fontFamily, fontSizePx } = {}) {
-  const normalizedFontFamily = typeof fontFamily === "string" && fontFamily.trim()
-    ? fontFamily
-    : DEFAULT_MEASURE_FONT_FAMILY
-  const normalizedFontSize = Number.isFinite(Number(fontSizePx)) && Number(fontSizePx) > 0
-    ? Number(fontSizePx)
-    : DEFAULT_MEASURE_FONT_SIZE
-
-  const metrics = PIXI.TextMetrics.measureText(
-    text,
-    new PIXI.TextStyle({
-      fontFamily: normalizedFontFamily,
-      fontSize: normalizedFontSize,
-    }),
-  )
-
-  return Math.ceil(metrics.width)
 }
 
 Template.AdminTickerPage.onCreated(function onCreated() {
@@ -55,28 +37,6 @@ Template.AdminTickerPage.onCreated(function onCreated() {
       }
     })
   }, 1000)
-
-  this.measureRequestHandler = (payload) => {
-    if (!payload || payload.wallId !== DEFAULT_TICKER_WALL_ID) {
-      return
-    }
-
-    const text = typeof payload.text === "string" ? payload.text : ""
-    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
-    const textWidthPx = measureTextWidthPx(text, {
-      fontFamily: payload.fontFamily,
-      fontSizePx: payload.fontSizePx ?? wall?.minClientHeight,
-    })
-
-    Meteor.call("ticker.startRun", {
-      wallId: payload.wallId,
-      runId: payload.runId,
-      text,
-      textWidthPx,
-    })
-  }
-
-  streamer.on("ticker.measure.request", this.measureRequestHandler)
 })
 
 Template.AdminTickerPage.onRendered(function onRendered() {
@@ -101,10 +61,6 @@ Template.AdminTickerPage.onDestroyed(function onDestroyed() {
 
   if (this.updatePanelWidth) {
     window.removeEventListener("resize", this.updatePanelWidth)
-  }
-
-  if (this.measureRequestHandler) {
-    streamer.removeListener("ticker.measure.request", this.measureRequestHandler)
   }
 })
 
@@ -164,6 +120,56 @@ Template.AdminTickerPage.helpers({
   },
   queueHead() {
     return Template.instance().queueStatus.get().head?.text ?? "none"
+  },
+  wallDebugJson() {
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    return JSON.stringify(wall ?? {}, null, 2)
+  },
+  clientsDebugJson() {
+    const clients = TickerClients.find(
+      { wallId: DEFAULT_TICKER_WALL_ID },
+      { sort: { slotIndex: 1, orderIndex: 1, lastSeenAt: -1 } },
+    ).fetch()
+    return JSON.stringify(clients, null, 2)
+  },
+  provisioningButtonLabel() {
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    return wall?.provisioningEnabled
+      ? "Disable Provisioning Blink"
+      : "Enable Provisioning Blink"
+  },
+  isDisplayModeChorus() {
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    return (wall?.displayMode ?? "chorus") === "chorus"
+  },
+  isDisplayModeWall() {
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    return wall?.displayMode === "wall"
+  },
+  provisioningRows() {
+    const assignedClients = TickerClients.find(
+      { wallId: DEFAULT_TICKER_WALL_ID, slotIndex: { $ne: null } },
+      { sort: { slotIndex: 1 } },
+    ).fetch()
+    const slots = Array.from({ length: PROVISIONING_SLOT_COUNT }, (_, index) => {
+      const assignedClient = assignedClients.find((client) => client.slotIndex === index)
+
+      return {
+        slotIndex: index,
+        slotNumber: index + 1,
+        shortCode: assignedClient?.shortCode ?? null,
+        clientId: assignedClient?._id ?? null,
+      }
+    })
+    const rows = []
+
+    for (let rowIndex = 0; rowIndex < PROVISIONING_ROWS; rowIndex += 1) {
+      rows.push(
+        slots.slice(rowIndex * PROVISIONING_COLS, (rowIndex + 1) * PROVISIONING_COLS),
+      )
+    }
+
+    return rows
   },
 })
 
@@ -251,6 +257,22 @@ Template.AdminTickerPage.events({
     event.preventDefault()
     Meteor.call("ticker.clearQueue", { wallId: DEFAULT_TICKER_WALL_ID })
   },
+  "click .js-toggle-provisioning"(event, instance) {
+    event.preventDefault()
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    const nextEnabled = !Boolean(wall?.provisioningEnabled)
+    Meteor.call("ticker.setProvisioningEnabled", {
+      wallId: DEFAULT_TICKER_WALL_ID,
+      enabled: nextEnabled,
+    })
+  },
+  "change input[name='tickerDisplayMode']"(event) {
+    const displayMode = event.currentTarget.value
+    Meteor.call("ticker.setDisplayMode", {
+      wallId: DEFAULT_TICKER_WALL_ID,
+      displayMode,
+    })
+  },
   "click .js-panic-stop"(event) {
     event.preventDefault()
     Meteor.call("ticker.panicStop", { wallId: DEFAULT_TICKER_WALL_ID })
@@ -258,5 +280,9 @@ Template.AdminTickerPage.events({
   "click .js-kill-clients"(event) {
     event.preventDefault()
     Meteor.call("ticker.killClients", { wallId: DEFAULT_TICKER_WALL_ID })
+  },
+  "click .js-refresh-clients"(event) {
+    event.preventDefault()
+    streamer.emit(TICKER_REFRESH_EVENT, { wallId: DEFAULT_TICKER_WALL_ID })
   },
 })

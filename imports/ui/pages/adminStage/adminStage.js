@@ -17,6 +17,7 @@ import "./adminStage.html"
 
 const DEFAULT_SOURCE = "default"
 const DEFAULT_CURATION_REVEAL_MS = 1400
+const DEFAULT_CURATION_DISPLAY_MODE = "line"
 
 function sendSpawn(instance, count) {
   const source = instance.selectedSource.get()
@@ -51,11 +52,13 @@ function sendVideoStop(instance) {
 
 function sendCurationMessage(instance, message) {
   const revealDurationMs = instance.curationRevealMs.get()
+  const displayMode = instance.curationDisplayMode.get()
   const payload = {
     action: "show",
     messageId: message?.id ?? null,
     sender: message?.sender ?? null,
     body: typeof message?.body === "string" ? message.body : "",
+    mode: displayMode,
     animationDurationMs: revealDurationMs,
     animationStepMs: Math.max(220, Math.round(revealDurationMs * 0.85)),
   }
@@ -71,11 +74,20 @@ function hideCurationMessage(instance) {
   instance.lastPayload.set(JSON.stringify(payload, null, 2))
 }
 
+function showNextWord(instance) {
+  const payload = {
+    action: "advance-word",
+  }
+  streamer.emit(STAGE_CURATION_EVENT, payload)
+  instance.lastPayload.set(JSON.stringify(payload, null, 2))
+}
+
 Template.adminStage.onCreated(function onCreated() {
   this.lastPayload = new ReactiveVar("No payload sent yet.")
   this.selectedSource = new ReactiveVar(DEFAULT_SOURCE)
   this.selectedVideo = new ReactiveVar(DEFAULT_STAGE_VIDEO_KEY)
   this.curationRevealMs = new ReactiveVar(DEFAULT_CURATION_REVEAL_MS)
+  this.curationDisplayMode = new ReactiveVar(DEFAULT_CURATION_DISPLAY_MODE)
 
   this.autorun(() => {
     this.subscribe("messages.featured")
@@ -124,9 +136,16 @@ Template.adminStage.events({
     event.preventDefault()
     hideCurationMessage(instance)
   },
+  'click [data-action="advance-curation-word"]'(event, instance) {
+    event.preventDefault()
+    showNextWord(instance)
+  },
   'input [name="curation-reveal-ms"]'(event, instance) {
     const nextValue = Number.parseInt(event.currentTarget.value, 10)
     instance.curationRevealMs.set(Number.isFinite(nextValue) ? nextValue : DEFAULT_CURATION_REVEAL_MS)
+  },
+  'change [name="curation-display-mode"]'(event, instance) {
+    instance.curationDisplayMode.set(event.currentTarget.value || DEFAULT_CURATION_DISPLAY_MODE)
   },
   'change [name="message-source"]'(event, instance) {
     instance.selectedSource.set(event.currentTarget.value || DEFAULT_SOURCE)
@@ -160,5 +179,8 @@ Template.adminStage.helpers({
   },
   curationRevealMs() {
     return Template.instance().curationRevealMs.get()
+  },
+  isCurationDisplayMode(value) {
+    return Template.instance().curationDisplayMode.get() === value
   },
 })
