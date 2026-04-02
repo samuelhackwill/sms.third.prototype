@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto"
 
 import { Messages } from "/imports/api/messages/messages"
+import { streamer } from "/imports/both/streamer"
 import { appendRawRecord } from "/imports/server/rawLog"
 
 function normalizeBody(body) {
@@ -90,6 +91,20 @@ function buildCanonicalMessage(record) {
   }
 }
 
+function buildStageSpawnMessage(rawRecord, canonicalMessage) {
+  const body = normalizeBody(rawRecord?.body)
+  if (!body.trim()) {
+    return null
+  }
+
+  return {
+    id: canonicalMessage?.id ?? canonicalIdForRecord(rawRecord),
+    phone: rawRecord?.sender ?? canonicalMessage?.sender ?? null,
+    body,
+    receivedAt: rawRecord?.receivedAt ?? canonicalMessage?.receivedAt ?? null,
+  }
+}
+
 export async function upsertIncomingMessage(record) {
   const message = buildCanonicalMessage(record)
   const rawMessages = Messages.rawCollection()
@@ -110,5 +125,16 @@ export async function upsertIncomingMessage(record) {
 
 export async function ingestIncomingMessageRecord(record) {
   const rawRecord = await appendRawRecord(record)
-  return upsertIncomingMessage(rawRecord)
+  const canonicalMessage = await upsertIncomingMessage(rawRecord)
+  const stageMessage = buildStageSpawnMessage(rawRecord, canonicalMessage)
+
+  if (stageMessage) {
+    try {
+      streamer.emit("stage.raw.spawn", { messages: [stageMessage] })
+    } catch (error) {
+      console.error("[messages.ingest] stage.raw.spawn emit failed", error)
+    }
+  }
+
+  return canonicalMessage
 }
