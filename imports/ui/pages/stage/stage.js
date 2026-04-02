@@ -33,7 +33,7 @@ const PIXI_CHARS_FR =
   // Misc common symbols in messages
   "°©®™✓•·"
 
-const FONT_SIZE = 36
+const FONT_SIZE = 72
 const LANE_PADDING = 8
 const LANE_HEIGHT = FONT_SIZE + LANE_PADDING
 const SPAWN_PADDING = 20
