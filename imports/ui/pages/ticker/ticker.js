@@ -11,23 +11,10 @@ import "/imports/api/ticker/methods"
 import { streamer } from "/imports/both/streamer"
 import "./ticker.html"
 
-const FONT_FAMILY = "Times New Roman"
 const FONT_FILL = 0xff0000
-const BITMAP_FONT_NAME = "TickerWallFont"
+const BITMAP_FONT_NAME = "LibreBaskerville-Regular"
+const BITMAP_FONT_URL = "/fonts/ticker-msdf/LibreBaskerville-Regular.fnt"
 const BITMAP_FONT_BASE_SIZE = 192
-const BITMAP_FONT_CHARS =
-  " " +
-  "0123456789" +
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZ" +
-  "abcdefghijklmnopqrstuvwxyz" +
-  "ÀÂÄÇÉÈÊËÎÏÔÖÙÛÜŸ" +
-  "àâäçéèêëîïôöùûüÿ" +
-  "ÆŒæœ" +
-  ".,;:!?…()[]{}<>\"'`“”‘’«»" +
-  "-–—_" +
-  "/\\|@#&%$€£" +
-  "+*=^~" +
-  "°©®™✓•·"
 const TEXT_SEGMENT_CHARS = 12
 const SESSION_CLIENT_ID_KEY = "clientId"
 const LEGACY_SESSION_CLIENT_ID_KEY = "ticker.clientId"
@@ -36,6 +23,15 @@ const DEVICE_KEY_STORAGE_KEY = "ticker.deviceKey"
 const TICKER_REFRESH_EVENT = "ticker.refresh"
 const TICKER_HEARTBEAT_MS = 5 * 1000
 const TICKER_DISPLAY_MODE_VERTICAL = "vertical"
+let tickerFontLoadPromise = null
+
+function ensureTickerFontLoaded() {
+  if (!tickerFontLoadPromise) {
+    tickerFontLoadPromise = PIXI.Assets.load(BITMAP_FONT_URL)
+  }
+
+  return tickerFontLoadPromise
+}
 
 function readStorage(storage, key) {
   try {
@@ -78,18 +74,6 @@ function createTickerRenderer(mountEl) {
   let minClientHeight = Math.max(1, Math.floor(app.screen.height))
   let displayMode = "chorus"
   let textScale = Math.max(0.1, minClientHeight / BITMAP_FONT_BASE_SIZE)
-
-  if (!PIXI.BitmapFont.available[BITMAP_FONT_NAME]) {
-    PIXI.BitmapFont.from(
-      BITMAP_FONT_NAME,
-      {
-        fontFamily: "Times New Roman",
-        fontSize: BITMAP_FONT_BASE_SIZE,
-        fill: "#ff0000",
-      },
-      { chars: BITMAP_FONT_CHARS },
-    )
-  }
 
   function drawMask() {
     maskGraphics.clear()
@@ -344,6 +328,7 @@ Template.TickerPage.onCreated(function onCreated() {
   this.offsetMs = 0
   this.renderer = null
   this.refreshHandler = null
+  this.isDestroyed = false
 
   this.autorun(() => {
     this.subscribe("ticker.wall", DEFAULT_TICKER_WALL_ID)
@@ -357,68 +342,90 @@ Template.TickerPage.onRendered(function onRendered() {
     return
   }
 
-  this.renderer = createTickerRenderer(mountEl)
-
-  const syncServerTimeOffset = () => {
-    const t0 = Date.now()
-    Meteor.call("ticker.time", (error, serverTimeMs) => {
-      if (error || typeof serverTimeMs !== "number") {
-        return
-      }
-
-      const t1 = Date.now()
-      const rtt = t1 - t0
-      const estimatedServerNowAtT1 = serverTimeMs + (rtt / 2)
-      this.offsetMs = estimatedServerNowAtT1 - t1
-      this.renderer?.setServerOffset(this.offsetMs)
-    })
-  }
-
-  syncServerTimeOffset()
-  this.timeSyncIntervalId = Meteor.setInterval(syncServerTimeOffset, 5000)
-
-  Meteor.callAsync("ticker.join", {
-    wallId: DEFAULT_TICKER_WALL_ID,
-    clientId: this.clientId,
-    deviceKey: this.deviceKey,
-    shortCode: this.shortCode,
-    width: window.innerWidth,
-    height: window.innerHeight,
-    dpr: window.devicePixelRatio,
-    userAgent: navigator.userAgent,
-  })
-
-  this.heartbeatIntervalId = Meteor.setInterval(() => {
-    Meteor.callAsync("ticker.heartbeat", {
-      wallId: DEFAULT_TICKER_WALL_ID,
-      clientId: this.clientId,
-    })
-  }, TICKER_HEARTBEAT_MS)
-
-  this.handleResize = () => {
-    this.renderer?.resize()
-    Meteor.clearTimeout(this.resizeTimeout)
-    this.resizeTimeout = Meteor.setTimeout(() => {
-      Meteor.callAsync("ticker.updateSize", {
-        wallId: DEFAULT_TICKER_WALL_ID,
-        clientId: this.clientId,
-        width: window.innerWidth,
-        height: window.innerHeight,
-      })
-    }, 120)
-  }
-
-  window.addEventListener("resize", this.handleResize)
-
-  this.refreshHandler = (payload) => {
-    if (payload?.wallId && payload.wallId !== DEFAULT_TICKER_WALL_ID) {
+  ;(async () => {
+    try {
+      await ensureTickerFontLoaded()
+    } catch (error) {
+      console.error("[ticker] failed to load MSDF font", error)
       return
     }
 
-    window.location.reload()
-  }
+    if (this.isDestroyed) {
+      return
+    }
 
-  streamer.on(TICKER_REFRESH_EVENT, this.refreshHandler)
+    this.renderer = createTickerRenderer(mountEl)
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    const selfClient = TickerClients.findOne({ _id: this.clientId, wallId: DEFAULT_TICKER_WALL_ID })
+    this.renderer.setDisplayMode(wall?.displayMode)
+    this.renderer.setTextRenderHeight(selfClient?.stackHeight ?? wall?.minClientHeight)
+    this.renderer.setSliceXStart(selfClient?.xStart ?? 0)
+    this.renderer.setSliceYStart(selfClient?.yStart ?? 0)
+    if (wall?.playing) {
+      this.renderer.setPlaying(wall.playing)
+    }
+
+    const syncServerTimeOffset = () => {
+      const t0 = Date.now()
+      Meteor.call("ticker.time", (error, serverTimeMs) => {
+        if (error || typeof serverTimeMs !== "number") {
+          return
+        }
+
+        const t1 = Date.now()
+        const rtt = t1 - t0
+        const estimatedServerNowAtT1 = serverTimeMs + (rtt / 2)
+        this.offsetMs = estimatedServerNowAtT1 - t1
+        this.renderer?.setServerOffset(this.offsetMs)
+      })
+    }
+
+    syncServerTimeOffset()
+    this.timeSyncIntervalId = Meteor.setInterval(syncServerTimeOffset, 5000)
+
+    Meteor.callAsync("ticker.join", {
+      wallId: DEFAULT_TICKER_WALL_ID,
+      clientId: this.clientId,
+      deviceKey: this.deviceKey,
+      shortCode: this.shortCode,
+      width: window.innerWidth,
+      height: window.innerHeight,
+      dpr: window.devicePixelRatio,
+      userAgent: navigator.userAgent,
+    })
+
+    this.heartbeatIntervalId = Meteor.setInterval(() => {
+      Meteor.callAsync("ticker.heartbeat", {
+        wallId: DEFAULT_TICKER_WALL_ID,
+        clientId: this.clientId,
+      })
+    }, TICKER_HEARTBEAT_MS)
+
+    this.handleResize = () => {
+      this.renderer?.resize()
+      Meteor.clearTimeout(this.resizeTimeout)
+      this.resizeTimeout = Meteor.setTimeout(() => {
+        Meteor.callAsync("ticker.updateSize", {
+          wallId: DEFAULT_TICKER_WALL_ID,
+          clientId: this.clientId,
+          width: window.innerWidth,
+          height: window.innerHeight,
+        })
+      }, 120)
+    }
+
+    window.addEventListener("resize", this.handleResize)
+
+    this.refreshHandler = (payload) => {
+      if (payload?.wallId && payload.wallId !== DEFAULT_TICKER_WALL_ID) {
+        return
+      }
+
+      window.location.reload()
+    }
+
+    streamer.on(TICKER_REFRESH_EVENT, this.refreshHandler)
+  })()
 
   this.autorun(() => {
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
@@ -440,6 +447,7 @@ Template.TickerPage.onRendered(function onRendered() {
 })
 
 Template.TickerPage.onDestroyed(function onDestroyed() {
+  this.isDestroyed = true
   window.removeEventListener("resize", this.handleResize)
   Meteor.clearTimeout(this.resizeTimeout)
   if (this.timeSyncIntervalId) {
