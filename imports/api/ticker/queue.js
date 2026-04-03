@@ -1,5 +1,14 @@
+import { Random } from "meteor/random"
+
+export const TICKER_ROW_COUNT = 6
+export const TICKER_ROW_STATE_IDLE = "idle"
+export const TICKER_ROW_STATE_PLAYING = "playing"
+export const TICKER_ROW_STATE_FLASHING = "flashing"
+export const TICKER_MACHINE_STATE_IDLE = "idle"
+export const TICKER_MACHINE_STATE_ACTIVE = "active"
+export const TICKER_MACHINE_STATE_OVERFLOW = "overflow"
+
 const queuesByWall = new Map()
-const playingByWall = new Map()
 
 function ensureQueue(wallId) {
   if (!queuesByWall.has(wallId)) {
@@ -9,10 +18,78 @@ function ensureQueue(wallId) {
   return queuesByWall.get(wallId)
 }
 
+function normalizeText(text) {
+  if (typeof text === "string") {
+    return text.trim()
+  }
+
+  if (text == null) {
+    return ""
+  }
+
+  return String(text).trim()
+}
+
+function normalizeDate(value, fallback = new Date()) {
+  const parsed = value ? new Date(value) : fallback
+  return Number.isNaN(parsed.getTime()) ? fallback : parsed
+}
+
+function normalizeQueueItem(item = {}) {
+  const text = normalizeText(item.text ?? item.body)
+  if (!text) {
+    return null
+  }
+
+  return {
+    id: item.id ?? Random.id(),
+    text,
+    sender: item.sender ?? item.phone ?? null,
+    receivedAt: normalizeDate(item.receivedAt).toISOString(),
+    enqueuedAt: normalizeDate(item.enqueuedAt).toISOString(),
+  }
+}
+
+export function createDefaultRowState(rowIndex) {
+  return {
+    rowIndex,
+    state: TICKER_ROW_STATE_IDLE,
+    playing: null,
+    flashUntilServerMs: null,
+    lastMessageId: null,
+    lastMessageText: null,
+    overflowFlashCount: 0,
+    updatedAt: new Date().toISOString(),
+  }
+}
+
+export function createDefaultMachineState() {
+  return {
+    machineState: TICKER_MACHINE_STATE_IDLE,
+    queuedCount: 0,
+    queuePreview: [],
+    totalEnqueued: 0,
+    totalDequeued: 0,
+    totalCompleted: 0,
+    overflowCount: 0,
+    lastEnqueuedAt: null,
+    lastDequeuedAt: null,
+    lastCompletedAt: null,
+    lastOverflowAt: null,
+    lastWorkerTickAt: null,
+    rows: Array.from({ length: TICKER_ROW_COUNT }, (_, rowIndex) => createDefaultRowState(rowIndex)),
+  }
+}
+
 export function enqueueTickerMessage(wallId, item) {
+  const normalized = normalizeQueueItem(item)
+  if (!normalized) {
+    return null
+  }
+
   const queue = ensureQueue(wallId)
-  queue.push(item)
-  return queue.length
+  queue.push(normalized)
+  return normalized
 }
 
 export function dequeueTickerMessage(wallId) {
@@ -27,17 +104,4 @@ export function getTickerQueueSnapshot(wallId) {
 
 export function clearTickerQueue(wallId) {
   queuesByWall.set(wallId, [])
-}
-
-export function getTickerPlaying(wallId) {
-  return playingByWall.get(wallId) ?? null
-}
-
-export function setTickerPlaying(wallId, playing) {
-  if (!playing) {
-    playingByWall.delete(wallId)
-    return
-  }
-
-  playingByWall.set(wallId, playing)
 }

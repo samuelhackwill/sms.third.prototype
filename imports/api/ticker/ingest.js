@@ -31,9 +31,14 @@ function normalizeRawRecord(record) {
 export async function ingestRawRecord(record, wallId = DEFAULT_TICKER_WALL_ID) {
   const item = normalizeRawRecord(record)
   if (!item) {
-    return { playedCount: 0 }
+    return { queuedCount: 0 }
   }
 
-  await Meteor.callAsync("ticker.playNow", { wallId, text: item.text })
-  return { playedCount: 1 }
+  await Meteor.callAsync("ticker.enqueueText", {
+    wallId,
+    text: item.text,
+    receivedAt: item.receivedAt,
+    messageId: item.id,
+  })
+  return { queuedCount: 1 }
 }

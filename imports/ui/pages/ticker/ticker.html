@@ -1,5 +1,8 @@
 <template name="TickerPage">
   <main class="relative isolate h-screen w-screen overflow-hidden bg-black text-white">
+    {{#if isRowInverted}}
+      <div class="pointer-events-none fixed inset-0 bg-red-600"></div>
+    {{/if}}
     <div id="tickerCanvasHost" class="fixed inset-0 h-screen w-screen"></div>
     {{#if isProvisioningMode}}
       <div class="pointer-events-none fixed inset-0 bg-red-600" style="animation: ticker-provisioning-blink 950ms ease-in-out infinite;"></div>
@@ -15,6 +18,10 @@
       <div class="pointer-events-none fixed left-3 top-3 rounded bg-black/60 px-2 py-1 font-mono text-9xl">
         <div>client: {{shortCode}}</div>
         <div>wall: {{wallId}}</div>
+        <div>row: {{rowIndex}}</div>
+        <div>rowState: {{rowStateLabel}}</div>
+        <div>machine: {{queueMachineState}}</div>
+        <div>queued: {{queuedCount}}</div>
         <div>xStart: {{xStart}}</div>
       </div>
     {{/if}}

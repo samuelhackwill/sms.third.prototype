@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto"
 
 import { Messages } from "/imports/api/messages/messages"
+import { ingestRawRecord as ingestTickerRawRecord } from "/imports/api/ticker/ingest"
 import { streamer } from "/imports/both/streamer"
 import { appendRawRecord } from "/imports/server/rawLog"
 
@@ -133,6 +134,17 @@ export async function ingestIncomingMessageRecord(record) {
       streamer.emit("stage.raw.spawn", { messages: [stageMessage] })
     } catch (error) {
       console.error("[messages.ingest] stage.raw.spawn emit failed", error)
+    }
+
+    try {
+      await ingestTickerRawRecord({
+        id: stageMessage.id,
+        text: stageMessage.body,
+        sender: stageMessage.phone,
+        receivedAt: stageMessage.receivedAt,
+      })
+    } catch (error) {
+      console.error("[messages.ingest] ticker enqueue failed", error)
     }
   }
 

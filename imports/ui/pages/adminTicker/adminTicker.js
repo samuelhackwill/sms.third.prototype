@@ -114,7 +114,12 @@ Template.AdminTickerPage.helpers({
   },
   playingText() {
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
-    return wall?.playing?.text ?? "none"
+    const rows = wall?.queueState?.rows ?? []
+    const activeRows = rows
+      .filter((row) => row?.playing?.text)
+      .map((row) => `r${row.rowIndex + 1}: ${row.playing.text}`)
+
+    return activeRows.length > 0 ? activeRows.join(" | ") : "none"
   },
   activeClientCount() {
     return TickerClients.find({ wallId: DEFAULT_TICKER_WALL_ID }).fetch().filter(isActiveClient).length
@@ -151,6 +156,32 @@ Template.AdminTickerPage.helpers({
   isDisplayModeVertical() {
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
     return wall?.displayMode === "vertical"
+  },
+  queueMachineState() {
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    return wall?.queueState?.machineState ?? "idle"
+  },
+  queueDepth() {
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    return wall?.queueState?.queuedCount ?? 0
+  },
+  tickerRows() {
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    const rows = wall?.queueState?.rows ?? []
+    const rowMetrics = wall?.rowMetrics ?? []
+
+    return rows.map((row) => {
+      const metrics = rowMetrics.find((candidate) => candidate.rowIndex === row.rowIndex)
+      return {
+        rowIndex: row.rowIndex,
+        rowNumber: row.rowIndex + 1,
+        state: row.state,
+        widthPx: metrics?.widthPx ?? 0,
+        activeClientCount: metrics?.activeClientCount ?? 0,
+        playingText: row?.playing?.text ?? "idle",
+        overflowFlashCount: row?.overflowFlashCount ?? 0,
+      }
+    })
   },
   provisioningRows() {
     const assignedClients = TickerClients.find(
@@ -254,7 +285,7 @@ Template.AdminTickerPage.events({
   },
   "click .js-send-random-text"(event) {
     event.preventDefault()
-    Meteor.callAsync("ticker.playNow", {
+    Meteor.callAsync("ticker.enqueueText", {
       wallId: DEFAULT_TICKER_WALL_ID,
       text: randomFrom(FAKE_MESSAGES),
     })
