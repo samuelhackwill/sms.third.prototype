@@ -1,0 +1,44 @@
+<template name="VideoPage">
+  <main class="relative h-screen w-screen overflow-hidden bg-black text-white">
+    <video
+      id="remoteVideoPlayer"
+      class="absolute inset-0 h-full w-full object-contain"
+      autoplay
+      muted
+      playsinline
+    ></video>
+
+    <div class="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/35 via-transparent to-black/55"></div>
+
+    <div class="absolute left-4 top-4 z-10 max-w-[min(42rem,92vw)] rounded-lg border border-white/10 bg-black/55 px-4 py-3 text-sm backdrop-blur-sm">
+      <div class="text-xs uppercase tracking-[0.18em] text-white/55">Video</div>
+      <div class="mt-1 break-all font-mono text-[11px] text-white/65">{{endpointLabel}}</div>
+      {{#if isLoading}}
+        <div class="mt-2 text-white/90">Loading clip…</div>
+      {{/if}}
+      {{#if errorMessage}}
+        <div class="mt-2 text-red-300">{{errorMessage}}</div>
+      {{/if}}
+      {{#if currentSource}}
+        <div class="mt-2 break-all text-white/75">{{currentSource}}</div>
+      {{/if}}
+    </div>
+
+    <div class="absolute bottom-4 right-4 z-10 flex gap-2">
+      <button
+        type="button"
+        class="rounded border border-white/15 bg-black/35 px-3 py-2 text-xs uppercase tracking-[0.18em] text-white/75 transition hover:bg-black/50 hover:text-white"
+        data-action="reload-video"
+      >
+        Reload
+      </button>
+      <button
+        type="button"
+        class="rounded border border-white/15 bg-black/35 px-3 py-2 text-xs uppercase tracking-[0.18em] text-white/75 transition hover:bg-black/50 hover:text-white"
+        data-action="toggle-mute"
+      >
+        {{muteButtonLabel}}
+      </button>
+    </div>
+  </main>
+</template>
