@@ -384,7 +384,7 @@ Template.TickerPage.onRendered(function onRendered() {
     this.renderer.setTextRenderHeight(selfClient?.stackHeight ?? wall?.minClientHeight)
     this.renderer.setSliceXStart(selfClient?.xStart ?? 0)
     this.renderer.setSliceYStart(selfClient?.yStart ?? 0)
-    this.renderer.setInverted(rowState?.state === "flashing")
+    this.renderer.setInverted(rowState?.isInverted)
     if (rowState?.playing) {
       this.renderer.setPlaying(rowState.playing)
     }
@@ -466,7 +466,7 @@ Template.TickerPage.onRendered(function onRendered() {
     const selfClient = TickerClients.findOne({ _id: this.clientId, wallId: DEFAULT_TICKER_WALL_ID })
     const rowState = findRowState(wall, selfClient?.rowIndex)
     this.renderer?.setDisplayMode(wall?.displayMode)
-    this.renderer?.setInverted(rowState?.state === "flashing")
+    this.renderer?.setInverted(rowState?.isInverted)
     if (!rowState?.playing) {
       this.renderer?.clearPlaying()
       return
@@ -557,7 +557,7 @@ Template.TickerPage.helpers({
     const instance = Template.instance()
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
     const doc = TickerClients.findOne({ _id: instance.clientId, wallId: DEFAULT_TICKER_WALL_ID })
-    return findRowState(wall, doc?.rowIndex)?.state === "flashing"
+    return Boolean(findRowState(wall, doc?.rowIndex)?.isInverted)
   },
 })
 

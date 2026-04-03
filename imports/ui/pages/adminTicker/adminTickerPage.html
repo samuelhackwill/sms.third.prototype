@@ -73,7 +73,7 @@
         <div><span class="font-semibold">provisioningEnabled:</span> {{wall.provisioningEnabled}}</div>
         <div><span class="font-semibold">queueMachineState:</span> {{queueMachineState}}</div>
         <div><span class="font-semibold">queueDepth:</span> {{queueDepth}}</div>
-        <div><span class="font-semibold">playing:</span> {{playingText}}</div>
+        <div><span class="font-semibold">playing:</span> {{playingSummary}}</div>
       </div>
     </section>
 
@@ -84,10 +84,11 @@
           <article class="rounded border border-slate-800 bg-slate-950 p-3 text-sm">
             <div class="font-semibold text-slate-100">Row {{rowNumber}}</div>
             <div class="mt-2 text-slate-400">state: <span class="text-slate-200">{{state}}</span></div>
+            <div class="text-slate-400">inverted: <span class="text-slate-200">{{isInverted}}</span></div>
             <div class="text-slate-400">widthPx: <span class="text-slate-200">{{widthPx}}</span></div>
             <div class="text-slate-400">activeClients: <span class="text-slate-200">{{activeClientCount}}</span></div>
             <div class="text-slate-400">overflowFlashes: <span class="text-slate-200">{{overflowFlashCount}}</span></div>
-            <div class="mt-2 truncate text-xs text-slate-500">{{playingText}}</div>
+            <div class="mt-2 truncate text-xs text-slate-500">{{rowContent}}</div>
           </article>
         {{/each}}
       </div>

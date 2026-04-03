@@ -3,7 +3,6 @@ import { Random } from "meteor/random"
 export const TICKER_ROW_COUNT = 6
 export const TICKER_ROW_STATE_IDLE = "idle"
 export const TICKER_ROW_STATE_PLAYING = "playing"
-export const TICKER_ROW_STATE_FLASHING = "flashing"
 export const TICKER_MACHINE_STATE_IDLE = "idle"
 export const TICKER_MACHINE_STATE_ACTIVE = "active"
 export const TICKER_MACHINE_STATE_OVERFLOW = "overflow"
@@ -54,8 +53,8 @@ export function createDefaultRowState(rowIndex) {
   return {
     rowIndex,
     state: TICKER_ROW_STATE_IDLE,
+    isInverted: false,
     playing: null,
-    flashUntilServerMs: null,
     lastMessageId: null,
     lastMessageText: null,
     overflowFlashCount: 0,

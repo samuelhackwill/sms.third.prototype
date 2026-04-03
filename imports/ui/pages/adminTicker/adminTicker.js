@@ -112,7 +112,7 @@ Template.AdminTickerPage.helpers({
       }
     })
   },
-  playingText() {
+  playingSummary() {
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
     const rows = wall?.queueState?.rows ?? []
     const activeRows = rows
@@ -176,9 +176,10 @@ Template.AdminTickerPage.helpers({
         rowIndex: row.rowIndex,
         rowNumber: row.rowIndex + 1,
         state: row.state,
+        isInverted: Boolean(row.isInverted),
         widthPx: metrics?.widthPx ?? 0,
         activeClientCount: metrics?.activeClientCount ?? 0,
-        playingText: row?.playing?.text ?? "idle",
+        rowContent: row?.playing?.text ?? "none",
         overflowFlashCount: row?.overflowFlashCount ?? 0,
       }
     })

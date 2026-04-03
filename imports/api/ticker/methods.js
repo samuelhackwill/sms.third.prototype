@@ -16,7 +16,6 @@ import {
   TICKER_MACHINE_STATE_IDLE,
   TICKER_MACHINE_STATE_OVERFLOW,
   TICKER_ROW_COUNT,
-  TICKER_ROW_STATE_FLASHING,
   TICKER_ROW_STATE_IDLE,
   TICKER_ROW_STATE_PLAYING,
 } from "/imports/api/ticker/queue"
@@ -31,7 +30,6 @@ const TICKER_DISPLAY_MODE_VERTICAL = "vertical"
 const TICKER_CLIENT_STALE_AFTER_MS = 30 * 1000
 const TICKER_REFRESH_EVENT = "ticker.refresh"
 const TICKER_WORKER_INTERVAL_MS = 250
-const TICKER_OVERFLOW_FLASH_MS = 900
 
 let tickerWorkerTimer = null
 let tickerWorkerInFlight = false
@@ -60,10 +58,8 @@ function normalizeRowState(row, rowIndex) {
     ...row,
     rowIndex,
     state: row?.state ?? defaults.state,
+    isInverted: Boolean(row?.isInverted),
     playing: row?.playing ?? null,
-    flashUntilServerMs: Number.isFinite(Number(row?.flashUntilServerMs))
-      ? Number(row.flashUntilServerMs)
-      : null,
     overflowFlashCount: Number(row?.overflowFlashCount) || 0,
   }
 }
@@ -87,7 +83,7 @@ function normalizeMachineState(queueState) {
 }
 
 function machineStateForRows(rows, queuedCount) {
-  if (rows.some((row) => row.state === TICKER_ROW_STATE_FLASHING)) {
+  if (rows.some((row) => row.isInverted)) {
     return TICKER_MACHINE_STATE_OVERFLOW
   }
 
@@ -431,7 +427,6 @@ async function triggerOverflowFlash(wallId, queueState) {
   }
 
   const selectedRow = busyRows[Math.floor(Math.random() * busyRows.length)]
-  const flashUntilServerMs = Date.now() + TICKER_OVERFLOW_FLASH_MS
   const nowIso = new Date().toISOString()
 
   return updateWallQueueState(wallId, (current) => ({
@@ -441,8 +436,7 @@ async function triggerOverflowFlash(wallId, queueState) {
     rows: current.rows.map((row) => row.rowIndex === selectedRow.rowIndex
       ? {
         ...row,
-        state: TICKER_ROW_STATE_FLASHING,
-        flashUntilServerMs,
+        isInverted: !row.isInverted,
         overflowFlashCount: Number(row.overflowFlashCount) + 1,
         updatedAt: nowIso,
       }
@@ -482,7 +476,6 @@ async function assignQueuedMessagesToFreeRows(wallId, queueState, wall) {
           ...currentRow,
           state: TICKER_ROW_STATE_PLAYING,
           playing,
-          flashUntilServerMs: null,
           lastMessageId: queued.id,
           lastMessageText: queued.text,
           updatedAt: nowIso,
@@ -518,22 +511,11 @@ async function runTickerWorkerCycle(wallId = DEFAULT_TICKER_WALL_ID, { cause = "
   const rows = queueState.rows.map((row) => {
     let nextRow = { ...row }
 
-    if (nextRow.state === TICKER_ROW_STATE_FLASHING && Number(nextRow.flashUntilServerMs) <= nowMs) {
-      nextRow = {
-        ...nextRow,
-        state: nextRow.playing ? TICKER_ROW_STATE_PLAYING : TICKER_ROW_STATE_IDLE,
-        flashUntilServerMs: null,
-        updatedAt: nowIso,
-      }
-      didChange = true
-    }
-
     if (nextRow.playing && Number(nextRow.playing.completedAtServerMs) <= nowMs) {
       nextRow = {
         ...nextRow,
         state: TICKER_ROW_STATE_IDLE,
         playing: null,
-        flashUntilServerMs: null,
         updatedAt: nowIso,
       }
       didChange = true
