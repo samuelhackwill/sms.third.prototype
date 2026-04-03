@@ -94,6 +94,14 @@ Template.adminStage.onCreated(function onCreated() {
   })
 })
 
+Template.adminStage.onRendered(function onRendered() {
+  document.body.classList.add("admin-page")
+})
+
+Template.adminStage.onDestroyed(function onDestroyed() {
+  document.body.classList.remove("admin-page")
+})
+
 Template.adminStage.events({
   'click [data-action="send-1"]'(event, instance) {
     event.preventDefault()

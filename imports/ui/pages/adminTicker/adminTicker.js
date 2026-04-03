@@ -41,6 +41,8 @@ Template.AdminTickerPage.onCreated(function onCreated() {
 })
 
 Template.AdminTickerPage.onRendered(function onRendered() {
+  document.body.classList.add("admin-page")
+
   const panel = this.find("#clientsPanel")
   const updatePanelWidth = () => {
     if (!panel) {
@@ -56,6 +58,8 @@ Template.AdminTickerPage.onRendered(function onRendered() {
 })
 
 Template.AdminTickerPage.onDestroyed(function onDestroyed() {
+  document.body.classList.remove("admin-page")
+
   if (this.updatePanelWidth) {
     window.removeEventListener("resize", this.updatePanelWidth)
   }
