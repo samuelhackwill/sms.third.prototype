@@ -7,7 +7,9 @@ import {
   TickerClients,
   TickerWalls,
 } from "/imports/api/ticker/collections"
+import { streamer } from "/imports/both/streamer"
 import { FAKE_MESSAGES } from "/imports/ui/pages/stage/stageTestData"
+import { VIDEO_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/video/videoEvents"
 import "/imports/ui/pages/adminTicker/adminTickerPage.html"
 
 const PROVISIONING_ROWS = 6
@@ -251,6 +253,13 @@ Template.AdminTickerPage.events({
     Meteor.callAsync("ticker.playNow", {
       wallId: DEFAULT_TICKER_WALL_ID,
       text: randomFrom(FAKE_MESSAGES),
+    })
+  },
+  "click .js-move-ticker-clients-to-video"(event) {
+    event.preventDefault()
+    streamer.emit(VIDEO_ROUTE_CONTROL_EVENT, {
+      from: "ticker",
+      target: "video",
     })
   },
   "click .js-toggle-provisioning"(event, instance) {

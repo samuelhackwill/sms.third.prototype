@@ -9,6 +9,8 @@ import {
 } from "/imports/api/ticker/collections"
 import "/imports/api/ticker/methods"
 import { streamer } from "/imports/both/streamer"
+import { FlowRouter } from "meteor/ostrio:flow-router-extra"
+import { VIDEO_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/video/videoEvents"
 import "./ticker.html"
 
 const FONT_FILL = 0xff0000
@@ -328,6 +330,7 @@ Template.TickerPage.onCreated(function onCreated() {
   this.offsetMs = 0
   this.renderer = null
   this.refreshHandler = null
+  this.routeControlHandler = null
   this.isDestroyed = false
 
   this.autorun(() => {
@@ -424,7 +427,17 @@ Template.TickerPage.onRendered(function onRendered() {
       window.location.reload()
     }
 
-    streamer.on(TICKER_REFRESH_EVENT, this.refreshHandler)
+  streamer.on(TICKER_REFRESH_EVENT, this.refreshHandler)
+
+    this.routeControlHandler = (payload) => {
+      if (!payload || payload.from !== "ticker" || payload.target !== "video") {
+        return
+      }
+
+      FlowRouter.go("/video")
+    }
+
+    streamer.on(VIDEO_ROUTE_CONTROL_EVENT, this.routeControlHandler)
   })()
 
   this.autorun(() => {
@@ -459,6 +472,10 @@ Template.TickerPage.onDestroyed(function onDestroyed() {
   if (this.refreshHandler) {
     streamer.removeListener(TICKER_REFRESH_EVENT, this.refreshHandler)
     this.refreshHandler = null
+  }
+  if (this.routeControlHandler) {
+    streamer.removeListener(VIDEO_ROUTE_CONTROL_EVENT, this.routeControlHandler)
+    this.routeControlHandler = null
   }
   this.renderer?.destroy()
   this.renderer = null
