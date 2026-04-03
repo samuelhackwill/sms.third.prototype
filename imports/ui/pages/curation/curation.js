@@ -20,6 +20,14 @@ Template.CurationPage.onCreated(function onCreated() {
   })
 })
 
+Template.CurationPage.onRendered(function onRendered() {
+  document.body.classList.add("admin-page")
+})
+
+Template.CurationPage.onDestroyed(function onDestroyed() {
+  document.body.classList.remove("admin-page")
+})
+
 Template.CurationPage.helpers({
   messages() {
     const instance = Template.instance()

@@ -1,17 +1,17 @@
 <template name="CurationPage">
-  <main class="mx-auto max-w-7xl p-6 font-sans">
-    <h1 class="text-2xl font-semibold">Curation</h1>
-    <p class="mt-2 text-sm text-slate-600">Review all ingested messages, set status, and delete records.</p>
+  <main class="mx-auto min-h-screen max-w-7xl bg-slate-950 px-6 py-8 font-sans text-slate-100">
+    <h1 class="text-2xl font-semibold text-slate-50">Curation</h1>
+    <p class="mt-2 text-sm text-slate-400">Review all ingested messages, set status, and delete records.</p>
 
-    <section class="mt-6 rounded border border-slate-300 bg-slate-50 p-4">
+    <section class="mt-6 rounded border border-slate-800 bg-slate-900/80 p-4">
       <div class="flex flex-wrap items-center justify-between gap-3">
-        <div class="text-sm text-slate-700">
+        <div class="text-sm text-slate-300">
           <span class="font-semibold">Messages:</span> {{messageCount}}
           <span class="ml-4 font-semibold">Selected:</span> {{selectedCount}}
         </div>
         <div class="flex flex-wrap items-center gap-2">
           <select
-            class="rounded border border-slate-300 bg-white px-3 py-2 text-sm"
+            class="rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
             data-action="bulk-action"
           >
             <option value="" selected={{isBulkActionSelected ''}}>Bulk action</option>
@@ -21,7 +21,7 @@
           </select>
           <button
             type="button"
-            class="rounded border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-100"
+            class="rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 hover:bg-slate-700"
             data-action="apply-bulk-action"
           >
             Apply
@@ -30,8 +30,8 @@
       </div>
     </section>
 
-    <section class="mt-4 rounded border border-slate-300 bg-white">
-      <div class="border-b border-slate-200 px-4 py-3 text-sm text-slate-600">
+    <section class="mt-4 rounded border border-slate-800 bg-slate-950">
+      <div class="border-b border-slate-800 px-4 py-3 text-sm text-slate-400">
         <label class="inline-flex items-center gap-2">
           <input type="checkbox" data-action="select-all" />
           <span>Select all visible messages</span>
@@ -39,7 +39,7 @@
       </div>
 
       {{#if hasMessages}}
-        <div class="divide-y divide-slate-200">
+        <div class="divide-y divide-slate-800">
           {{#each messages}}
             <article class="grid gap-3 px-4 py-4 md:grid-cols-[auto_1fr_auto_auto] md:items-start">
               <label class="pt-1">
@@ -53,19 +53,19 @@
 
               <div>
                 <div class="text-sm text-slate-500">
-                  <span class="font-medium text-slate-800">{{sender}}</span>
+                  <span class="font-medium text-slate-200">{{sender}}</span>
                   <span class="mx-2">·</span>
                   <span>{{receivedAtLabel}}</span>
                   <span class="mx-2">·</span>
                   <span>{{source}}</span>
                 </div>
-                <p class="mt-2 whitespace-pre-wrap break-words text-sm text-slate-900">{{body}}</p>
+                <p class="mt-2 whitespace-pre-wrap break-words text-sm text-slate-100">{{body}}</p>
               </div>
 
               <label class="block">
                 <span class="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">Status</span>
                 <select
-                  class="rounded border border-slate-300 bg-white px-3 py-2 text-sm"
+                  class="rounded border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-100"
                   data-action="message-status"
                   data-message-id="{{id}}"
                 >
@@ -81,7 +81,7 @@
               <div class="pt-6">
                 <button
                   type="button"
-                  class="rounded border border-red-300 bg-white px-3 py-2 text-sm text-red-700 hover:bg-red-50"
+                  class="rounded border border-red-900 bg-slate-900 px-3 py-2 text-sm text-red-300 hover:bg-red-950"
                   data-action="delete-message"
                   data-message-id="{{id}}"
                 >
