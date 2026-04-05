@@ -21,6 +21,7 @@ const BITMAP_FONT_BASE_SIZE = 192
 const BITMAP_FONT_CALIBRATION_TEXT = "HpxgylA"
 const TICKER_BASELINE_LIFT_PX = 150
 const TICKER_TEXT_SCALE_FACTOR = 0.88
+const TICKER_SPAWN_OFFSET_PX = 150
 const SESSION_CLIENT_ID_KEY = "clientId"
 const LEGACY_SESSION_CLIENT_ID_KEY = "ticker.clientId"
 const LOCAL_STORAGE_CLIENT_ID_KEY = "ticker.clientId"
@@ -219,7 +220,7 @@ function createTickerRenderer(mountEl) {
     const serverNowMs = Date.now() + offsetMs
     const tSec = Math.max(0, (serverNowMs - playing.startedAtServerMs) / 1000)
     const scrollX = tSec * playing.speedPxPerSec
-    const textWorldX = playing.rowWidthPx - scrollX
+    const textWorldX = playing.rowWidthPx + TICKER_SPAWN_OFFSET_PX - scrollX
     textDisplay.x = textWorldX - xStart
   }
 
