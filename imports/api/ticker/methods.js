@@ -28,10 +28,9 @@ const TICKER_DISPLAY_MODE_WALL = "wall"
 const TICKER_DISPLAY_MODE_VERTICAL = "vertical"
 const TICKER_CLIENT_STALE_AFTER_MS = 30 * 1000
 const TICKER_REFRESH_EVENT = "ticker.refresh"
-const TICKER_WORKER_INTERVAL_MS = 250
 
-let tickerWorkerTimer = null
-let tickerWorkerInFlight = false
+const rowCompletionTimersByWall = new Map()
+const wallOperationChains = new Map()
 
 function isActiveClient(client, nowMs = Date.now()) {
   const lastSeenAtMs = new Date(client?.lastSeenAt).getTime()
@@ -48,6 +47,38 @@ function withServer(fn) {
   }
 
   return fn()
+}
+
+function ensureWallTimerMap(wallId) {
+  if (!rowCompletionTimersByWall.has(wallId)) {
+    rowCompletionTimersByWall.set(wallId, new Map())
+  }
+
+  return rowCompletionTimersByWall.get(wallId)
+}
+
+function clearRowCompletionTimer(wallId, rowIndex) {
+  const timers = rowCompletionTimersByWall.get(wallId)
+  const timer = timers?.get(rowIndex)
+  if (timer) {
+    Meteor.clearTimeout(timer)
+    timers.delete(rowIndex)
+  }
+}
+
+function enqueueWallOperation(wallId, operation) {
+  const previous = wallOperationChains.get(wallId) ?? Promise.resolve()
+  const next = previous
+    .catch(() => {})
+    .then(operation)
+
+  wallOperationChains.set(wallId, next)
+
+  return next.finally(() => {
+    if (wallOperationChains.get(wallId) === next) {
+      wallOperationChains.delete(wallId)
+    }
+  })
 }
 
 function normalizeRowState(row, rowIndex) {
@@ -363,7 +394,6 @@ async function updateWallQueueState(wallId, mutate, extraSet = {}) {
   nextQueueState.queuedCount = getTickerQueueSnapshot(wallId).length
   nextQueueState.queuePreview = getTickerQueueSnapshot(wallId).slice(0, 5)
   nextQueueState.machineState = machineStateForRows(nextQueueState.rows, nextQueueState.queuedCount)
-  nextQueueState.lastWorkerTickAt = nextQueueState.lastWorkerTickAt ?? null
 
   await TickerWalls.updateAsync(
     { _id: wallId },
@@ -377,6 +407,74 @@ async function updateWallQueueState(wallId, mutate, extraSet = {}) {
   )
 
   return nextQueueState
+}
+
+async function completeRowRun(wallId, rowIndex, runId) {
+  const shouldAssign = await enqueueWallOperation(wallId, async () => {
+    clearRowCompletionTimer(wallId, rowIndex)
+
+    const wall = await ensureWall(wallId)
+    const queueState = normalizeMachineState(wall.queueState)
+    const row = queueState.rows[rowIndex]
+
+    if (!row?.playing || row.playing.runId !== runId) {
+      return false
+    }
+
+    const nowIso = new Date().toISOString()
+    const nextQueueState = normalizeMachineState({
+      ...queueState,
+      totalCompleted: Number(queueState.totalCompleted) + 1,
+      lastCompletedAt: nowIso,
+      rows: queueState.rows.map((currentRow) => currentRow.rowIndex === rowIndex
+        ? {
+          ...currentRow,
+          state: TICKER_ROW_STATE_IDLE,
+          playing: null,
+          updatedAt: nowIso,
+        }
+        : currentRow),
+    })
+    nextQueueState.queuedCount = getTickerQueueSnapshot(wallId).length
+    nextQueueState.queuePreview = getTickerQueueSnapshot(wallId).slice(0, 5)
+    nextQueueState.machineState = machineStateForRows(nextQueueState.rows, nextQueueState.queuedCount)
+
+    await TickerWalls.updateAsync(
+      { _id: wallId },
+      {
+        $set: {
+          queueState: nextQueueState,
+          updatedAt: new Date(),
+        },
+      },
+    )
+
+    return true
+  })
+
+  if (shouldAssign) {
+    return assignQueuedMessagesToFreeRows(wallId)
+  }
+
+  return null
+}
+
+function scheduleRowCompletion(wallId, rowIndex, playing) {
+  if (!playing?.runId) {
+    return
+  }
+
+  clearRowCompletionTimer(wallId, rowIndex)
+
+  const delayMs = Math.max(0, Number(playing.completedAtServerMs) - Date.now())
+  const timers = ensureWallTimerMap(wallId)
+  const timer = Meteor.setTimeout(() => {
+    completeRowRun(wallId, rowIndex, playing.runId).catch((error) => {
+      console.error("[ticker] row completion failed", { wallId, rowIndex, runId: playing.runId, error })
+    })
+  }, delayMs)
+
+  timers.set(rowIndex, timer)
 }
 
 async function enqueueTextInternal({ wallId = DEFAULT_TICKER_WALL_ID, text, sender = null, receivedAt = null, messageId = null } = {}) {
@@ -403,7 +501,7 @@ async function enqueueTextInternal({ wallId = DEFAULT_TICKER_WALL_ID, text, send
     lastEnqueuedAt: nowIso,
   }))
 
-  await runTickerWorkerCycle(wallId, { cause: "enqueue" })
+  await assignQueuedMessagesToFreeRows(wallId)
 
   return {
     ok: true,
@@ -412,158 +510,92 @@ async function enqueueTextInternal({ wallId = DEFAULT_TICKER_WALL_ID, text, send
   }
 }
 
-async function assignQueuedMessagesToFreeRows(wallId, queueState, wall) {
-  let nextQueueState = queueState
-  const nowIso = new Date().toISOString()
+async function assignQueuedMessagesToFreeRows(wallId = DEFAULT_TICKER_WALL_ID) {
+  return enqueueWallOperation(wallId, async () => {
+    const wall = await ensureWall(wallId)
+    let nextQueueState = normalizeMachineState(wall.queueState)
+    const nowIso = new Date().toISOString()
+    const scheduledRuns = []
 
-  for (const row of nextQueueState.rows) {
-    if (row.state !== TICKER_ROW_STATE_IDLE) {
-      continue
-    }
-
-    const queued = dequeueTickerMessage(wallId)
-    if (!queued) {
-      break
-    }
-
-    const runId = Random.id()
-    const playing = {
-      messageId: queued.id,
-      sender: queued.sender ?? null,
-      receivedAt: queued.receivedAt,
-      enqueuedAt: queued.enqueuedAt,
-      ...computeRunTiming({ wall, rowIndex: row.rowIndex, text: queued.text, runId }),
-    }
-
-    nextQueueState = normalizeMachineState({
-      ...nextQueueState,
-      totalDequeued: Number(nextQueueState.totalDequeued) + 1,
-      lastDequeuedAt: nowIso,
-      rows: nextQueueState.rows.map((currentRow) => currentRow.rowIndex === row.rowIndex
-        ? {
-          ...currentRow,
-          state: TICKER_ROW_STATE_PLAYING,
-          playing,
-          lastMessageId: queued.id,
-          lastMessageText: queued.text,
-          updatedAt: nowIso,
-        }
-        : currentRow),
-    })
-  }
-
-  nextQueueState.queuedCount = getTickerQueueSnapshot(wallId).length
-  nextQueueState.queuePreview = getTickerQueueSnapshot(wallId).slice(0, 5)
-  nextQueueState.machineState = machineStateForRows(nextQueueState.rows, nextQueueState.queuedCount)
-
-  await TickerWalls.updateAsync(
-    { _id: wallId },
-    {
-      $set: {
-        queueState: nextQueueState,
-        updatedAt: new Date(),
-      },
-    },
-  )
-
-  return nextQueueState
-}
-
-async function runTickerWorkerCycle(wallId = DEFAULT_TICKER_WALL_ID, { cause = "tick" } = {}) {
-  const wall = await ensureWall(wallId)
-  let queueState = normalizeMachineState(wall.queueState)
-  const nowMs = Date.now()
-  const nowIso = new Date(nowMs).toISOString()
-
-  let didChange = false
-  const rows = queueState.rows.map((row) => {
-    let nextRow = { ...row }
-
-    if (nextRow.playing && Number(nextRow.playing.completedAtServerMs) <= nowMs) {
-      nextRow = {
-        ...nextRow,
-        state: TICKER_ROW_STATE_IDLE,
-        playing: null,
-        updatedAt: nowIso,
+    for (const row of nextQueueState.rows) {
+      if (row.state !== TICKER_ROW_STATE_IDLE) {
+        continue
       }
-      didChange = true
+
+      const queued = dequeueTickerMessage(wallId)
+      if (!queued) {
+        break
+      }
+
+      const runId = Random.id()
+      const playing = {
+        messageId: queued.id,
+        sender: queued.sender ?? null,
+        receivedAt: queued.receivedAt,
+        enqueuedAt: queued.enqueuedAt,
+        ...computeRunTiming({ wall, rowIndex: row.rowIndex, text: queued.text, runId }),
+      }
+
+      scheduledRuns.push({ rowIndex: row.rowIndex, playing })
+
+      nextQueueState = normalizeMachineState({
+        ...nextQueueState,
+        totalDequeued: Number(nextQueueState.totalDequeued) + 1,
+        lastDequeuedAt: nowIso,
+        rows: nextQueueState.rows.map((currentRow) => currentRow.rowIndex === row.rowIndex
+          ? {
+            ...currentRow,
+            state: TICKER_ROW_STATE_PLAYING,
+            playing,
+            lastMessageId: queued.id,
+            lastMessageText: queued.text,
+            updatedAt: nowIso,
+          }
+          : currentRow),
+      })
     }
 
-    return nextRow
+    nextQueueState.queuedCount = getTickerQueueSnapshot(wallId).length
+    nextQueueState.queuePreview = getTickerQueueSnapshot(wallId).slice(0, 5)
+    nextQueueState.machineState = machineStateForRows(nextQueueState.rows, nextQueueState.queuedCount)
+
+    await TickerWalls.updateAsync(
+      { _id: wallId },
+      {
+        $set: {
+          queueState: nextQueueState,
+          updatedAt: new Date(),
+        },
+      },
+    )
+
+    for (const { rowIndex, playing } of scheduledRuns) {
+      scheduleRowCompletion(wallId, rowIndex, playing)
+    }
+
+    return nextQueueState
   })
-
-  if (didChange) {
-    queueState = normalizeMachineState({
-      ...queueState,
-      rows,
-      totalCompleted: Number(queueState.totalCompleted) + rows.filter((row, index) => queueState.rows[index].playing && !row.playing).length,
-      lastCompletedAt: nowIso,
-    })
-  } else {
-    queueState = normalizeMachineState({
-      ...queueState,
-      rows,
-    })
-  }
-
-  queueState.lastWorkerTickAt = nowIso
-  queueState.queuedCount = getTickerQueueSnapshot(wallId).length
-  queueState.queuePreview = getTickerQueueSnapshot(wallId).slice(0, 5)
-
-  const freeRows = queueState.rows.filter((row) => row.state === TICKER_ROW_STATE_IDLE)
-
-  if (freeRows.length > 0 && queueState.queuedCount > 0) {
-    await TickerWalls.updateAsync(
-      { _id: wallId },
-      {
-        $set: {
-          queueState: queueState,
-          updatedAt: new Date(),
-        },
-      },
-    )
-    queueState = await assignQueuedMessagesToFreeRows(wallId, queueState, wall)
-  } else {
-    queueState.machineState = machineStateForRows(queueState.rows, queueState.queuedCount)
-    await TickerWalls.updateAsync(
-      { _id: wallId },
-      {
-        $set: {
-          queueState,
-          updatedAt: new Date(),
-        },
-      },
-    )
-  }
-
-  return queueState
 }
 
-function startTickerWorker() {
-  if (!Meteor.isServer || tickerWorkerTimer) {
-    return
-  }
+async function initializeTickerCompletionTimers() {
+  const walls = await TickerWalls.find({}, { fields: { _id: 1, queueState: 1 } }).fetchAsync()
 
-  tickerWorkerTimer = Meteor.setInterval(async () => {
-    if (tickerWorkerInFlight) {
-      return
-    }
+  for (const wall of walls) {
+    const queueState = normalizeMachineState(wall.queueState)
+    const activeRows = queueState.rows.filter((row) => row.state === TICKER_ROW_STATE_PLAYING && row.playing)
 
-    tickerWorkerInFlight = true
-
-    try {
-      const walls = await TickerWalls.find({}, { fields: { _id: 1 } }).fetchAsync()
-      const wallIds = walls.length > 0 ? walls.map((wall) => wall._id) : [DEFAULT_TICKER_WALL_ID]
-
-      for (const wallId of wallIds) {
-        await runTickerWorkerCycle(wallId)
+    for (const row of activeRows) {
+      if (Number(row.playing.completedAtServerMs) <= Date.now()) {
+        await completeRowRun(wall._id, row.rowIndex, row.playing.runId)
+      } else {
+        scheduleRowCompletion(wall._id, row.rowIndex, row.playing)
       }
-    } catch (error) {
-      console.error("[ticker.worker] tick failed", error)
-    } finally {
-      tickerWorkerInFlight = false
     }
-  }, TICKER_WORKER_INTERVAL_MS)
+
+    if (getTickerQueueSnapshot(wall._id).length > 0) {
+      await assignQueuedMessagesToFreeRows(wall._id)
+    }
+  }
 }
 
 Meteor.methods({
@@ -628,7 +660,6 @@ Meteor.methods({
       }
 
       await recomputeLayout(wallId)
-      await runTickerWorkerCycle(wallId)
       return { ok: true }
     })
   },
@@ -652,7 +683,6 @@ Meteor.methods({
       )
 
       await recomputeLayout(wallId)
-      await runTickerWorkerCycle(wallId)
       return { ok: true }
     })
   },
@@ -687,7 +717,6 @@ Meteor.methods({
       }
 
       await recomputeLayout(wallId)
-      await runTickerWorkerCycle(wallId)
       return { ok: true }
     })
   },
@@ -740,7 +769,6 @@ Meteor.methods({
       )
 
       await recomputeLayout(wallId)
-      await runTickerWorkerCycle(wallId)
       return { ok: true, slotIndex: nextSlotIndex, alreadyAssigned: false }
     })
   },
@@ -801,7 +829,6 @@ Meteor.methods({
         },
       )
 
-      await runTickerWorkerCycle(wallId)
       return { ok: true, speedPxPerSec: speed }
     })
   },
@@ -832,7 +859,6 @@ Meteor.methods({
       )
 
       await recomputeLayout(wallId)
-      await runTickerWorkerCycle(wallId)
       return { ok: true, displayMode: normalizedDisplayMode }
     })
   },
@@ -891,16 +917,10 @@ Meteor.methods({
     return withServer(async () => {
       await ensureWall(wallId)
       clearTickerQueue(wallId)
-
-      await TickerWalls.updateAsync(
-        { _id: wallId },
-        {
-          $set: {
-            queueState: createDefaultMachineState(),
-            updatedAt: new Date(),
-          },
-        },
-      )
+      const queueState = await updateWallQueueState(wallId, () => createDefaultMachineState())
+      for (const row of queueState.rows) {
+        clearRowCompletionTimer(wallId, row.rowIndex)
+      }
 
       return { ok: true }
     })
@@ -914,7 +934,6 @@ Meteor.methods({
 
       await TickerClients.removeAsync({ _id: clientId, wallId })
       await recomputeLayout(wallId)
-      await runTickerWorkerCycle(wallId)
       return { ok: true }
     })
   },
@@ -923,7 +942,6 @@ Meteor.methods({
     return withServer(async () => {
       await TickerClients.removeAsync({ wallId })
       await recomputeLayout(wallId)
-      await runTickerWorkerCycle(wallId)
       return { ok: true }
     })
   },
@@ -933,6 +951,9 @@ Meteor.methods({
       await ensureWall(wallId)
 
       clearTickerQueue(wallId)
+      for (let rowIndex = 0; rowIndex < TICKER_ROW_COUNT; rowIndex += 1) {
+        clearRowCompletionTimer(wallId, rowIndex)
+      }
       await TickerClients.removeAsync({ wallId })
       await TickerWalls.updateAsync(
         { _id: wallId },
@@ -967,6 +988,8 @@ Meteor.methods({
 
 if (Meteor.isServer) {
   Meteor.startup(() => {
-    startTickerWorker()
+    initializeTickerCompletionTimers().catch((error) => {
+      console.error("[ticker] timer initialization failed", error)
+    })
   })
 }
