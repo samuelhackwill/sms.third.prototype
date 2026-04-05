@@ -157,6 +157,14 @@ Template.AdminTickerPage.helpers({
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
     return wall?.displayMode === "vertical"
   },
+  isRendererModeBitmap() {
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    return (wall?.rendererMode ?? "bitmap") === "bitmap"
+  },
+  isRendererModeText() {
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    return wall?.rendererMode === "text"
+  },
   queueMachineState() {
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
     return wall?.queueState?.machineState ?? "idle"
@@ -318,6 +326,13 @@ Template.AdminTickerPage.events({
     Meteor.callAsync("ticker.setDisplayMode", {
       wallId: DEFAULT_TICKER_WALL_ID,
       displayMode,
+    })
+  },
+  "change input[name='tickerRendererMode']"(event) {
+    const rendererMode = event.currentTarget.value
+    Meteor.callAsync("ticker.setRendererMode", {
+      wallId: DEFAULT_TICKER_WALL_ID,
+      rendererMode,
     })
   },
   "click .js-panic-stop"(event) {

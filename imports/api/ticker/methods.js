@@ -23,6 +23,8 @@ import { streamer } from "/imports/both/streamer"
 const DEFAULT_TICKER_SPEED_PX_PER_SEC = 120
 const START_RUN_DELAY_MS = 800
 const TICKER_PROVISIONING_SLOT_COUNT = 30
+const TICKER_RENDERER_MODE_BITMAP = "bitmap"
+const TICKER_RENDERER_MODE_TEXT = "text"
 const TICKER_DISPLAY_MODE_CHORUS = "chorus"
 const TICKER_DISPLAY_MODE_WALL = "wall"
 const TICKER_DISPLAY_MODE_VERTICAL = "vertical"
@@ -47,6 +49,12 @@ function withServer(fn) {
   }
 
   return fn()
+}
+
+function normalizeRendererMode(rendererMode) {
+  return rendererMode === TICKER_RENDERER_MODE_TEXT
+    ? TICKER_RENDERER_MODE_TEXT
+    : TICKER_RENDERER_MODE_BITMAP
 }
 
 function ensureWallTimerMap(wallId) {
@@ -182,6 +190,9 @@ async function ensureWall(wallId = DEFAULT_TICKER_WALL_ID) {
     if (typeof existing.showDebug !== "boolean") {
       patch.showDebug = true
     }
+    if (!existing.rendererMode) {
+      patch.rendererMode = TICKER_RENDERER_MODE_BITMAP
+    }
     if (!Number.isFinite(existing.renderHeightPx)) {
       patch.renderHeightPx = Number(existing.minClientHeight) || 0
     }
@@ -216,6 +227,7 @@ async function ensureWall(wallId = DEFAULT_TICKER_WALL_ID) {
     totalWallWidth: 0,
     minClientHeight: 0,
     speedPxPerSec: DEFAULT_TICKER_SPEED_PX_PER_SEC,
+    rendererMode: TICKER_RENDERER_MODE_BITMAP,
     displayMode: TICKER_DISPLAY_MODE_CHORUS,
     provisioningEnabled: false,
     showDebug: true,
@@ -863,6 +875,25 @@ Meteor.methods({
     })
   },
 
+  async "ticker.setRendererMode"({ wallId = DEFAULT_TICKER_WALL_ID, rendererMode } = {}) {
+    return withServer(async () => {
+      const normalizedRendererMode = normalizeRendererMode(rendererMode)
+
+      await ensureWall(wallId)
+      await TickerWalls.updateAsync(
+        { _id: wallId },
+        {
+          $set: {
+            rendererMode: normalizedRendererMode,
+            updatedAt: new Date(),
+          },
+        },
+      )
+
+      return { ok: true, rendererMode: normalizedRendererMode }
+    })
+  },
+
   async "ticker.setProvisioningEnabled"({ wallId = DEFAULT_TICKER_WALL_ID, enabled } = {}) {
     return withServer(async () => {
       await ensureWall(wallId)
@@ -970,6 +1001,7 @@ Meteor.methods({
             })),
             queueState: createDefaultMachineState(),
             highlightClientId: null,
+            rendererMode: TICKER_RENDERER_MODE_BITMAP,
             displayMode: TICKER_DISPLAY_MODE_CHORUS,
             provisioningEnabled: false,
             showDebug: true,

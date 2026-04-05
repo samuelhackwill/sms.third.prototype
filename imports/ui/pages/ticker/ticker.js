@@ -15,6 +15,7 @@ import "./ticker.html"
 
 const FONT_FILL_DEFAULT = 0xff0000
 const BACKGROUND_DEFAULT = 0x000000
+const TEXT_FONT_FAMILY = "Georgia, 'Times New Roman', serif"
 const BITMAP_FONT_NAME = "LibreBaskerville-Regular"
 const BITMAP_FONT_URL = "/fonts/ticker-msdf/LibreBaskerville-Regular.fnt"
 const BITMAP_FONT_BASE_SIZE = 192
@@ -22,6 +23,8 @@ const BITMAP_FONT_CALIBRATION_TEXT = "HpxgylA"
 const TICKER_BASELINE_LIFT_PX = 150
 const TICKER_TEXT_SCALE_FACTOR = 0.88
 const TICKER_SPAWN_OFFSET_PX = 150
+const TICKER_RENDERER_MODE_BITMAP = "bitmap"
+const TICKER_RENDERER_MODE_TEXT = "text"
 const SESSION_CLIENT_ID_KEY = "clientId"
 const LEGACY_SESSION_CLIENT_ID_KEY = "ticker.clientId"
 const LOCAL_STORAGE_CLIENT_ID_KEY = "ticker.clientId"
@@ -30,6 +33,12 @@ const TICKER_REFRESH_EVENT = "ticker.refresh"
 const TICKER_HEARTBEAT_MS = 5 * 1000
 const TICKER_DISPLAY_MODE_VERTICAL = "vertical"
 let tickerFontLoadPromise = null
+
+function normalizeRendererMode(rendererMode) {
+  return rendererMode === TICKER_RENDERER_MODE_TEXT
+    ? TICKER_RENDERER_MODE_TEXT
+    : TICKER_RENDERER_MODE_BITMAP
+}
 
 function ensureTickerFontLoaded() {
   if (!tickerFontLoadPromise) {
@@ -55,7 +64,7 @@ function writeStorage(storage, key, value) {
   }
 }
 
-function createTickerRenderer(mountEl) {
+function createTickerRenderer(mountEl, rendererMode = TICKER_RENDERER_MODE_BITMAP) {
   const app = new PIXI.Application({
     background: BACKGROUND_DEFAULT,
     antialias: true,
@@ -80,23 +89,13 @@ function createTickerRenderer(mountEl) {
   let displayMode = "chorus"
   let textScale = Math.max(0.1, (minClientHeight / BITMAP_FONT_BASE_SIZE) * TICKER_TEXT_SCALE_FACTOR)
   let referenceTextBaseHeight = null
+  const resolvedRendererMode = normalizeRendererMode(rendererMode)
 
   function drawMask() {
     maskGraphics.clear()
     maskGraphics.beginFill(0xffffff)
     maskGraphics.drawRect(0, 0, app.screen.width, app.screen.height)
     maskGraphics.endFill()
-  }
-
-  function ensureTextDisplay() {
-    if (textDisplay) {
-      return textDisplay
-    }
-
-    textDisplay = new PIXI.BitmapText("", bitmapFontOptions())
-    textDisplay.tint = FONT_FILL_DEFAULT
-    world.addChild(textDisplay)
-    return textDisplay
   }
 
   function bitmapFontOptions() {
@@ -107,9 +106,32 @@ function createTickerRenderer(mountEl) {
     }
   }
 
+  function textStyleOptions() {
+    return {
+      fontFamily: TEXT_FONT_FAMILY,
+      fontSize: BITMAP_FONT_BASE_SIZE,
+      fill: FONT_FILL_DEFAULT,
+    }
+  }
+
+  function ensureTextDisplay() {
+    if (textDisplay) {
+      return textDisplay
+    }
+
+    textDisplay = resolvedRendererMode === TICKER_RENDERER_MODE_TEXT
+      ? new PIXI.Text("", textStyleOptions())
+      : new PIXI.BitmapText("", bitmapFontOptions())
+    textDisplay.tint = FONT_FILL_DEFAULT
+    world.addChild(textDisplay)
+    return textDisplay
+  }
+
   function getReferenceTextHeight() {
     if (referenceTextBaseHeight == null) {
-      const calibrationText = new PIXI.BitmapText(BITMAP_FONT_CALIBRATION_TEXT, bitmapFontOptions())
+      const calibrationText = resolvedRendererMode === TICKER_RENDERER_MODE_TEXT
+        ? new PIXI.Text(BITMAP_FONT_CALIBRATION_TEXT, textStyleOptions())
+        : new PIXI.BitmapText(BITMAP_FONT_CALIBRATION_TEXT, bitmapFontOptions())
       referenceTextBaseHeight = Math.max(1, calibrationText.height)
       calibrationText.destroy()
     }
@@ -135,9 +157,13 @@ function createTickerRenderer(mountEl) {
   function replaceTextDisplay(nextText) {
     const display = ensureTextDisplay()
     display.text = String(nextText ?? "")
-    display.fontName = BITMAP_FONT_NAME
-    display.fontSize = BITMAP_FONT_BASE_SIZE
-    display.tint = FONT_FILL_DEFAULT
+    if (resolvedRendererMode === TICKER_RENDERER_MODE_TEXT) {
+      display.style = new PIXI.TextStyle(textStyleOptions())
+    } else {
+      display.fontName = BITMAP_FONT_NAME
+      display.fontSize = BITMAP_FONT_BASE_SIZE
+      display.tint = FONT_FILL_DEFAULT
+    }
     layoutTextDisplay()
     return display
   }
@@ -147,9 +173,13 @@ function createTickerRenderer(mountEl) {
       return
     }
 
-    textDisplay.fontName = BITMAP_FONT_NAME
-    textDisplay.fontSize = BITMAP_FONT_BASE_SIZE
-    textDisplay.tint = FONT_FILL_DEFAULT
+    if (resolvedRendererMode === TICKER_RENDERER_MODE_TEXT) {
+      textDisplay.style = new PIXI.TextStyle(textStyleOptions())
+    } else {
+      textDisplay.fontName = BITMAP_FONT_NAME
+      textDisplay.fontSize = BITMAP_FONT_BASE_SIZE
+      textDisplay.tint = FONT_FILL_DEFAULT
+    }
     layoutTextDisplay()
   }
 
@@ -228,6 +258,7 @@ function createTickerRenderer(mountEl) {
   drawMask()
 
   return {
+    rendererMode: resolvedRendererMode,
     setPlaying,
     clearPlaying,
     setSliceXStart,
@@ -320,6 +351,7 @@ Template.TickerPage.onCreated(function onCreated() {
   this.heartbeatIntervalId = null
   this.offsetMs = 0
   this.renderer = null
+  this.currentRendererMode = null
   this.refreshHandler = null
   this.routeControlHandler = null
   this.isDestroyed = false
@@ -336,19 +368,30 @@ Template.TickerPage.onRendered(function onRendered() {
     return
   }
 
-  ;(async () => {
-    try {
-      await ensureTickerFontLoaded()
-    } catch (error) {
-      console.error("[ticker] failed to load MSDF font", error)
+  this.mountEl = mountEl
+  this.rendererInitVersion = 0
+  this.initializeRenderer = async (rendererMode) => {
+    const normalizedRendererMode = normalizeRendererMode(rendererMode)
+    const initVersion = this.rendererInitVersion + 1
+    this.rendererInitVersion = initVersion
+
+    if (normalizedRendererMode === TICKER_RENDERER_MODE_BITMAP) {
+      try {
+        await ensureTickerFontLoaded()
+      } catch (error) {
+        console.error("[ticker] failed to load MSDF font", error)
+        return
+      }
+    }
+
+    if (this.isDestroyed || this.rendererInitVersion !== initVersion) {
       return
     }
 
-    if (this.isDestroyed) {
-      return
-    }
+    this.renderer?.destroy()
+    this.renderer = createTickerRenderer(this.mountEl, normalizedRendererMode)
+    this.currentRendererMode = normalizedRendererMode
 
-    this.renderer = createTickerRenderer(mountEl)
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
     const selfClient = TickerClients.findOne({ _id: this.clientId, wallId: DEFAULT_TICKER_WALL_ID })
     const rowState = findRowState(wall, selfClient?.rowIndex)
@@ -356,9 +399,21 @@ Template.TickerPage.onRendered(function onRendered() {
     this.renderer.setTextRenderHeight(selfClient?.stackHeight ?? wall?.minClientHeight)
     this.renderer.setSliceXStart(selfClient?.xStart ?? 0)
     this.renderer.setSliceYStart(selfClient?.yStart ?? 0)
+    this.renderer.setServerOffset(this.offsetMs)
     if (rowState?.playing) {
       this.renderer.setPlaying(rowState.playing)
+    } else {
+      this.renderer.clearPlaying()
     }
+  }
+
+  ;(async () => {
+    if (this.isDestroyed) {
+      return
+    }
+
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    await this.initializeRenderer(wall?.rendererMode)
 
     const syncServerTimeOffset = () => {
       const t0 = Date.now()
@@ -436,6 +491,11 @@ Template.TickerPage.onRendered(function onRendered() {
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
     const selfClient = TickerClients.findOne({ _id: this.clientId, wallId: DEFAULT_TICKER_WALL_ID })
     const rowState = findRowState(wall, selfClient?.rowIndex)
+    const nextRendererMode = normalizeRendererMode(wall?.rendererMode)
+    if (nextRendererMode !== this.currentRendererMode) {
+      this.initializeRenderer?.(nextRendererMode)
+      return
+    }
     this.renderer?.setDisplayMode(wall?.displayMode)
     if (!rowState?.playing) {
       this.renderer?.clearPlaying()
