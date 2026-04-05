@@ -5,7 +5,6 @@ export const TICKER_ROW_STATE_IDLE = "idle"
 export const TICKER_ROW_STATE_PLAYING = "playing"
 export const TICKER_MACHINE_STATE_IDLE = "idle"
 export const TICKER_MACHINE_STATE_ACTIVE = "active"
-export const TICKER_MACHINE_STATE_OVERFLOW = "overflow"
 
 const queuesByWall = new Map()
 
@@ -53,11 +52,9 @@ export function createDefaultRowState(rowIndex) {
   return {
     rowIndex,
     state: TICKER_ROW_STATE_IDLE,
-    isInverted: false,
     playing: null,
     lastMessageId: null,
     lastMessageText: null,
-    overflowFlashCount: 0,
     updatedAt: new Date().toISOString(),
   }
 }
@@ -70,11 +67,9 @@ export function createDefaultMachineState() {
     totalEnqueued: 0,
     totalDequeued: 0,
     totalCompleted: 0,
-    overflowCount: 0,
     lastEnqueuedAt: null,
     lastDequeuedAt: null,
     lastCompletedAt: null,
-    lastOverflowAt: null,
     lastWorkerTickAt: null,
     rows: Array.from({ length: TICKER_ROW_COUNT }, (_, rowIndex) => createDefaultRowState(rowIndex)),
   }

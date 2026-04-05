@@ -14,7 +14,6 @@ import {
   getTickerQueueSnapshot,
   TICKER_MACHINE_STATE_ACTIVE,
   TICKER_MACHINE_STATE_IDLE,
-  TICKER_MACHINE_STATE_OVERFLOW,
   TICKER_ROW_COUNT,
   TICKER_ROW_STATE_IDLE,
   TICKER_ROW_STATE_PLAYING,
@@ -58,9 +57,7 @@ function normalizeRowState(row, rowIndex) {
     ...row,
     rowIndex,
     state: row?.state ?? defaults.state,
-    isInverted: Boolean(row?.isInverted),
     playing: row?.playing ?? null,
-    overflowFlashCount: Number(row?.overflowFlashCount) || 0,
   }
 }
 
@@ -77,16 +74,11 @@ function normalizeMachineState(queueState) {
     totalEnqueued: Number(queueState?.totalEnqueued) || 0,
     totalDequeued: Number(queueState?.totalDequeued) || 0,
     totalCompleted: Number(queueState?.totalCompleted) || 0,
-    overflowCount: Number(queueState?.overflowCount) || 0,
     queuePreview: Array.isArray(queueState?.queuePreview) ? queueState.queuePreview : [],
   }
 }
 
 function machineStateForRows(rows, queuedCount) {
-  if (rows.some((row) => row.isInverted)) {
-    return TICKER_MACHINE_STATE_OVERFLOW
-  }
-
   if (queuedCount > 0 || rows.some((row) => row.state === TICKER_ROW_STATE_PLAYING)) {
     return TICKER_MACHINE_STATE_ACTIVE
   }
@@ -420,30 +412,6 @@ async function enqueueTextInternal({ wallId = DEFAULT_TICKER_WALL_ID, text, send
   }
 }
 
-async function triggerOverflowFlash(wallId, queueState) {
-  const busyRows = queueState.rows.filter((row) => row.state === TICKER_ROW_STATE_PLAYING)
-  if (busyRows.length === 0) {
-    return queueState
-  }
-
-  const selectedRow = busyRows[Math.floor(Math.random() * busyRows.length)]
-  const nowIso = new Date().toISOString()
-
-  return updateWallQueueState(wallId, (current) => ({
-    ...current,
-    overflowCount: Number(current.overflowCount) + 1,
-    lastOverflowAt: nowIso,
-    rows: current.rows.map((row) => row.rowIndex === selectedRow.rowIndex
-      ? {
-        ...row,
-        isInverted: !row.isInverted,
-        overflowFlashCount: Number(row.overflowFlashCount) + 1,
-        updatedAt: nowIso,
-      }
-      : row),
-  }))
-}
-
 async function assignQueuedMessagesToFreeRows(wallId, queueState, wall) {
   let nextQueueState = queueState
   const nowIso = new Date().toISOString()
@@ -555,8 +523,6 @@ async function runTickerWorkerCycle(wallId = DEFAULT_TICKER_WALL_ID, { cause = "
       },
     )
     queueState = await assignQueuedMessagesToFreeRows(wallId, queueState, wall)
-  } else if (cause === "enqueue" && queueState.queuedCount > 0 && freeRows.length === 0) {
-    queueState = await triggerOverflowFlash(wallId, queueState)
   } else {
     queueState.machineState = machineStateForRows(queueState.rows, queueState.queuedCount)
     await TickerWalls.updateAsync(

@@ -14,9 +14,7 @@ import { VIDEO_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/video/videoEvents"
 import "./ticker.html"
 
 const FONT_FILL_DEFAULT = 0xff0000
-const FONT_FILL_INVERTED = 0x000000
 const BACKGROUND_DEFAULT = 0x000000
-const BACKGROUND_INVERTED = 0xff0000
 const BITMAP_FONT_NAME = "LibreBaskerville-Regular"
 const BITMAP_FONT_URL = "/fonts/ticker-msdf/LibreBaskerville-Regular.fnt"
 const BITMAP_FONT_BASE_SIZE = 192
@@ -73,7 +71,6 @@ function createTickerRenderer(mountEl) {
   let textDisplay = null
   let textSegments = []
   let playing = null
-  let isInverted = false
   let xStart = 0
   let yStart = 0
   let offsetMs = 0
@@ -102,7 +99,7 @@ function createTickerRenderer(mountEl) {
     return {
       fontName: BITMAP_FONT_NAME,
       fontSize: BITMAP_FONT_BASE_SIZE,
-      tint: isInverted ? FONT_FILL_INVERTED : FONT_FILL_DEFAULT,
+      tint: FONT_FILL_DEFAULT,
     }
   }
 
@@ -150,7 +147,7 @@ function createTickerRenderer(mountEl) {
     const display = ensureTextDisplay()
     for (const token of tokenizeText(nextText)) {
       const segment = new PIXI.BitmapText(token, bitmapFontOptions())
-      segment.tint = isInverted ? FONT_FILL_INVERTED : FONT_FILL_DEFAULT
+      segment.tint = FONT_FILL_DEFAULT
       display.addChild(segment)
       textSegments.push(segment)
     }
@@ -167,7 +164,7 @@ function createTickerRenderer(mountEl) {
     for (const segment of textSegments) {
       segment.fontName = BITMAP_FONT_NAME
       segment.fontSize = BITMAP_FONT_BASE_SIZE
-      segment.tint = isInverted ? FONT_FILL_INVERTED : FONT_FILL_DEFAULT
+      segment.tint = FONT_FILL_DEFAULT
       segment.scale.set(textScale)
     }
     layoutTextSegments()
@@ -197,12 +194,6 @@ function createTickerRenderer(mountEl) {
     }
 
     replaceTextDisplay(playing.text)
-  }
-
-  function setInverted(nextIsInverted) {
-    isInverted = Boolean(nextIsInverted)
-    app.renderer.background.color = isInverted ? BACKGROUND_INVERTED : BACKGROUND_DEFAULT
-    applyViewportTextStyle()
   }
 
   function setSliceXStart(nextXStart) {
@@ -262,7 +253,6 @@ function createTickerRenderer(mountEl) {
     setServerOffset,
     setTextRenderHeight,
     setDisplayMode,
-    setInverted,
     resize,
     destroy() {
       app.ticker.remove(tick)
@@ -384,7 +374,6 @@ Template.TickerPage.onRendered(function onRendered() {
     this.renderer.setTextRenderHeight(selfClient?.stackHeight ?? wall?.minClientHeight)
     this.renderer.setSliceXStart(selfClient?.xStart ?? 0)
     this.renderer.setSliceYStart(selfClient?.yStart ?? 0)
-    this.renderer.setInverted(rowState?.isInverted)
     if (rowState?.playing) {
       this.renderer.setPlaying(rowState.playing)
     }
@@ -466,7 +455,6 @@ Template.TickerPage.onRendered(function onRendered() {
     const selfClient = TickerClients.findOne({ _id: this.clientId, wallId: DEFAULT_TICKER_WALL_ID })
     const rowState = findRowState(wall, selfClient?.rowIndex)
     this.renderer?.setDisplayMode(wall?.displayMode)
-    this.renderer?.setInverted(rowState?.isInverted)
     if (!rowState?.playing) {
       this.renderer?.clearPlaying()
       return
@@ -552,12 +540,6 @@ Template.TickerPage.helpers({
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
     const doc = TickerClients.findOne({ _id: instance.clientId, wallId: DEFAULT_TICKER_WALL_ID })
     return Boolean(wall?.provisioningEnabled) && !Number.isInteger(doc?.slotIndex)
-  },
-  isRowInverted() {
-    const instance = Template.instance()
-    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
-    const doc = TickerClients.findOne({ _id: instance.clientId, wallId: DEFAULT_TICKER_WALL_ID })
-    return Boolean(findRowState(wall, doc?.rowIndex)?.isInverted)
   },
 })
 
