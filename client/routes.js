@@ -7,6 +7,7 @@ import '/imports/ui/pages/ticker/ticker.js';
 import '/imports/ui/pages/adminTicker/adminTicker.js';
 import '/imports/ui/pages/video/video.js';
 import '/imports/ui/pages/adminVideo/adminVideo.js';
+import '/imports/ui/pages/adminPush/adminPush.js';
 
 FlowRouter.route('/', {
   name: 'home',
@@ -61,5 +62,12 @@ FlowRouter.route('/admin/video', {
   name: 'adminVideo',
   action() {
     this.render('AdminVideoPage');
+  },
+});
+
+FlowRouter.route('/admin/push', {
+  name: 'adminPush',
+  action() {
+    this.render('AdminPushPage');
   },
 });

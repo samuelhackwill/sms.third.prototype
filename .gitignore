@@ -20,3 +20,5 @@ pnpm-debug.log*
 
 # Log files
 .data/
+
+.*.p8
