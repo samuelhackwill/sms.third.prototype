@@ -1,5 +1,8 @@
 import { Random } from "meteor/random"
 
+const TICKER_TEXT_MAX_CHARS = 100
+const TICKER_TEXT_CLAMP_SUFFIX = "[...]"
+
 export const TICKER_ROW_COUNT = 6
 export const TICKER_ROW_STATE_IDLE = "idle"
 export const TICKER_ROW_STATE_PLAYING = "playing"
@@ -17,15 +20,22 @@ function ensureQueue(wallId) {
 }
 
 function normalizeText(text) {
-  if (typeof text === "string") {
-    return text.trim()
-  }
+  const normalized = typeof text === "string"
+    ? text.trim()
+    : text == null
+      ? ""
+      : String(text).trim()
 
-  if (text == null) {
+  if (!normalized) {
     return ""
   }
 
-  return String(text).trim()
+  if (normalized.length <= TICKER_TEXT_MAX_CHARS) {
+    return normalized
+  }
+
+  const maxBodyLength = Math.max(0, TICKER_TEXT_MAX_CHARS - TICKER_TEXT_CLAMP_SUFFIX.length)
+  return `${normalized.slice(0, maxBodyLength)}${TICKER_TEXT_CLAMP_SUFFIX}`
 }
 
 function normalizeDate(value, fallback = new Date()) {

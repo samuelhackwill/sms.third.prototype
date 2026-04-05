@@ -18,6 +18,9 @@ const BACKGROUND_DEFAULT = 0x000000
 const BITMAP_FONT_NAME = "LibreBaskerville-Regular"
 const BITMAP_FONT_URL = "/fonts/ticker-msdf/LibreBaskerville-Regular.fnt"
 const BITMAP_FONT_BASE_SIZE = 192
+const BITMAP_FONT_CALIBRATION_TEXT = "HpxgylA"
+const TICKER_BASELINE_LIFT_PX = 150
+const TICKER_TEXT_SCALE_FACTOR = 0.88
 const TEXT_SEGMENT_CHARS = 12
 const SESSION_CLIENT_ID_KEY = "clientId"
 const LEGACY_SESSION_CLIENT_ID_KEY = "ticker.clientId"
@@ -76,7 +79,8 @@ function createTickerRenderer(mountEl) {
   let offsetMs = 0
   let minClientHeight = Math.max(1, Math.floor(app.screen.height))
   let displayMode = "chorus"
-  let textScale = Math.max(0.1, minClientHeight / BITMAP_FONT_BASE_SIZE)
+  let textScale = Math.max(0.1, (minClientHeight / BITMAP_FONT_BASE_SIZE) * TICKER_TEXT_SCALE_FACTOR)
+  let referenceTextBaseHeight = null
 
   function drawMask() {
     maskGraphics.clear()
@@ -116,23 +120,32 @@ function createTickerRenderer(mountEl) {
     return segments
   }
 
+  function getReferenceTextHeight() {
+    if (referenceTextBaseHeight == null) {
+      const calibrationText = new PIXI.BitmapText(BITMAP_FONT_CALIBRATION_TEXT, bitmapFontOptions())
+      referenceTextBaseHeight = Math.max(1, calibrationText.height)
+      calibrationText.destroy()
+    }
+
+    return referenceTextBaseHeight * textScale
+  }
+
   function layoutTextSegments() {
     if (!textDisplay) {
       return
     }
 
     let cursorX = 0
-    let maxHeight = 0
     for (const segment of textSegments) {
       segment.scale.set(textScale)
       segment.x = cursorX
       cursorX += segment.width
-      maxHeight = Math.max(maxHeight, segment.height)
     }
 
+    const referenceHeight = getReferenceTextHeight()
     textDisplay.y = displayMode === TICKER_DISPLAY_MODE_VERTICAL
-      ? -yStart
-      : Math.max(0, app.screen.height - maxHeight)
+      ? (-yStart - TICKER_BASELINE_LIFT_PX)
+      : (app.screen.height - referenceHeight - TICKER_BASELINE_LIFT_PX)
     textDisplay.visible = textSegments.length > 0
   }
 
@@ -213,7 +226,7 @@ function createTickerRenderer(mountEl) {
     const height = Number(nextHeight)
     if (Number.isFinite(height) && height > 0) {
       minClientHeight = Math.max(1, Math.floor(height))
-      textScale = Math.max(0.1, minClientHeight / BITMAP_FONT_BASE_SIZE)
+      textScale = Math.max(0.1, (minClientHeight / BITMAP_FONT_BASE_SIZE) * TICKER_TEXT_SCALE_FACTOR)
       applyViewportTextStyle()
     }
   }
