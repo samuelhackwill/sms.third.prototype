@@ -22,3 +22,4 @@ pnpm-debug.log*
 .data/
 
 .*.p8
+settings.json

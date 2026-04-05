@@ -1,0 +1,13 @@
+{
+  "public": {
+    "videoEndpointUrl": "https://example.com/api/random-clips"
+  },
+  "private": {
+    "apns": {
+      "teamId": "YOUR_TEAM_ID",
+      "keyId": "YOUR_KEY_ID",
+      "keyPath": "/absolute/path/to/AuthKey_XXXXXXXXXX.p8",
+      "bundleId": "com.example.app"
+    }
+  }
+}
