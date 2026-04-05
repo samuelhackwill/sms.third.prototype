@@ -10,7 +10,8 @@ import {
 import "/imports/api/ticker/methods"
 import { streamer } from "/imports/both/streamer"
 import { FlowRouter } from "meteor/ostrio:flow-router-extra"
-import { VIDEO_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/video/videoEvents"
+import { WALL_ROUTE_CONTROL_EVENT } from "/imports/ui/lib/wallRouteControl"
+import { getOrCreateClientId, getOrCreateDeviceKey, toShortCode } from "/imports/ui/lib/wallClientIdentity"
 import "./ticker.html"
 
 const FONT_FILL_DEFAULT = 0xff0000
@@ -26,10 +27,6 @@ const TICKER_TEXT_SCALE_FACTOR = 0.88
 const TICKER_SPAWN_OFFSET_PX = 150
 const TICKER_RENDERER_MODE_BITMAP = "bitmap"
 const TICKER_RENDERER_MODE_TEXT = "text"
-const SESSION_CLIENT_ID_KEY = "clientId"
-const LEGACY_SESSION_CLIENT_ID_KEY = "ticker.clientId"
-const LOCAL_STORAGE_CLIENT_ID_KEY = "ticker.clientId"
-const DEVICE_KEY_STORAGE_KEY = "ticker.deviceKey"
 const TICKER_REFRESH_EVENT = "ticker.refresh"
 const TICKER_HEARTBEAT_MS = 5 * 1000
 const TICKER_DISPLAY_MODE_VERTICAL = "vertical"
@@ -48,22 +45,6 @@ function ensureTickerFontLoaded() {
   }
 
   return tickerFontLoadPromise
-}
-
-function readStorage(storage, key) {
-  try {
-    return storage?.getItem(key) ?? null
-  } catch (error) {
-    return null
-  }
-}
-
-function writeStorage(storage, key, value) {
-  try {
-    storage?.setItem(key, value)
-  } catch (error) {
-    // Ignore storage access failures and fall back to the other store.
-  }
 }
 
 function createTickerRenderer(mountEl, rendererMode = TICKER_RENDERER_MODE_BITMAP) {
@@ -283,66 +264,6 @@ function createTickerRenderer(mountEl, rendererMode = TICKER_RENDERER_MODE_BITMA
   }
 }
 
-function getOrCreateClientId() {
-  const existing = readStorage(globalThis.localStorage, LOCAL_STORAGE_CLIENT_ID_KEY)
-    || readStorage(globalThis.sessionStorage, SESSION_CLIENT_ID_KEY)
-  if (existing) {
-    writeStorage(globalThis.localStorage, LOCAL_STORAGE_CLIENT_ID_KEY, existing)
-    writeStorage(globalThis.sessionStorage, SESSION_CLIENT_ID_KEY, existing)
-    return existing
-  }
-
-  const legacy = readStorage(globalThis.localStorage, LEGACY_SESSION_CLIENT_ID_KEY)
-    || readStorage(globalThis.sessionStorage, LEGACY_SESSION_CLIENT_ID_KEY)
-  if (legacy) {
-    writeStorage(globalThis.localStorage, LOCAL_STORAGE_CLIENT_ID_KEY, legacy)
-    writeStorage(globalThis.sessionStorage, SESSION_CLIENT_ID_KEY, legacy)
-    return legacy
-  }
-
-  const nextId = makeClientId()
-  writeStorage(globalThis.localStorage, LOCAL_STORAGE_CLIENT_ID_KEY, nextId)
-  writeStorage(globalThis.sessionStorage, SESSION_CLIENT_ID_KEY, nextId)
-  return nextId
-}
-
-function getOrCreateDeviceKey() {
-  const existing = readStorage(globalThis.localStorage, DEVICE_KEY_STORAGE_KEY)
-    || readStorage(globalThis.sessionStorage, DEVICE_KEY_STORAGE_KEY)
-  if (existing) {
-    writeStorage(globalThis.localStorage, DEVICE_KEY_STORAGE_KEY, existing)
-    writeStorage(globalThis.sessionStorage, DEVICE_KEY_STORAGE_KEY, existing)
-    return existing
-  }
-
-  const nextKey = makeClientId()
-  writeStorage(globalThis.localStorage, DEVICE_KEY_STORAGE_KEY, nextKey)
-  writeStorage(globalThis.sessionStorage, DEVICE_KEY_STORAGE_KEY, nextKey)
-  return nextKey
-}
-
-function makeClientId() {
-  const browserCrypto = globalThis.crypto
-  if (browserCrypto && typeof browserCrypto.randomUUID === "function") {
-    return browserCrypto.randomUUID()
-  }
-
-  if (browserCrypto && typeof browserCrypto.getRandomValues === "function") {
-    const bytes = browserCrypto.getRandomValues(new Uint8Array(16))
-    bytes[6] = (bytes[6] & 0x0f) | 0x40
-    bytes[8] = (bytes[8] & 0x3f) | 0x80
-
-    const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")
-    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
-  }
-
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
-}
-
-function toShortCode(clientId) {
-  return clientId.replace(/-/g, "").slice(0, 5).toUpperCase()
-}
-
 function findRowState(wall, rowIndex) {
   if (!Array.isArray(wall?.queueState?.rows) || !Number.isInteger(rowIndex) || rowIndex < 0) {
     return null
@@ -487,14 +408,14 @@ Template.TickerPage.onRendered(function onRendered() {
   streamer.on(TICKER_REFRESH_EVENT, this.refreshHandler)
 
     this.routeControlHandler = (payload) => {
-      if (!payload || payload.from !== "ticker" || payload.target !== "video") {
+      if (!payload || !payload.target) {
         return
       }
 
-      FlowRouter.go("/video")
+      FlowRouter.go(`/${payload.target}`)
     }
 
-    streamer.on(VIDEO_ROUTE_CONTROL_EVENT, this.routeControlHandler)
+    streamer.on(WALL_ROUTE_CONTROL_EVENT, this.routeControlHandler)
   })()
 
   this.autorun(() => {
@@ -539,7 +460,7 @@ Template.TickerPage.onDestroyed(function onDestroyed() {
     this.refreshHandler = null
   }
   if (this.routeControlHandler) {
-    streamer.removeListener(VIDEO_ROUTE_CONTROL_EVENT, this.routeControlHandler)
+    streamer.removeListener(WALL_ROUTE_CONTROL_EVENT, this.routeControlHandler)
     this.routeControlHandler = null
   }
   this.renderer?.destroy()

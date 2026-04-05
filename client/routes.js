@@ -7,6 +7,8 @@ import '/imports/ui/pages/ticker/ticker.js';
 import '/imports/ui/pages/adminTicker/adminTicker.js';
 import '/imports/ui/pages/video/video.js';
 import '/imports/ui/pages/adminVideo/adminVideo.js';
+import '/imports/ui/pages/television/television.js';
+import '/imports/ui/pages/adminTelevision/adminTelevision.js';
 import '/imports/ui/pages/adminPush/adminPush.js';
 
 FlowRouter.route('/', {
@@ -58,10 +60,24 @@ FlowRouter.route('/video', {
   },
 });
 
+FlowRouter.route('/television', {
+  name: 'television',
+  action() {
+    this.render('TelevisionPage');
+  },
+});
+
 FlowRouter.route('/admin/video', {
   name: 'adminVideo',
   action() {
     this.render('AdminVideoPage');
+  },
+});
+
+FlowRouter.route('/admin/television', {
+  name: 'adminTelevision',
+  action() {
+    this.render('AdminTelevisionPage');
   },
 });
 

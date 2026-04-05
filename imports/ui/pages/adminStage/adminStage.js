@@ -13,7 +13,12 @@ import {
   DEFAULT_STAGE_VIDEO_KEY,
   STAGE_VIDEOS,
 } from "/imports/ui/pages/stage/stageVideos"
-import "./adminStage.html"
+import {
+  buildAdminWallRouteTargets,
+  buildAdminWallTabs,
+  emitWallRouteTarget,
+} from "/imports/ui/lib/adminWallNav"
+import "/imports/ui/pages/adminStage/adminStage.html"
 
 const DEFAULT_SOURCE = "default"
 const DEFAULT_CURATION_REVEAL_MS = 1400
@@ -103,6 +108,10 @@ Template.adminStage.onDestroyed(function onDestroyed() {
 })
 
 Template.adminStage.events({
+  'click .js-move-wall-clients'(event) {
+    event.preventDefault()
+    emitWallRouteTarget(event.currentTarget.dataset.target)
+  },
   'click [data-action="send-1"]'(event, instance) {
     event.preventDefault()
     sendSpawn(instance, 1)
@@ -164,6 +173,12 @@ Template.adminStage.events({
 })
 
 Template.adminStage.helpers({
+  adminWallTabs() {
+    return buildAdminWallTabs()
+  },
+  adminWallRouteTargets() {
+    return buildAdminWallRouteTargets()
+  },
   lastPayload() {
     return Template.instance().lastPayload.get()
   },
