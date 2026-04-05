@@ -165,6 +165,16 @@ Template.AdminTickerPage.helpers({
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
     return wall?.rendererMode === "text"
   },
+  isBarthesMode() {
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    return wall?.specialMode === "barthes"
+  },
+  barthesModeButtonLabel() {
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    return wall?.specialMode === "barthes"
+      ? "Exit ROLAND BARTHES MODE"
+      : "Enter ROLAND BARTHES MODE"
+  },
   queueMachineState() {
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
     return wall?.queueState?.machineState ?? "idle"
@@ -334,6 +344,17 @@ Template.AdminTickerPage.events({
       wallId: DEFAULT_TICKER_WALL_ID,
       rendererMode,
     })
+  },
+  async "click .js-toggle-barthes-mode"(event) {
+    event.preventDefault()
+    try {
+      await Meteor.callAsync("ticker.toggleBarthesMode", {
+        wallId: DEFAULT_TICKER_WALL_ID,
+      })
+    } catch (error) {
+      console.error("[adminTicker] failed to toggle Barthes mode", error)
+      globalThis.alert?.(error?.reason || error?.message || "Failed to toggle Barthes mode")
+    }
   },
   "click .js-panic-stop"(event) {
     event.preventDefault()

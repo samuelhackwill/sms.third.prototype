@@ -30,19 +30,36 @@
 
     <section class="mt-4 rounded border border-slate-800 bg-slate-900/80 p-4">
       <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Controls</h2>
-      <div class="mt-3 flex flex-wrap items-center gap-2">
-        <label for="tickerSpeedInput" class="text-sm text-slate-300">Speed px/s</label>
-        <input id="tickerSpeedInput" class="w-24 rounded border border-slate-700 bg-slate-950 px-2 py-1 text-sm text-slate-100" type="number" min="1" value="{{wall.speedPxPerSec}}" />
-        <button type="button" class="js-set-speed rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm text-slate-100 hover:bg-slate-700">Set Speed</button>
+      <div class="mt-4 grid gap-4 lg:grid-cols-2">
+        <div class="rounded border border-slate-800 bg-slate-950 p-3">
+          <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Playback</div>
+          <div class="mt-3 flex flex-wrap items-center gap-2">
+            <label for="tickerSpeedInput" class="text-sm text-slate-300">Speed px/s</label>
+            <input id="tickerSpeedInput" class="w-24 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-sm text-slate-100" type="number" min="1" value="{{wall.speedPxPerSec}}" />
+            <button type="button" class="js-set-speed rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm font-medium text-slate-100 hover:border-slate-600 hover:bg-slate-700">Set Speed</button>
+            <button type="button" class="js-send-random-text rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm font-medium text-slate-100 hover:border-slate-600 hover:bg-slate-700">Send Random Text</button>
+        <button type="button" class="js-toggle-barthes-mode rounded border border-cyan-900 bg-cyan-950 px-3 py-1.5 text-sm font-semibold text-cyan-100 hover:border-cyan-700 hover:bg-cyan-900 {{#if isBarthesMode}}animate-pulse{{/if}}">{{barthesModeButtonLabel}}</button>
+          </div>
+        </div>
 
-        <button type="button" class="js-send-random-text rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm text-slate-100 hover:bg-slate-700">Send Random Text</button>
-        <button type="button" class="js-move-ticker-clients-to-video rounded border border-violet-900 bg-violet-950 px-3 py-1.5 text-sm text-violet-200 hover:bg-violet-900">Move Ticker Clients To /video</button>
-        <button type="button" class="js-refresh-clients rounded border border-blue-900 bg-blue-950 px-3 py-1.5 text-sm text-blue-200 hover:bg-blue-900">Force Refresh Clients</button>
-        <button type="button" class="js-reset-ticker rounded border border-red-900 bg-red-950 px-3 py-1.5 text-sm text-red-200 hover:bg-red-900">Reset Ticker State</button>
-        <button type="button" class="js-toggle-provisioning rounded border border-amber-900 bg-amber-950 px-3 py-1.5 text-sm text-amber-200 hover:bg-amber-900">{{provisioningButtonLabel}}</button>
-        <button type="button" class="js-toggle-debug rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm text-slate-100 hover:bg-slate-700">{{debugButtonLabel}}</button>
-        <button type="button" class="js-panic-stop rounded border border-red-500 bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700">PANIC STOP</button>
-        <button type="button" class="js-kill-clients rounded border border-red-900 bg-slate-800 px-3 py-1.5 text-sm text-red-300 hover:bg-red-950">Kill Clients</button>
+        <div class="rounded border border-slate-800 bg-slate-950 p-3">
+          <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Screens</div>
+          <div class="mt-3 flex flex-wrap items-center gap-2">
+            <button type="button" class="js-refresh-clients rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm font-medium text-slate-100 hover:border-slate-600 hover:bg-slate-700">Force Refresh Clients</button>
+            <button type="button" class="js-move-ticker-clients-to-video rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm font-medium text-slate-100 hover:border-slate-600 hover:bg-slate-700">Move Ticker Clients To /video</button>
+            <button type="button" class="js-toggle-provisioning rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm font-medium text-slate-100 hover:border-slate-600 hover:bg-slate-700">{{provisioningButtonLabel}}</button>
+            <button type="button" class="js-toggle-debug rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm font-medium text-slate-100 hover:border-slate-600 hover:bg-slate-700">{{debugButtonLabel}}</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-4 rounded border border-red-950 bg-red-950/40 p-3">
+        <div class="text-xs font-semibold uppercase tracking-wide text-red-300">Danger Zone</div>
+        <div class="mt-3 flex flex-wrap items-center gap-2">
+          <button type="button" class="js-reset-ticker rounded border border-red-800 bg-red-950 px-3 py-1.5 text-sm font-semibold text-red-100 hover:border-red-700 hover:bg-red-900">Reset Ticker State</button>
+          <button type="button" class="js-kill-clients rounded border border-red-800 bg-red-950 px-3 py-1.5 text-sm font-semibold text-red-100 hover:border-red-700 hover:bg-red-900">Kill Clients</button>
+          <button type="button" class="js-panic-stop rounded border border-red-500 bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700">PANIC STOP</button>
+        </div>
       </div>
 
       <div class="mt-4 rounded border border-slate-800 bg-slate-950 p-3">
@@ -85,6 +102,8 @@
         <div><span class="font-semibold">totalWallWidth:</span> {{wall.totalWallWidth}}</div>
         <div><span class="font-semibold">displayMode:</span> {{wall.displayMode}}</div>
         <div><span class="font-semibold">rendererMode:</span> {{wall.rendererMode}}</div>
+        <div><span class="font-semibold">specialMode:</span> {{wall.specialMode}}</div>
+        <div><span class="font-semibold">barthesCursor:</span> {{wall.barthesCursor}}</div>
         <div><span class="font-semibold">provisioningEnabled:</span> {{wall.provisioningEnabled}}</div>
         <div><span class="font-semibold">queueMachineState:</span> {{queueMachineState}}</div>
         <div><span class="font-semibold">queueDepth:</span> {{queueDepth}}</div>

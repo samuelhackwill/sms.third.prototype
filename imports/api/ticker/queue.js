@@ -19,7 +19,7 @@ function ensureQueue(wallId) {
   return queuesByWall.get(wallId)
 }
 
-function normalizeText(text) {
+function normalizeText(text, { skipClamp = false } = {}) {
   const normalized = typeof text === "string"
     ? text.trim()
     : text == null
@@ -30,7 +30,7 @@ function normalizeText(text) {
     return ""
   }
 
-  if (normalized.length <= TICKER_TEXT_MAX_CHARS) {
+  if (skipClamp || normalized.length <= TICKER_TEXT_MAX_CHARS) {
     return normalized
   }
 
@@ -44,7 +44,9 @@ function normalizeDate(value, fallback = new Date()) {
 }
 
 function normalizeQueueItem(item = {}) {
-  const text = normalizeText(item.text ?? item.body)
+  const text = normalizeText(item.text ?? item.body, {
+    skipClamp: Boolean(item.skipClamp),
+  })
   if (!text) {
     return null
   }

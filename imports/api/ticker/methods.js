@@ -1,5 +1,7 @@
 import { Meteor } from "meteor/meteor"
 import { Random } from "meteor/random"
+import fs from "node:fs"
+import path from "node:path"
 
 import {
   DEFAULT_TICKER_WALL_ID,
@@ -25,14 +27,20 @@ const START_RUN_DELAY_MS = 800
 const TICKER_PROVISIONING_SLOT_COUNT = 30
 const TICKER_RENDERER_MODE_BITMAP = "bitmap"
 const TICKER_RENDERER_MODE_TEXT = "text"
+const TICKER_SPECIAL_MODE_NONE = "none"
+const TICKER_SPECIAL_MODE_BARTHES = "barthes"
 const TICKER_DISPLAY_MODE_CHORUS = "chorus"
 const TICKER_DISPLAY_MODE_WALL = "wall"
 const TICKER_DISPLAY_MODE_VERTICAL = "vertical"
 const TICKER_CLIENT_STALE_AFTER_MS = 30 * 1000
 const TICKER_REFRESH_EVENT = "ticker.refresh"
+const BARTHES_QUEUE_LOW_WATERMARK = 12
+const BARTHES_SPEED_MIN_PX_PER_SEC = 1000
+const BARTHES_SPEED_MAX_PX_PER_SEC = 6000
 
 const rowCompletionTimersByWall = new Map()
 const wallOperationChains = new Map()
+let barthesSentenceCache = null
 
 function isActiveClient(client, nowMs = Date.now()) {
   const lastSeenAtMs = new Date(client?.lastSeenAt).getTime()
@@ -55,6 +63,56 @@ function normalizeRendererMode(rendererMode) {
   return rendererMode === TICKER_RENDERER_MODE_TEXT
     ? TICKER_RENDERER_MODE_TEXT
     : TICKER_RENDERER_MODE_BITMAP
+}
+
+function normalizeSpecialMode(specialMode) {
+  return specialMode === TICKER_SPECIAL_MODE_BARTHES
+    ? TICKER_SPECIAL_MODE_BARTHES
+    : TICKER_SPECIAL_MODE_NONE
+}
+
+function resolveBarthesSourcePath() {
+  const candidateRoots = [
+    process.env.PWD,
+    path.resolve(process.cwd(), "../../../../../"),
+    path.resolve(process.cwd(), "../../../../"),
+    process.cwd(),
+  ].filter(Boolean)
+
+  for (const root of candidateRoots) {
+    const candidatePath = path.resolve(root, "output/barthes-sentences.ndjson")
+    if (fs.existsSync(candidatePath)) {
+      return candidatePath
+    }
+  }
+
+  throw new Error(`Barthes source file not found from cwd ${process.cwd()}`)
+}
+
+function loadBarthesSentences() {
+  if (barthesSentenceCache) {
+    return barthesSentenceCache
+  }
+
+  const raw = fs.readFileSync(resolveBarthesSourcePath(), "utf8")
+  const sentences = raw
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => JSON.parse(line))
+    .map((record, index) => ({
+      index: Number(record?.index) || index + 1,
+      text: typeof record?.text === "string" ? record.text.trim() : "",
+      chapter: record?.chapter ?? null,
+    }))
+    .filter((record) => Boolean(record.text))
+
+  if (sentences.length === 0) {
+    throw new Error("Barthes source file is empty")
+  }
+
+  barthesSentenceCache = sentences
+  return barthesSentenceCache
 }
 
 function ensureWallTimerMap(wallId) {
@@ -131,6 +189,12 @@ function estimateTickerTextWidthPx(text, fontSizePx) {
   return Math.max(1, Math.ceil(normalizedText.length * normalizedFontSize * 0.62))
 }
 
+function randomBarthesSpeedPxPerSec() {
+  const min = BARTHES_SPEED_MIN_PX_PER_SEC
+  const max = BARTHES_SPEED_MAX_PX_PER_SEC
+  return Math.floor(Math.random() * ((max - min) + 1)) + min
+}
+
 function getRowRenderHeightPx(wall, rowIndex) {
   const rowMetrics = wall?.rowMetrics?.[rowIndex]
   const height = Number(rowMetrics?.renderHeightPx)
@@ -156,8 +220,10 @@ function getRowWidthPx(wall, rowIndex) {
   return Number.isFinite(width) && width > 0 ? width : 0
 }
 
-function computeRunTiming({ wall, rowIndex, text, runId }) {
-  const speedPxPerSec = Number(wall?.speedPxPerSec) || DEFAULT_TICKER_SPEED_PX_PER_SEC
+function computeRunTiming({ wall, rowIndex, text, runId, speedPxPerSec: speedOverridePxPerSec = null }) {
+  const speedPxPerSec = Number(speedOverridePxPerSec) > 0
+    ? Number(speedOverridePxPerSec)
+    : Number(wall?.speedPxPerSec) || DEFAULT_TICKER_SPEED_PX_PER_SEC
   const rowWidthPx = getRowWidthPx(wall, rowIndex)
   const textWidthPx = estimateTickerTextWidthPx(text, getRowRenderHeightPx(wall, rowIndex))
   const startedAtServerMs = Date.now() + START_RUN_DELAY_MS
@@ -192,6 +258,12 @@ async function ensureWall(wallId = DEFAULT_TICKER_WALL_ID) {
     }
     if (!existing.rendererMode) {
       patch.rendererMode = TICKER_RENDERER_MODE_BITMAP
+    }
+    if (!existing.specialMode) {
+      patch.specialMode = TICKER_SPECIAL_MODE_NONE
+    }
+    if (!Number.isInteger(existing.barthesCursor)) {
+      patch.barthesCursor = 0
     }
     if (!Number.isFinite(existing.renderHeightPx)) {
       patch.renderHeightPx = Number(existing.minClientHeight) || 0
@@ -228,6 +300,8 @@ async function ensureWall(wallId = DEFAULT_TICKER_WALL_ID) {
     minClientHeight: 0,
     speedPxPerSec: DEFAULT_TICKER_SPEED_PX_PER_SEC,
     rendererMode: TICKER_RENDERER_MODE_BITMAP,
+    specialMode: TICKER_SPECIAL_MODE_NONE,
+    barthesCursor: 0,
     displayMode: TICKER_DISPLAY_MODE_CHORUS,
     provisioningEnabled: false,
     showDebug: true,
@@ -421,6 +495,80 @@ async function updateWallQueueState(wallId, mutate, extraSet = {}) {
   return nextQueueState
 }
 
+async function refillBarthesQueueIfNeeded(wallId = DEFAULT_TICKER_WALL_ID) {
+  return enqueueWallOperation(wallId, async () => {
+    const wall = await ensureWall(wallId)
+    if (normalizeSpecialMode(wall?.specialMode) !== TICKER_SPECIAL_MODE_BARTHES) {
+      return { addedCount: 0, queueDepth: getTickerQueueSnapshot(wallId).length }
+    }
+
+    const currentQueueDepth = getTickerQueueSnapshot(wallId).length
+    if (currentQueueDepth >= BARTHES_QUEUE_LOW_WATERMARK) {
+      return { addedCount: 0, queueDepth: currentQueueDepth }
+    }
+
+    let sentences
+    try {
+      sentences = loadBarthesSentences()
+    } catch (error) {
+      throw new Meteor.Error("ticker.barthes.loadFailed", error.message)
+    }
+
+    let cursor = Number.isInteger(wall?.barthesCursor) ? wall.barthesCursor : 0
+    const neededCount = BARTHES_QUEUE_LOW_WATERMARK - currentQueueDepth
+    const addedItems = []
+
+    for (let index = 0; index < neededCount; index += 1) {
+      const sourceRecord = sentences[cursor % sentences.length]
+      const sequence = cursor
+      cursor += 1
+
+      const queued = enqueueTickerMessage(wallId, {
+        id: `barthes-${sequence}-${sourceRecord.index}-${Random.id()}`,
+        text: sourceRecord.text,
+        sender: "Roland Barthes",
+        receivedAt: new Date(),
+        enqueuedAt: new Date(),
+        skipClamp: true,
+      })
+
+      if (queued) {
+        addedItems.push(queued)
+      }
+    }
+
+    if (addedItems.length === 0) {
+      return { addedCount: 0, queueDepth: getTickerQueueSnapshot(wallId).length }
+    }
+
+    const nowIso = new Date().toISOString()
+    await updateWallQueueState(
+      wallId,
+      (queueState) => ({
+        ...queueState,
+        totalEnqueued: Number(queueState.totalEnqueued) + addedItems.length,
+        lastEnqueuedAt: nowIso,
+      }),
+      {
+        barthesCursor: cursor,
+      },
+    )
+
+    return { addedCount: addedItems.length, queueDepth: getTickerQueueSnapshot(wallId).length }
+  })
+}
+
+async function panicStopWall(wallId = DEFAULT_TICKER_WALL_ID, extraSet = {}) {
+  await ensureWall(wallId)
+  clearTickerQueue(wallId)
+  const queueState = await updateWallQueueState(wallId, () => createDefaultMachineState(), extraSet)
+  for (const row of queueState.rows) {
+    clearRowCompletionTimer(wallId, row.rowIndex)
+  }
+
+  return { ok: true }
+}
+
 async function completeRowRun(wallId, rowIndex, runId) {
   const shouldAssign = await enqueueWallOperation(wallId, async () => {
     clearRowCompletionTimer(wallId, rowIndex)
@@ -465,7 +613,10 @@ async function completeRowRun(wallId, rowIndex, runId) {
   })
 
   if (shouldAssign) {
-    return assignQueuedMessagesToFreeRows(wallId)
+    await refillBarthesQueueIfNeeded(wallId)
+    const nextQueueState = await assignQueuedMessagesToFreeRows(wallId)
+    await refillBarthesQueueIfNeeded(wallId)
+    return nextQueueState
   }
 
   return null
@@ -525,9 +676,11 @@ async function enqueueTextInternal({ wallId = DEFAULT_TICKER_WALL_ID, text, send
 async function assignQueuedMessagesToFreeRows(wallId = DEFAULT_TICKER_WALL_ID) {
   return enqueueWallOperation(wallId, async () => {
     const wall = await ensureWall(wallId)
+    const isBarthesMode = normalizeSpecialMode(wall?.specialMode) === TICKER_SPECIAL_MODE_BARTHES
     let nextQueueState = normalizeMachineState(wall.queueState)
     const nowIso = new Date().toISOString()
     const scheduledRuns = []
+    let lastAssignedSpeedPxPerSec = null
 
     for (const row of nextQueueState.rows) {
       if (row.state !== TICKER_ROW_STATE_IDLE) {
@@ -540,13 +693,23 @@ async function assignQueuedMessagesToFreeRows(wallId = DEFAULT_TICKER_WALL_ID) {
       }
 
       const runId = Random.id()
+      const runSpeedPxPerSec = isBarthesMode
+        ? randomBarthesSpeedPxPerSec()
+        : null
       const playing = {
         messageId: queued.id,
         sender: queued.sender ?? null,
         receivedAt: queued.receivedAt,
         enqueuedAt: queued.enqueuedAt,
-        ...computeRunTiming({ wall, rowIndex: row.rowIndex, text: queued.text, runId }),
+        ...computeRunTiming({
+          wall,
+          rowIndex: row.rowIndex,
+          text: queued.text,
+          runId,
+          speedPxPerSec: runSpeedPxPerSec,
+        }),
       }
+      lastAssignedSpeedPxPerSec = Number(playing.speedPxPerSec) || lastAssignedSpeedPxPerSec
 
       scheduledRuns.push({ rowIndex: row.rowIndex, playing })
 
@@ -576,6 +739,7 @@ async function assignQueuedMessagesToFreeRows(wallId = DEFAULT_TICKER_WALL_ID) {
       {
         $set: {
           queueState: nextQueueState,
+          ...(lastAssignedSpeedPxPerSec ? { speedPxPerSec: lastAssignedSpeedPxPerSec } : {}),
           updatedAt: new Date(),
         },
       },
@@ -590,7 +754,7 @@ async function assignQueuedMessagesToFreeRows(wallId = DEFAULT_TICKER_WALL_ID) {
 }
 
 async function initializeTickerCompletionTimers() {
-  const walls = await TickerWalls.find({}, { fields: { _id: 1, queueState: 1 } }).fetchAsync()
+  const walls = await TickerWalls.find({}, { fields: { _id: 1, queueState: 1, specialMode: 1 } }).fetchAsync()
 
   for (const wall of walls) {
     const queueState = normalizeMachineState(wall.queueState)
@@ -602,6 +766,10 @@ async function initializeTickerCompletionTimers() {
       } else {
         scheduleRowCompletion(wall._id, row.rowIndex, row.playing)
       }
+    }
+
+    if (normalizeSpecialMode(wall?.specialMode) === TICKER_SPECIAL_MODE_BARTHES) {
+      await refillBarthesQueueIfNeeded(wall._id)
     }
 
     if (getTickerQueueSnapshot(wall._id).length > 0) {
@@ -894,6 +1062,43 @@ Meteor.methods({
     })
   },
 
+  async "ticker.toggleBarthesMode"({ wallId = DEFAULT_TICKER_WALL_ID } = {}) {
+    return withServer(async () => {
+      const wall = await ensureWall(wallId)
+      const nextEnabled = normalizeSpecialMode(wall?.specialMode) !== TICKER_SPECIAL_MODE_BARTHES
+
+      if (!nextEnabled) {
+      await panicStopWall(wallId, {
+        speedPxPerSec: DEFAULT_TICKER_SPEED_PX_PER_SEC,
+          specialMode: TICKER_SPECIAL_MODE_NONE,
+          barthesCursor: 0,
+          updatedAt: new Date(),
+        })
+        return { ok: true, specialMode: TICKER_SPECIAL_MODE_NONE }
+      }
+
+      try {
+        loadBarthesSentences()
+      } catch (error) {
+        throw new Meteor.Error("ticker.barthes.loadFailed", error.message)
+      }
+
+      await panicStopWall(wallId, {
+        speedPxPerSec: BARTHES_SPEED_MIN_PX_PER_SEC,
+        specialMode: TICKER_SPECIAL_MODE_BARTHES,
+        rendererMode: TICKER_RENDERER_MODE_BITMAP,
+        barthesCursor: 0,
+        updatedAt: new Date(),
+      })
+
+      await refillBarthesQueueIfNeeded(wallId)
+      await assignQueuedMessagesToFreeRows(wallId)
+      await refillBarthesQueueIfNeeded(wallId)
+
+      return { ok: true, specialMode: TICKER_SPECIAL_MODE_BARTHES }
+    })
+  },
+
   async "ticker.setProvisioningEnabled"({ wallId = DEFAULT_TICKER_WALL_ID, enabled } = {}) {
     return withServer(async () => {
       await ensureWall(wallId)
@@ -945,16 +1150,7 @@ Meteor.methods({
   },
 
   async "ticker.panicStop"({ wallId = DEFAULT_TICKER_WALL_ID } = {}) {
-    return withServer(async () => {
-      await ensureWall(wallId)
-      clearTickerQueue(wallId)
-      const queueState = await updateWallQueueState(wallId, () => createDefaultMachineState())
-      for (const row of queueState.rows) {
-        clearRowCompletionTimer(wallId, row.rowIndex)
-      }
-
-      return { ok: true }
-    })
+    return withServer(async () => panicStopWall(wallId))
   },
 
   async "ticker.removeClient"({ wallId = DEFAULT_TICKER_WALL_ID, clientId } = {}) {
@@ -1002,6 +1198,8 @@ Meteor.methods({
             queueState: createDefaultMachineState(),
             highlightClientId: null,
             rendererMode: TICKER_RENDERER_MODE_BITMAP,
+            specialMode: TICKER_SPECIAL_MODE_NONE,
+            barthesCursor: 0,
             displayMode: TICKER_DISPLAY_MODE_CHORUS,
             provisioningEnabled: false,
             showDebug: true,

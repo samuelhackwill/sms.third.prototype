@@ -14,6 +14,7 @@ import { VIDEO_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/video/videoEvents"
 import "./ticker.html"
 
 const FONT_FILL_DEFAULT = 0xff0000
+const FONT_FILL_BARTHES = 0x00ff00
 const BACKGROUND_DEFAULT = 0x000000
 const TEXT_FONT_FAMILY = "Georgia, 'Times New Roman', serif"
 const BITMAP_FONT_NAME = "LibreBaskerville-Regular"
@@ -32,6 +33,7 @@ const DEVICE_KEY_STORAGE_KEY = "ticker.deviceKey"
 const TICKER_REFRESH_EVENT = "ticker.refresh"
 const TICKER_HEARTBEAT_MS = 5 * 1000
 const TICKER_DISPLAY_MODE_VERTICAL = "vertical"
+const TICKER_SPECIAL_MODE_BARTHES = "barthes"
 let tickerFontLoadPromise = null
 
 function normalizeRendererMode(rendererMode) {
@@ -89,6 +91,7 @@ function createTickerRenderer(mountEl, rendererMode = TICKER_RENDERER_MODE_BITMA
   let displayMode = "chorus"
   let textScale = Math.max(0.1, (minClientHeight / BITMAP_FONT_BASE_SIZE) * TICKER_TEXT_SCALE_FACTOR)
   let referenceTextBaseHeight = null
+  let textFill = FONT_FILL_DEFAULT
   const resolvedRendererMode = normalizeRendererMode(rendererMode)
 
   function drawMask() {
@@ -102,7 +105,7 @@ function createTickerRenderer(mountEl, rendererMode = TICKER_RENDERER_MODE_BITMA
     return {
       fontName: BITMAP_FONT_NAME,
       fontSize: BITMAP_FONT_BASE_SIZE,
-      tint: FONT_FILL_DEFAULT,
+      tint: textFill,
     }
   }
 
@@ -110,7 +113,7 @@ function createTickerRenderer(mountEl, rendererMode = TICKER_RENDERER_MODE_BITMA
     return {
       fontFamily: TEXT_FONT_FAMILY,
       fontSize: BITMAP_FONT_BASE_SIZE,
-      fill: FONT_FILL_DEFAULT,
+      fill: textFill,
     }
   }
 
@@ -122,7 +125,7 @@ function createTickerRenderer(mountEl, rendererMode = TICKER_RENDERER_MODE_BITMA
     textDisplay = resolvedRendererMode === TICKER_RENDERER_MODE_TEXT
       ? new PIXI.Text("", textStyleOptions())
       : new PIXI.BitmapText("", bitmapFontOptions())
-    textDisplay.tint = FONT_FILL_DEFAULT
+    textDisplay.tint = textFill
     world.addChild(textDisplay)
     return textDisplay
   }
@@ -162,7 +165,7 @@ function createTickerRenderer(mountEl, rendererMode = TICKER_RENDERER_MODE_BITMA
     } else {
       display.fontName = BITMAP_FONT_NAME
       display.fontSize = BITMAP_FONT_BASE_SIZE
-      display.tint = FONT_FILL_DEFAULT
+      display.tint = textFill
     }
     layoutTextDisplay()
     return display
@@ -178,7 +181,7 @@ function createTickerRenderer(mountEl, rendererMode = TICKER_RENDERER_MODE_BITMA
     } else {
       textDisplay.fontName = BITMAP_FONT_NAME
       textDisplay.fontSize = BITMAP_FONT_BASE_SIZE
-      textDisplay.tint = FONT_FILL_DEFAULT
+      textDisplay.tint = textFill
     }
     layoutTextDisplay()
   }
@@ -237,6 +240,11 @@ function createTickerRenderer(mountEl, rendererMode = TICKER_RENDERER_MODE_BITMA
     layoutTextDisplay()
   }
 
+  function setTextFill(nextTextFill) {
+    textFill = Number.isFinite(Number(nextTextFill)) ? Number(nextTextFill) : FONT_FILL_DEFAULT
+    applyViewportTextStyle()
+  }
+
   function resize() {
     drawMask()
     applyViewportTextStyle()
@@ -266,6 +274,7 @@ function createTickerRenderer(mountEl, rendererMode = TICKER_RENDERER_MODE_BITMA
     setServerOffset,
     setTextRenderHeight,
     setDisplayMode,
+    setTextFill,
     resize,
     destroy() {
       app.ticker.remove(tick)
@@ -396,6 +405,7 @@ Template.TickerPage.onRendered(function onRendered() {
     const selfClient = TickerClients.findOne({ _id: this.clientId, wallId: DEFAULT_TICKER_WALL_ID })
     const rowState = findRowState(wall, selfClient?.rowIndex)
     this.renderer.setDisplayMode(wall?.displayMode)
+    this.renderer.setTextFill(wall?.specialMode === TICKER_SPECIAL_MODE_BARTHES ? FONT_FILL_BARTHES : FONT_FILL_DEFAULT)
     this.renderer.setTextRenderHeight(selfClient?.stackHeight ?? wall?.minClientHeight)
     this.renderer.setSliceXStart(selfClient?.xStart ?? 0)
     this.renderer.setSliceYStart(selfClient?.yStart ?? 0)
@@ -497,6 +507,7 @@ Template.TickerPage.onRendered(function onRendered() {
       return
     }
     this.renderer?.setDisplayMode(wall?.displayMode)
+    this.renderer?.setTextFill(wall?.specialMode === TICKER_SPECIAL_MODE_BARTHES ? FONT_FILL_BARTHES : FONT_FILL_DEFAULT)
     if (!rowState?.playing) {
       this.renderer?.clearPlaying()
       return
