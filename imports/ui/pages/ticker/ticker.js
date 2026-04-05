@@ -21,7 +21,6 @@ const BITMAP_FONT_BASE_SIZE = 192
 const BITMAP_FONT_CALIBRATION_TEXT = "HpxgylA"
 const TICKER_BASELINE_LIFT_PX = 150
 const TICKER_TEXT_SCALE_FACTOR = 0.88
-const TEXT_SEGMENT_CHARS = 12
 const SESSION_CLIENT_ID_KEY = "clientId"
 const LEGACY_SESSION_CLIENT_ID_KEY = "ticker.clientId"
 const LOCAL_STORAGE_CLIENT_ID_KEY = "ticker.clientId"
@@ -72,7 +71,6 @@ function createTickerRenderer(mountEl) {
   world.mask = maskGraphics
 
   let textDisplay = null
-  let textSegments = []
   let playing = null
   let xStart = 0
   let yStart = 0
@@ -94,7 +92,8 @@ function createTickerRenderer(mountEl) {
       return textDisplay
     }
 
-    textDisplay = new PIXI.Container()
+    textDisplay = new PIXI.BitmapText("", bitmapFontOptions())
+    textDisplay.tint = FONT_FILL_DEFAULT
     world.addChild(textDisplay)
     return textDisplay
   }
@@ -107,19 +106,6 @@ function createTickerRenderer(mountEl) {
     }
   }
 
-  function tokenizeText(text) {
-    const normalized = String(text ?? "")
-    if (!normalized) {
-      return [""]
-    }
-
-    const segments = []
-    for (let index = 0; index < normalized.length; index += TEXT_SEGMENT_CHARS) {
-      segments.push(normalized.slice(index, index + TEXT_SEGMENT_CHARS))
-    }
-    return segments
-  }
-
   function getReferenceTextHeight() {
     if (referenceTextBaseHeight == null) {
       const calibrationText = new PIXI.BitmapText(BITMAP_FONT_CALIBRATION_TEXT, bitmapFontOptions())
@@ -130,57 +116,40 @@ function createTickerRenderer(mountEl) {
     return referenceTextBaseHeight * textScale
   }
 
-  function layoutTextSegments() {
+  function layoutTextDisplay() {
     if (!textDisplay) {
       return
     }
 
-    let cursorX = 0
-    for (const segment of textSegments) {
-      segment.scale.set(textScale)
-      segment.x = cursorX
-      cursorX += segment.width
-    }
+    textDisplay.scale.set(textScale)
+    textDisplay.x = 0
 
     const referenceHeight = getReferenceTextHeight()
     textDisplay.y = displayMode === TICKER_DISPLAY_MODE_VERTICAL
       ? (-yStart - TICKER_BASELINE_LIFT_PX)
       : (app.screen.height - referenceHeight - TICKER_BASELINE_LIFT_PX)
-    textDisplay.visible = textSegments.length > 0
+    textDisplay.visible = Boolean(textDisplay.text)
   }
 
   function replaceTextDisplay(nextText) {
-    if (textDisplay) {
-      world.removeChild(textDisplay)
-      textDisplay.destroy()
-      textDisplay = null
-    }
-    textSegments = []
-
     const display = ensureTextDisplay()
-    for (const token of tokenizeText(nextText)) {
-      const segment = new PIXI.BitmapText(token, bitmapFontOptions())
-      segment.tint = FONT_FILL_DEFAULT
-      display.addChild(segment)
-      textSegments.push(segment)
-    }
-
-    layoutTextSegments()
+    display.text = String(nextText ?? "")
+    display.fontName = BITMAP_FONT_NAME
+    display.fontSize = BITMAP_FONT_BASE_SIZE
+    display.tint = FONT_FILL_DEFAULT
+    layoutTextDisplay()
     return display
   }
 
   function applyViewportTextStyle() {
-    if (!textDisplay || textSegments.length === 0) {
+    if (!textDisplay) {
       return
     }
 
-    for (const segment of textSegments) {
-      segment.fontName = BITMAP_FONT_NAME
-      segment.fontSize = BITMAP_FONT_BASE_SIZE
-      segment.tint = FONT_FILL_DEFAULT
-      segment.scale.set(textScale)
-    }
-    layoutTextSegments()
+    textDisplay.fontName = BITMAP_FONT_NAME
+    textDisplay.fontSize = BITMAP_FONT_BASE_SIZE
+    textDisplay.tint = FONT_FILL_DEFAULT
+    layoutTextDisplay()
   }
 
   function clearPlaying() {
@@ -190,7 +159,6 @@ function createTickerRenderer(mountEl) {
       textDisplay.destroy()
       textDisplay = null
     }
-    textSegments = []
   }
 
   function setPlaying(nextPlaying) {
@@ -215,7 +183,7 @@ function createTickerRenderer(mountEl) {
 
   function setSliceYStart(nextYStart) {
     yStart = Number(nextYStart) || 0
-    layoutTextSegments()
+    layoutTextDisplay()
   }
 
   function setServerOffset(nextOffsetMs) {
@@ -235,7 +203,7 @@ function createTickerRenderer(mountEl) {
     displayMode = nextDisplayMode === TICKER_DISPLAY_MODE_VERTICAL
       ? TICKER_DISPLAY_MODE_VERTICAL
       : "chorus"
-    layoutTextSegments()
+    layoutTextDisplay()
   }
 
   function resize() {
