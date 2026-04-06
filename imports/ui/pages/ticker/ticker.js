@@ -364,7 +364,6 @@ Template.TickerPage.onCreated(function onCreated() {
   this.refreshHandler = null
   this.routeControlHandler = null
   this.isDestroyed = false
-
   this.autorun(() => {
     this.subscribe("ticker.wall", DEFAULT_TICKER_WALL_ID)
     this.subscribe("ticker.client.self", DEFAULT_TICKER_WALL_ID, this.clientId)

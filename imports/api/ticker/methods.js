@@ -22,7 +22,7 @@ import {
 } from "/imports/api/ticker/queue"
 import { streamer } from "/imports/both/streamer"
 
-const DEFAULT_TICKER_SPEED_PX_PER_SEC = 120
+const DEFAULT_TICKER_SPEED_PX_PER_SEC = 6000
 const START_RUN_DELAY_MS = 800
 const TICKER_PROVISIONING_SLOT_COUNT = 30
 const TICKER_RENDERER_MODE_BITMAP = "bitmap"
