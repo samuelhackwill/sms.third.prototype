@@ -3,6 +3,7 @@ import { Template } from "meteor/templating"
 import { ReactiveVar } from "meteor/reactive-var"
 
 import { Messages } from "/imports/api/messages/messages"
+import "/imports/ui/components/adminWallNav/adminWallNav.js"
 import "./curation.html"
 
 const BULK_ACTION_NONE = ""

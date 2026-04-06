@@ -5,6 +5,7 @@ import "/imports/ui/components/adminWallNav/adminWallNav.html"
 
 const ADMIN_WALL_TABS = [
   { label: "Stage", routeName: "adminStage", path: "/admin/stage" },
+  { label: "Curation", routeName: "curation", path: "/curation" },
   { label: "Ticker", routeName: "adminTicker", path: "/admin/ticker" },
   { label: "Video", routeName: "adminVideo", path: "/admin/video" },
   { label: "Television", routeName: "adminTelevision", path: "/admin/television" },
