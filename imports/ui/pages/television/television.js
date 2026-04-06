@@ -1,5 +1,6 @@
 import { Meteor } from "meteor/meteor"
 import { Template } from "meteor/templating"
+import { ReactiveVar } from "meteor/reactive-var"
 import { FlowRouter } from "meteor/ostrio:flow-router-extra"
 
 import { DEFAULT_WALL_ID, WallClients, Walls } from "/imports/api/wall/collections"
@@ -16,6 +17,10 @@ const WALL_HEARTBEAT_MS = 5 * 1000
 const TELEVISION_WALL_COLS = 5
 const TELEVISION_WALL_ROWS = 6
 const TELEVISION_STOP_FADE_MS = 900
+const TELEVISION_STARTUP_WATCHDOG_MS = 4000
+const TELEVISION_RETRY_MIN_DELAY_MS = 2500
+const TELEVISION_RETRY_MAX_DELAY_MS = 4500
+const TELEVISION_MAX_RETRY_COUNT = 4
 
 function canSeekVideo(videoEl) {
   return Boolean(videoEl) && Number(videoEl.readyState) >= 1
@@ -31,6 +36,124 @@ function safelySetCurrentTime(videoEl, nextTime) {
   } catch (error) {
     // Ignore transient media readiness errors on mobile browsers.
   }
+}
+
+function readMediaSnapshot(videoEl) {
+  if (!videoEl) {
+    return {
+      paused: true,
+      readyState: 0,
+      networkState: 0,
+      currentTime: 0,
+      duration: null,
+      errorCode: null,
+      src: "",
+    }
+  }
+
+  return {
+    paused: Boolean(videoEl.paused),
+    readyState: Number(videoEl.readyState) || 0,
+    networkState: Number(videoEl.networkState) || 0,
+    currentTime: Number.isFinite(videoEl.currentTime) ? Number(videoEl.currentTime) : 0,
+    duration: Number.isFinite(videoEl.duration) ? Number(videoEl.duration) : null,
+    errorCode: Number(videoEl.error?.code) || null,
+    src: videoEl.currentSrc || videoEl.getAttribute("src") || "",
+  }
+}
+
+function retryDelayMs() {
+  const span = TELEVISION_RETRY_MAX_DELAY_MS - TELEVISION_RETRY_MIN_DELAY_MS
+  return TELEVISION_RETRY_MIN_DELAY_MS + Math.floor(Math.random() * (span + 1))
+}
+
+function clearStartupWatchdog(instance) {
+  if (instance.startupWatchdogTimerId) {
+    Meteor.clearTimeout(instance.startupWatchdogTimerId)
+    instance.startupWatchdogTimerId = null
+  }
+}
+
+function markStartupHealthy(instance, reason = "") {
+  clearStartupWatchdog(instance)
+  instance.retryCount.set(0)
+  if (reason) {
+    instance.watchdogStatus.set(reason)
+  }
+}
+
+function scheduleVideoRetry(instance, reason) {
+  const videoEl = instance.find("#televisionWallVideo")
+  const televisionState = TelevisionStates.findOne({ _id: DEFAULT_TELEVISION_STATE_ID })
+  if (!videoEl || !televisionState?.sourceUrl) {
+    clearStartupWatchdog(instance)
+    return
+  }
+
+  const nextRetryCount = instance.retryCount.get() + 1
+  instance.retryCount.set(nextRetryCount)
+
+  if (nextRetryCount > TELEVISION_MAX_RETRY_COUNT) {
+    clearStartupWatchdog(instance)
+    instance.watchdogStatus.set(`gave up after ${TELEVISION_MAX_RETRY_COUNT} retries (${reason})`)
+    return
+  }
+
+  const delayMs = retryDelayMs()
+  instance.watchdogStatus.set(`retry ${nextRetryCount}/${TELEVISION_MAX_RETRY_COUNT} in ${delayMs}ms (${reason})`)
+
+  clearStartupWatchdog(instance)
+  instance.startupWatchdogTimerId = Meteor.setTimeout(() => {
+    instance.startupWatchdogTimerId = null
+    const activeVideoEl = instance.find("#televisionWallVideo")
+    const state = TelevisionStates.findOne({ _id: DEFAULT_TELEVISION_STATE_ID })
+    if (!activeVideoEl || !state?.sourceUrl || state.playbackState !== "playing") {
+      return
+    }
+
+    activeVideoEl.pause()
+    activeVideoEl.removeAttribute("src")
+    activeVideoEl.load()
+    activeVideoEl.src = state.sourceUrl
+    activeVideoEl.load()
+    instance.mediaSnapshot.set(readMediaSnapshot(activeVideoEl))
+    startStartupWatchdog(instance, "retry-load")
+  }, delayMs)
+}
+
+function startStartupWatchdog(instance, reason = "startup") {
+  const videoEl = instance.find("#televisionWallVideo")
+  const televisionState = TelevisionStates.findOne({ _id: DEFAULT_TELEVISION_STATE_ID })
+  if (!videoEl || televisionState?.playbackState !== "playing" || !televisionState?.sourceUrl) {
+    clearStartupWatchdog(instance)
+    return
+  }
+
+  if (Number(videoEl.readyState) >= 3) {
+    markStartupHealthy(instance, `healthy (${reason})`)
+    return
+  }
+
+  clearStartupWatchdog(instance)
+  instance.watchdogStatus.set(`watching (${reason})`)
+  instance.startupWatchdogTimerId = Meteor.setTimeout(() => {
+    instance.startupWatchdogTimerId = null
+    const activeVideoEl = instance.find("#televisionWallVideo")
+    const snapshot = readMediaSnapshot(activeVideoEl)
+    instance.mediaSnapshot.set(snapshot)
+
+    if (snapshot.readyState >= 3) {
+      markStartupHealthy(instance, `healthy after ${reason}`)
+      return
+    }
+
+    if (snapshot.readyState === 0) {
+      scheduleVideoRetry(instance, `stuck at readyState 0 after ${reason}`)
+      return
+    }
+
+    instance.watchdogStatus.set(`waiting at readyState ${snapshot.readyState} after ${reason}`)
+  }, TELEVISION_STARTUP_WATCHDOG_MS)
 }
 
 function syncVideoViewport(instance) {
@@ -63,7 +186,25 @@ function syncVideoPlayback(instance) {
     return
   }
 
+  const stateUpdatedAtMs = new Date(televisionState?.updatedAt).getTime()
+  const isFreshCommand = Number.isFinite(stateUpdatedAtMs) && stateUpdatedAtMs >= instance.routeEnteredAtMs
+
+  if (televisionState?.sourceUrl && !instance.hasAcceptedTelevisionCommand && !isFreshCommand) {
+    instance.watchdogStatus.set("waiting for admin command")
+    if (videoEl.getAttribute("src")) {
+      videoEl.pause()
+      videoEl.removeAttribute("src")
+      videoEl.load()
+    }
+    return
+  }
+
+  if (isFreshCommand) {
+    instance.hasAcceptedTelevisionCommand = true
+  }
+
   if (!televisionState?.sourceUrl) {
+    markStartupHealthy(instance, "no source")
     if (videoEl.getAttribute("src")) {
       videoEl.pause()
       videoEl.removeAttribute("src")
@@ -76,9 +217,11 @@ function syncVideoPlayback(instance) {
   if (videoEl.getAttribute("src") !== televisionState.sourceUrl) {
     videoEl.src = televisionState.sourceUrl
     videoEl.load()
+    startStartupWatchdog(instance, "src-change")
   }
 
   if (televisionState.playbackState === "loaded") {
+    markStartupHealthy(instance, "loaded")
     if (instance.stopFadeKey !== null) {
       instance.stopFadeKey = null
     }
@@ -92,6 +235,7 @@ function syncVideoPlayback(instance) {
   }
 
   if (televisionState.playbackState === "stopping") {
+    markStartupHealthy(instance, "stopping")
     const stopKey = Number(televisionState.stopRequestedAtServerMs) || 0
     if (instance.stopFadeKey !== stopKey) {
       instance.stopFadeKey = stopKey
@@ -107,6 +251,7 @@ function syncVideoPlayback(instance) {
   }
 
   if (televisionState.playbackState !== "playing") {
+    markStartupHealthy(instance, `state=${televisionState.playbackState}`)
     return
   }
 
@@ -132,10 +277,26 @@ function syncVideoPlayback(instance) {
     safelySetCurrentTime(videoEl, targetTime)
   }
 
-  videoEl.play().catch(() => {})
+  videoEl.play()
+    .then(() => {
+      instance.lastPlayError.set("")
+      instance.mediaSnapshot.set(readMediaSnapshot(videoEl))
+      if (Number(videoEl.readyState) >= 3) {
+        markStartupHealthy(instance, "play resolved")
+      } else {
+        startStartupWatchdog(instance, "play-resolved")
+      }
+    })
+    .catch((error) => {
+      instance.lastPlayError.set(error?.message || String(error))
+      instance.mediaSnapshot.set(readMediaSnapshot(videoEl))
+      startStartupWatchdog(instance, "play-rejected")
+    })
 }
 
 Template.TelevisionPage.onCreated(function onCreated() {
+  this.routeEnteredAtMs = Date.now()
+  this.hasAcceptedTelevisionCommand = false
   this.clientId = getOrCreateClientId()
   this.deviceKey = getOrCreateDeviceKey()
   this.shortCode = toShortCode(this.clientId)
@@ -147,6 +308,13 @@ Template.TelevisionPage.onCreated(function onCreated() {
   this.routeControlHandler = null
   this.stopFadeTimerId = null
   this.stopFadeKey = null
+  this.startupWatchdogTimerId = null
+  this.mediaPollIntervalId = null
+  this.mediaSnapshot = new ReactiveVar(readMediaSnapshot(null))
+  this.lastMediaEvent = new ReactiveVar("none")
+  this.lastPlayError = new ReactiveVar("")
+  this.retryCount = new ReactiveVar(0)
+  this.watchdogStatus = new ReactiveVar("idle")
 
   this.autorun(() => {
     this.subscribe("wall.current", DEFAULT_WALL_ID)
@@ -229,11 +397,49 @@ Template.TelevisionPage.onRendered(function onRendered() {
   if (videoEl) {
     videoEl.style.opacity = "1"
     videoEl.style.transition = `opacity ${TELEVISION_STOP_FADE_MS}ms ease`
+    const mediaEvents = [
+      "loadstart",
+      "loadedmetadata",
+      "loadeddata",
+      "canplay",
+      "canplaythrough",
+      "play",
+      "playing",
+      "pause",
+      "waiting",
+      "stalled",
+      "suspend",
+      "abort",
+      "emptied",
+      "ended",
+      "error",
+    ]
+    this.mediaEventHandlers = mediaEvents.map((eventName) => {
+      const handler = () => {
+        const suffix = videoEl.error?.code ? ` error=${videoEl.error.code}` : ""
+        this.lastMediaEvent.set(`${eventName}${suffix}`)
+        this.mediaSnapshot.set(readMediaSnapshot(videoEl))
+        if (eventName === "playing" || Number(videoEl.readyState) >= 3) {
+          markStartupHealthy(this, eventName)
+        }
+        if ((eventName === "stalled" || eventName === "abort" || eventName === "error") && Number(videoEl.readyState) === 0) {
+          scheduleVideoRetry(this, eventName)
+        }
+      }
+      videoEl.addEventListener(eventName, handler)
+      return { eventName, handler }
+    })
   }
   videoEl?.addEventListener("loadedmetadata", () => {
     syncVideoViewport(this)
     syncVideoPlayback(this)
+    startStartupWatchdog(this, "loadedmetadata")
   })
+
+  this.mediaPollIntervalId = Meteor.setInterval(() => {
+    const activeVideoEl = this.find("#televisionWallVideo")
+    this.mediaSnapshot.set(readMediaSnapshot(activeVideoEl))
+  }, 500)
 
   this.autorun(() => {
     syncVideoViewport(this)
@@ -245,6 +451,10 @@ Template.TelevisionPage.onDestroyed(function onDestroyed() {
   window.removeEventListener("resize", this.handleResize)
   Meteor.clearTimeout(this.resizeTimeout)
   Meteor.clearTimeout(this.stopFadeTimerId)
+  clearStartupWatchdog(this)
+  if (this.mediaPollIntervalId) {
+    Meteor.clearInterval(this.mediaPollIntervalId)
+  }
   if (this.timeSyncIntervalId) {
     Meteor.clearInterval(this.timeSyncIntervalId)
   }
@@ -257,9 +467,17 @@ Template.TelevisionPage.onDestroyed(function onDestroyed() {
   if (this.routeControlHandler) {
     streamer.removeListener(TELEVISION_ROUTE_CONTROL_EVENT, this.routeControlHandler)
   }
+  const videoEl = this.find?.("#televisionWallVideo")
+  for (const item of this.mediaEventHandlers ?? []) {
+    videoEl?.removeEventListener(item.eventName, item.handler)
+  }
 })
 
 Template.TelevisionPage.helpers({
+  clientDoc() {
+    const instance = Template.instance()
+    return WallClients.findOne({ _id: instance.clientId, wallId: DEFAULT_WALL_ID }) ?? null
+  },
   shortCode() {
     const instance = Template.instance()
     return WallClients.findOne({ _id: instance.clientId, wallId: DEFAULT_WALL_ID })?.shortCode ?? "-----"
@@ -271,6 +489,21 @@ Template.TelevisionPage.helpers({
     const instance = Template.instance()
     const doc = WallClients.findOne({ _id: instance.clientId, wallId: DEFAULT_WALL_ID })
     return Number.isInteger(doc?.rowIndex) ? doc.rowIndex : "-"
+  },
+  colIndex() {
+    const instance = Template.instance()
+    const doc = WallClients.findOne({ _id: instance.clientId, wallId: DEFAULT_WALL_ID })
+    return Number.isInteger(doc?.colIndex) ? doc.colIndex : "-"
+  },
+  slotIndex() {
+    const instance = Template.instance()
+    const doc = WallClients.findOne({ _id: instance.clientId, wallId: DEFAULT_WALL_ID })
+    return Number.isInteger(doc?.slotIndex) ? doc.slotIndex : "-"
+  },
+  hasAssignedSlice() {
+    const instance = Template.instance()
+    const doc = WallClients.findOne({ _id: instance.clientId, wallId: DEFAULT_WALL_ID })
+    return Number.isInteger(doc?.rowIndex) && Number.isInteger(doc?.colIndex)
   },
   xStart() {
     const instance = Template.instance()
@@ -287,6 +520,50 @@ Template.TelevisionPage.helpers({
   },
   showDebug() {
     return Walls.findOne({ _id: DEFAULT_WALL_ID })?.showDebug !== false
+  },
+  mediaPaused() {
+    return Template.instance().mediaSnapshot.get().paused ? "yes" : "no"
+  },
+  mediaReadyState() {
+    return Template.instance().mediaSnapshot.get().readyState
+  },
+  isMediaReadyStateFull() {
+    return Template.instance().mediaSnapshot.get().readyState >= 4
+  },
+  mediaReadyStateClass() {
+    const readyState = Template.instance().mediaSnapshot.get().readyState
+    if (readyState >= 4) {
+      return "text-emerald-300"
+    }
+    if (readyState >= 3) {
+      return "text-amber-300"
+    }
+    return "text-red-300"
+  },
+  mediaNetworkState() {
+    return Template.instance().mediaSnapshot.get().networkState
+  },
+  mediaCurrentTime() {
+    return Template.instance().mediaSnapshot.get().currentTime.toFixed(2)
+  },
+  mediaDuration() {
+    const duration = Template.instance().mediaSnapshot.get().duration
+    return Number.isFinite(duration) ? duration.toFixed(2) : "-"
+  },
+  mediaErrorCode() {
+    return Template.instance().mediaSnapshot.get().errorCode ?? "-"
+  },
+  lastMediaEvent() {
+    return Template.instance().lastMediaEvent.get()
+  },
+  lastPlayError() {
+    return Template.instance().lastPlayError.get() || "none"
+  },
+  retryCount() {
+    return Template.instance().retryCount.get()
+  },
+  watchdogStatus() {
+    return Template.instance().watchdogStatus.get()
   },
   isProvisioningMode() {
     const instance = Template.instance()
