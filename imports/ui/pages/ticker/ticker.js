@@ -10,7 +10,7 @@ import {
 import "/imports/api/ticker/methods"
 import { streamer } from "/imports/both/streamer"
 import { FlowRouter } from "meteor/ostrio:flow-router-extra"
-import { VIDEO_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/video/videoEvents"
+import { TICKER_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/ticker/tickerEvents"
 import "./ticker.html"
 
 const FONT_FILL_DEFAULT = 0xff0000
@@ -487,14 +487,15 @@ Template.TickerPage.onRendered(function onRendered() {
   streamer.on(TICKER_REFRESH_EVENT, this.refreshHandler)
 
     this.routeControlHandler = (payload) => {
-      if (!payload || payload.from !== "ticker" || payload.target !== "video") {
+      const target = payload?.target
+      if (target !== "video" && target !== "television") {
         return
       }
 
-      FlowRouter.go("/video")
+      FlowRouter.go(`/${target}`)
     }
 
-    streamer.on(VIDEO_ROUTE_CONTROL_EVENT, this.routeControlHandler)
+    streamer.on(TICKER_ROUTE_CONTROL_EVENT, this.routeControlHandler)
   })()
 
   this.autorun(() => {
@@ -539,7 +540,7 @@ Template.TickerPage.onDestroyed(function onDestroyed() {
     this.refreshHandler = null
   }
   if (this.routeControlHandler) {
-    streamer.removeListener(VIDEO_ROUTE_CONTROL_EVENT, this.routeControlHandler)
+    streamer.removeListener(TICKER_ROUTE_CONTROL_EVENT, this.routeControlHandler)
     this.routeControlHandler = null
   }
   this.renderer?.destroy()

@@ -9,7 +9,10 @@ import {
 } from "/imports/api/ticker/collections"
 import { streamer } from "/imports/both/streamer"
 import { FAKE_MESSAGES } from "/imports/ui/pages/stage/stageTestData"
+import { TICKER_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/ticker/tickerEvents"
+import { TELEVISION_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/television/televisionEvents"
 import { VIDEO_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/video/videoEvents"
+import "/imports/ui/components/adminWallNav/adminWallNav.js"
 import "/imports/ui/pages/adminTicker/adminTickerPage.html"
 
 const PROVISIONING_ROWS = 6
@@ -307,12 +310,12 @@ Template.AdminTickerPage.events({
       text: randomFrom(FAKE_MESSAGES),
     })
   },
-  "click .js-move-ticker-clients-to-video"(event) {
+  "click .js-move-all-clients-to-ticker"(event) {
     event.preventDefault()
-    streamer.emit(VIDEO_ROUTE_CONTROL_EVENT, {
-      from: "ticker",
-      target: "video",
-    })
+    const payload = { target: "ticker" }
+    streamer.emit(TICKER_ROUTE_CONTROL_EVENT, payload)
+    streamer.emit(TELEVISION_ROUTE_CONTROL_EVENT, payload)
+    streamer.emit(VIDEO_ROUTE_CONTROL_EVENT, payload)
   },
   "click .js-toggle-provisioning"(event, instance) {
     event.preventDefault()

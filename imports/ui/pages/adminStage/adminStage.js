@@ -13,6 +13,7 @@ import {
   DEFAULT_STAGE_VIDEO_KEY,
   STAGE_VIDEOS,
 } from "/imports/ui/pages/stage/stageVideos"
+import "/imports/ui/components/adminWallNav/adminWallNav.js"
 import "./adminStage.html"
 
 const DEFAULT_SOURCE = "default"

@@ -1,5 +1,6 @@
 <template name="AdminTickerPage">
   <main class="mx-auto min-h-screen max-w-7xl bg-slate-950 px-6 py-8 text-slate-100">
+    {{> AdminWallNav}}
     <h1 class="text-2xl font-semibold text-slate-50">Admin Ticker</h1>
     <p class="mt-2 text-sm text-slate-400">Drag cards to reorder screens. Hold card to highlight client.</p>
 
@@ -46,7 +47,7 @@
           <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Screens</div>
           <div class="mt-3 flex flex-wrap items-center gap-2">
             <button type="button" class="js-refresh-clients rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm font-medium text-slate-100 hover:border-slate-600 hover:bg-slate-700">Force Refresh Clients</button>
-            <button type="button" class="js-move-ticker-clients-to-video rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm font-medium text-slate-100 hover:border-slate-600 hover:bg-slate-700">Move Ticker Clients To /video</button>
+            <button type="button" class="js-move-all-clients-to-ticker rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm font-medium text-slate-100 hover:border-slate-600 hover:bg-slate-700">Move All Clients To /ticker</button>
             <button type="button" class="js-toggle-provisioning rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm font-medium text-slate-100 hover:border-slate-600 hover:bg-slate-700">{{provisioningButtonLabel}}</button>
             <button type="button" class="js-toggle-debug rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm font-medium text-slate-100 hover:border-slate-600 hover:bg-slate-700">{{debugButtonLabel}}</button>
           </div>
