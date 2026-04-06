@@ -1,6 +1,5 @@
-import { Mongo } from "meteor/mongo"
+import { DEFAULT_WALL_ID, WallClients, Walls } from "/imports/api/wall/collections"
 
-export const DEFAULT_TICKER_WALL_ID = "default"
-
-export const TickerClients = new Mongo.Collection("tickerClients")
-export const TickerWalls = new Mongo.Collection("tickerWalls")
+export const DEFAULT_TICKER_WALL_ID = DEFAULT_WALL_ID
+export const TickerClients = WallClients
+export const TickerWalls = Walls

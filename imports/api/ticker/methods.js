@@ -268,6 +268,12 @@ async function ensureWall(wallId = DEFAULT_TICKER_WALL_ID) {
     if (!Number.isFinite(existing.renderHeightPx)) {
       patch.renderHeightPx = Number(existing.minClientHeight) || 0
     }
+    if (!Number.isFinite(existing.matrixWallWidthPx)) {
+      patch.matrixWallWidthPx = 0
+    }
+    if (!Number.isFinite(existing.matrixWallHeightPx)) {
+      patch.matrixWallHeightPx = 0
+    }
     if (!existing.queueState || !Array.isArray(existing.queueState.rows)) {
       patch.queueState = normalizeMachineState(existing.queueState)
     }
@@ -306,6 +312,8 @@ async function ensureWall(wallId = DEFAULT_TICKER_WALL_ID) {
     provisioningEnabled: false,
     showDebug: true,
     renderHeightPx: 0,
+    matrixWallWidthPx: 0,
+    matrixWallHeightPx: 0,
     playing: null,
     rowMetrics: Array.from({ length: TICKER_ROW_COUNT }, (_, rowIndex) => ({
       rowIndex,
@@ -353,15 +361,23 @@ async function recomputeLayout(wallId = DEFAULT_TICKER_WALL_ID) {
 
   const columnWidths = Array.from({ length: 5 }, () => 0)
   const columnStackHeights = Array.from({ length: 5 }, () => 0)
+  const rowHeights = Array.from({ length: TICKER_ROW_COUNT }, () => 0)
   for (const client of layoutClients) {
     columnWidths[client.colIndex] = Math.max(columnWidths[client.colIndex], Number(client.width) || 0)
     columnStackHeights[client.colIndex] += Number(client.height) || 0
+    rowHeights[client.rowIndex] = Math.max(rowHeights[client.rowIndex], Number(client.height) || 0)
   }
   const columnXStarts = []
   let columnCursorX = 0
   for (let colIndex = 0; colIndex < 5; colIndex += 1) {
     columnXStarts[colIndex] = columnCursorX
     columnCursorX += columnWidths[colIndex]
+  }
+  const rowYStarts = []
+  let rowCursorY = 0
+  for (let rowIndex = 0; rowIndex < TICKER_ROW_COUNT; rowIndex += 1) {
+    rowYStarts[rowIndex] = rowCursorY
+    rowCursorY += rowHeights[rowIndex]
   }
 
   let xStart = 0
@@ -396,6 +412,8 @@ async function recomputeLayout(wallId = DEFAULT_TICKER_WALL_ID) {
           xStart: nextXStart,
           yStart: nextYStart,
           stackHeight,
+          matrixXStart: columnXStarts[colIndex],
+          matrixYStart: rowYStarts[rowIndex],
           updatedAt: new Date(),
         },
       },
@@ -419,6 +437,8 @@ async function recomputeLayout(wallId = DEFAULT_TICKER_WALL_ID) {
           xStart: null,
           yStart: null,
           stackHeight: null,
+          matrixXStart: null,
+          matrixYStart: null,
           rowIndex: null,
           colIndex: null,
           updatedAt: new Date(),
@@ -465,6 +485,8 @@ async function recomputeLayout(wallId = DEFAULT_TICKER_WALL_ID) {
         totalWallWidth: normalizedTotalWallWidth,
         minClientHeight: normalizedMinClientHeight,
         renderHeightPx: normalizedRenderHeight,
+        matrixWallWidthPx: columnCursorX,
+        matrixWallHeightPx: rowCursorY,
         rowMetrics,
         layoutVersion: Number(wall.layoutVersion ?? 0) + 1,
         updatedAt: new Date(),
