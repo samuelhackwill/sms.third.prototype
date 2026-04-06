@@ -17,6 +17,22 @@ const TELEVISION_WALL_COLS = 5
 const TELEVISION_WALL_ROWS = 6
 const TELEVISION_STOP_FADE_MS = 900
 
+function canSeekVideo(videoEl) {
+  return Boolean(videoEl) && Number(videoEl.readyState) >= 1
+}
+
+function safelySetCurrentTime(videoEl, nextTime) {
+  if (!canSeekVideo(videoEl) || !Number.isFinite(nextTime)) {
+    return
+  }
+
+  try {
+    videoEl.currentTime = nextTime
+  } catch (error) {
+    // Ignore transient media readiness errors on mobile browsers.
+  }
+}
+
 function syncVideoViewport(instance) {
   const videoEl = instance.find("#televisionWallVideo")
   if (!videoEl) {
@@ -68,8 +84,8 @@ function syncVideoPlayback(instance) {
     }
     videoEl.style.transition = `opacity ${TELEVISION_STOP_FADE_MS}ms ease`
     videoEl.style.opacity = "1"
-    if (Math.abs(videoEl.currentTime) > 0.1) {
-      videoEl.currentTime = 0
+    if (canSeekVideo(videoEl) && Math.abs(videoEl.currentTime) > 0.1) {
+      safelySetCurrentTime(videoEl, 0)
     }
     videoEl.pause()
     return
@@ -112,8 +128,8 @@ function syncVideoPlayback(instance) {
     ? Math.min(duration, elapsedSec)
     : elapsedSec % duration
 
-  if (Math.abs(videoEl.currentTime - targetTime) > 0.35) {
-    videoEl.currentTime = targetTime
+  if (canSeekVideo(videoEl) && Math.abs(videoEl.currentTime - targetTime) > 0.35) {
+    safelySetCurrentTime(videoEl, targetTime)
   }
 
   videoEl.play().catch(() => {})
