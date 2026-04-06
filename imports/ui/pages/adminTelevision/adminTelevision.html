@@ -15,7 +15,8 @@
           value="{{sourceUrlValue}}"
         />
         <div class="flex flex-wrap gap-2">
-          <button type="button" class="js-play-url rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm font-medium text-slate-100 hover:border-slate-600 hover:bg-slate-700">Play URL</button>
+          <button type="button" class="js-load-url rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm font-medium text-slate-100 hover:border-slate-600 hover:bg-slate-700">Load URL</button>
+          <button type="button" class="js-play-loaded rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm font-medium text-slate-100 hover:border-slate-600 hover:bg-slate-700">Play Loaded</button>
           <button type="button" class="js-stop-video rounded border border-red-800 bg-red-950 px-3 py-2 text-sm font-semibold text-red-100 hover:border-red-700 hover:bg-red-900">Stop</button>
         </div>
       </div>
@@ -27,10 +28,10 @@
           {{#each localSources}}
             <button
               type="button"
-              class="js-play-local-source rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 hover:bg-slate-700"
+              class="js-load-local-source rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 hover:bg-slate-700"
               data-source-url="{{sourceUrl}}"
             >
-              {{label}}
+              Load {{label}}
             </button>
           {{/each}}
         </div>

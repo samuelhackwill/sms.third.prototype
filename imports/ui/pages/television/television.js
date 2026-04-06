@@ -13,6 +13,9 @@ import "./television.html"
 
 const WALL_REFRESH_EVENT = "ticker.refresh"
 const WALL_HEARTBEAT_MS = 5 * 1000
+const TELEVISION_WALL_COLS = 5
+const TELEVISION_WALL_ROWS = 6
+const TELEVISION_STOP_FADE_MS = 900
 
 function syncVideoViewport(instance) {
   const videoEl = instance.find("#televisionWallVideo")
@@ -20,24 +23,36 @@ function syncVideoViewport(instance) {
     return
   }
 
-  const wall = Walls.findOne({ _id: DEFAULT_WALL_ID })
   const selfClient = WallClients.findOne({ _id: instance.clientId, wallId: DEFAULT_WALL_ID })
-  const totalWallWidth = Math.max(1, Number(wall?.matrixWallWidthPx) || Number(wall?.totalWallWidth) || window.innerWidth)
-  const totalWallHeight = Math.max(1, Number(wall?.matrixWallHeightPx) || window.innerHeight)
-  const xStart = Number(selfClient?.matrixXStart)
-  const yStart = Number(selfClient?.matrixYStart)
+  const colIndex = Number.isInteger(selfClient?.colIndex) ? selfClient.colIndex : 0
+  const rowIndex = Number.isInteger(selfClient?.rowIndex) ? selfClient.rowIndex : 0
+  const clientWidth = Math.max(1, window.innerWidth)
+  const clientHeight = Math.max(1, window.innerHeight)
+  const totalWallWidth = clientWidth * TELEVISION_WALL_COLS
+  const totalWallHeight = clientHeight * TELEVISION_WALL_ROWS
+  const xStart = colIndex * clientWidth
+  const yStart = rowIndex * clientHeight
 
   videoEl.style.width = `${totalWallWidth}px`
   videoEl.style.height = `${totalWallHeight}px`
-  videoEl.style.left = `${-(Number.isFinite(xStart) ? xStart : 0)}px`
-  videoEl.style.top = `${-(Number.isFinite(yStart) ? yStart : 0)}px`
+  videoEl.style.left = `${-xStart}px`
+  videoEl.style.top = `${-yStart}px`
   videoEl.style.objectFit = "cover"
 }
 
 function syncVideoPlayback(instance) {
   const videoEl = instance.find("#televisionWallVideo")
   const televisionState = TelevisionStates.findOne({ _id: DEFAULT_TELEVISION_STATE_ID })
-  if (!videoEl || televisionState?.playbackState !== "playing" || !televisionState?.sourceUrl) {
+  if (!videoEl) {
+    return
+  }
+
+  if (!televisionState?.sourceUrl) {
+    if (videoEl.getAttribute("src")) {
+      videoEl.pause()
+      videoEl.removeAttribute("src")
+      videoEl.load()
+    }
     return
   }
 
@@ -45,8 +60,47 @@ function syncVideoPlayback(instance) {
   if (videoEl.getAttribute("src") !== televisionState.sourceUrl) {
     videoEl.src = televisionState.sourceUrl
     videoEl.load()
+  }
+
+  if (televisionState.playbackState === "loaded") {
+    if (instance.stopFadeKey !== null) {
+      instance.stopFadeKey = null
+    }
+    videoEl.style.transition = `opacity ${TELEVISION_STOP_FADE_MS}ms ease`
+    videoEl.style.opacity = "1"
+    if (Math.abs(videoEl.currentTime) > 0.1) {
+      videoEl.currentTime = 0
+    }
+    videoEl.pause()
     return
   }
+
+  if (televisionState.playbackState === "stopping") {
+    const stopKey = Number(televisionState.stopRequestedAtServerMs) || 0
+    if (instance.stopFadeKey !== stopKey) {
+      instance.stopFadeKey = stopKey
+      videoEl.style.transition = `opacity ${TELEVISION_STOP_FADE_MS}ms ease`
+      videoEl.style.opacity = "0"
+      Meteor.clearTimeout(instance.stopFadeTimerId)
+      instance.stopFadeTimerId = Meteor.setTimeout(() => {
+        videoEl.pause()
+        instance.stopFadeTimerId = null
+      }, TELEVISION_STOP_FADE_MS)
+    }
+    return
+  }
+
+  if (televisionState.playbackState !== "playing") {
+    return
+  }
+
+  if (instance.stopFadeKey !== null) {
+    instance.stopFadeKey = null
+  }
+  Meteor.clearTimeout(instance.stopFadeTimerId)
+  instance.stopFadeTimerId = null
+  videoEl.style.transition = `opacity ${TELEVISION_STOP_FADE_MS}ms ease`
+  videoEl.style.opacity = "1"
 
   const duration = Number(videoEl.duration)
   if (!Number.isFinite(duration) || duration <= 0) {
@@ -75,6 +129,8 @@ Template.TelevisionPage.onCreated(function onCreated() {
   this.offsetMs = 0
   this.refreshHandler = null
   this.routeControlHandler = null
+  this.stopFadeTimerId = null
+  this.stopFadeKey = null
 
   this.autorun(() => {
     this.subscribe("wall.current", DEFAULT_WALL_ID)
@@ -154,6 +210,10 @@ Template.TelevisionPage.onRendered(function onRendered() {
   streamer.on(TELEVISION_ROUTE_CONTROL_EVENT, this.routeControlHandler)
 
   const videoEl = this.find("#televisionWallVideo")
+  if (videoEl) {
+    videoEl.style.opacity = "1"
+    videoEl.style.transition = `opacity ${TELEVISION_STOP_FADE_MS}ms ease`
+  }
   videoEl?.addEventListener("loadedmetadata", () => {
     syncVideoViewport(this)
     syncVideoPlayback(this)
@@ -168,6 +228,7 @@ Template.TelevisionPage.onRendered(function onRendered() {
 Template.TelevisionPage.onDestroyed(function onDestroyed() {
   window.removeEventListener("resize", this.handleResize)
   Meteor.clearTimeout(this.resizeTimeout)
+  Meteor.clearTimeout(this.stopFadeTimerId)
   if (this.timeSyncIntervalId) {
     Meteor.clearInterval(this.timeSyncIntervalId)
   }
@@ -197,11 +258,13 @@ Template.TelevisionPage.helpers({
   },
   xStart() {
     const instance = Template.instance()
-    return WallClients.findOne({ _id: instance.clientId, wallId: DEFAULT_WALL_ID })?.matrixXStart ?? 0
+    const doc = WallClients.findOne({ _id: instance.clientId, wallId: DEFAULT_WALL_ID })
+    return (Number.isInteger(doc?.colIndex) ? doc.colIndex : 0) * window.innerWidth
   },
   yStart() {
     const instance = Template.instance()
-    return WallClients.findOne({ _id: instance.clientId, wallId: DEFAULT_WALL_ID })?.matrixYStart ?? 0
+    const doc = WallClients.findOne({ _id: instance.clientId, wallId: DEFAULT_WALL_ID })
+    return (Number.isInteger(doc?.rowIndex) ? doc.rowIndex : 0) * window.innerHeight
   },
   currentSource() {
     return TelevisionStates.findOne({ _id: DEFAULT_TELEVISION_STATE_ID })?.sourceUrl ?? "none"

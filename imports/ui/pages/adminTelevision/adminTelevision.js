@@ -51,19 +51,23 @@ Template.AdminTelevisionPage.events({
     streamer.emit(TELEVISION_ROUTE_CONTROL_EVENT, payload)
     streamer.emit(VIDEO_ROUTE_CONTROL_EVENT, payload)
   },
-  async "click .js-play-url"(event, instance) {
+  async "click .js-load-url"(event, instance) {
     event.preventDefault()
     const sourceUrl = instance.find("#televisionSourceUrl")?.value ?? ""
-    await Meteor.callAsync("television.playUrl", {
+    await Meteor.callAsync("television.loadUrl", {
       stateId: DEFAULT_TELEVISION_STATE_ID,
       sourceUrl,
     })
+  },
+  async "click .js-play-loaded"(event) {
+    event.preventDefault()
+    await Meteor.callAsync("television.playLoaded", { stateId: DEFAULT_TELEVISION_STATE_ID })
   },
   async "click .js-stop-video"(event) {
     event.preventDefault()
     await Meteor.callAsync("television.stop", { stateId: DEFAULT_TELEVISION_STATE_ID })
   },
-  async "click .js-play-local-source"(event, instance) {
+  async "click .js-load-local-source"(event, instance) {
     event.preventDefault()
     const sourceUrl = event.currentTarget.dataset.sourceUrl
     if (!sourceUrl) {
@@ -75,7 +79,7 @@ Template.AdminTelevisionPage.events({
       input.value = sourceUrl
     }
 
-    await Meteor.callAsync("television.playUrl", {
+    await Meteor.callAsync("television.loadUrl", {
       stateId: DEFAULT_TELEVISION_STATE_ID,
       sourceUrl,
     })
