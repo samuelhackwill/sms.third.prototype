@@ -1,0 +1,16 @@
+<template name="AdminWallNav">
+  <div class="relative left-1/2 z-40 mb-6 w-screen -translate-x-1/2 px-6">
+    <div class="sticky top-0 flex w-full flex-wrap items-center gap-3 border-y border-slate-800 bg-slate-950/95 px-4 py-3 backdrop-blur">
+      <nav class="flex flex-wrap gap-2">
+        {{#each tabs}}
+          <a
+            href="{{path}}"
+            class="rounded-lg px-4 py-2 text-sm font-medium transition {{#if isActive}}bg-slate-100 text-slate-950{{else}}text-slate-300 hover:bg-slate-900 hover:text-slate-100{{/if}}"
+          >
+            {{label}}
+          </a>
+        {{/each}}
+      </nav>
+    </div>
+  </div>
+</template>
