@@ -1,8 +1,13 @@
 import { Meteor } from "meteor/meteor"
+import fs from "node:fs"
+import os from "node:os"
+import path from "node:path"
 
 import { DEFAULT_TELEVISION_STATE_ID, TelevisionStates } from "/imports/api/television/collections"
 
 const TELEVISION_STOP_FADE_MS = 900
+const NGINX_MEDIA_ROOT = "/opt/homebrew/var/www"
+const VIDEO_FILE_EXTENSIONS = new Set([".mp4", ".m4v", ".mov", ".webm"])
 const stopTimersByStateId = new Map()
 
 function ensureTelevisionStateDoc(stateId = DEFAULT_TELEVISION_STATE_ID) {
@@ -31,7 +36,57 @@ function clearStopTimer(stateId) {
   }
 }
 
+function detectLanIpAddress() {
+  const interfaces = os.networkInterfaces()
+  for (const interfaceEntries of Object.values(interfaces)) {
+    for (const entry of interfaceEntries ?? []) {
+      if (!entry || entry.internal || entry.family !== "IPv4") {
+        continue
+      }
+
+      return entry.address
+    }
+  }
+
+  return "127.0.0.1"
+}
+
+function nginxMediaBaseUrl() {
+  const configured = process.env.TELEVISION_MEDIA_BASE_URL || Meteor.settings?.public?.televisionMediaBaseUrl
+  if (typeof configured === "string" && configured.trim()) {
+    return configured.trim().replace(/\/+$/u, "")
+  }
+
+  return `http://${detectLanIpAddress()}:8080`
+}
+
+function listNginxVideoSources() {
+  if (!fs.existsSync(NGINX_MEDIA_ROOT)) {
+    return []
+  }
+
+  const baseUrl = nginxMediaBaseUrl()
+  return fs.readdirSync(NGINX_MEDIA_ROOT, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    .filter((name) => VIDEO_FILE_EXTENSIONS.has(path.extname(name).toLowerCase()))
+    .sort((left, right) => left.localeCompare(right))
+    .map((name) => ({
+      label: name,
+      fileName: name,
+      sourceUrl: `${baseUrl}/${encodeURIComponent(name)}`,
+    }))
+}
+
 Meteor.methods({
+  "television.listLocalSources"() {
+    return {
+      baseUrl: nginxMediaBaseUrl(),
+      rootDir: NGINX_MEDIA_ROOT,
+      sources: listNginxVideoSources(),
+    }
+  },
+
   async "television.loadUrl"({
     stateId = DEFAULT_TELEVISION_STATE_ID,
     sourceUrl,
