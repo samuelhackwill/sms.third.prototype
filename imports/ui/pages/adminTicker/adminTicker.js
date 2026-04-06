@@ -2,6 +2,7 @@ import { Meteor } from "meteor/meteor"
 import { Template } from "meteor/templating"
 import { ReactiveVar } from "meteor/reactive-var"
 
+import { Messages } from "/imports/api/messages/messages"
 import {
   DEFAULT_TICKER_WALL_ID,
   TickerClients,
@@ -40,6 +41,7 @@ Template.AdminTickerPage.onCreated(function onCreated() {
   this.autorun(() => {
     this.subscribe("ticker.wall", DEFAULT_TICKER_WALL_ID)
     this.subscribe("ticker.clients", DEFAULT_TICKER_WALL_ID)
+    this.subscribe("messages.featured")
   })
 })
 
@@ -126,17 +128,6 @@ Template.AdminTickerPage.helpers({
   },
   activeClientCount() {
     return TickerClients.find({ wallId: DEFAULT_TICKER_WALL_ID }).fetch().filter(isActiveClient).length
-  },
-  wallDebugJson() {
-    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
-    return JSON.stringify(wall ?? {}, null, 2)
-  },
-  clientsDebugJson() {
-    const clients = TickerClients.find(
-      { wallId: DEFAULT_TICKER_WALL_ID },
-      { sort: { slotIndex: 1, orderIndex: 1, lastSeenAt: -1 } },
-    ).fetch()
-    return JSON.stringify(clients, null, 2)
   },
   provisioningButtonLabel() {
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
@@ -227,6 +218,21 @@ Template.AdminTickerPage.helpers({
     }
 
     return rows
+  },
+  featuredMessages() {
+    return Messages.find(
+      { status: "featured" },
+      { sort: { receivedAt: -1, createdAt: -1 } },
+    ).map((message) => ({
+      ...message,
+      senderLabel: message.sender || "unknown",
+      receivedAtLabel: message.receivedAt instanceof Date
+        ? message.receivedAt.toLocaleString()
+        : "unknown",
+    }))
+  },
+  hasFeaturedMessages() {
+    return Messages.find({ status: "featured" }).count() > 0
   },
 })
 
@@ -374,5 +380,22 @@ Template.AdminTickerPage.events({
   "click .js-refresh-clients"(event) {
     event.preventDefault()
     Meteor.callAsync("ticker.forceRefreshClients", { wallId: DEFAULT_TICKER_WALL_ID })
+  },
+  "click .js-send-featured-message"(event) {
+    event.preventDefault()
+    const messageId = event.currentTarget.dataset.messageId
+    const message = Messages.findOne({ id: messageId })
+
+    if (!message?.body) {
+      return
+    }
+
+    Meteor.callAsync("ticker.enqueueText", {
+      wallId: DEFAULT_TICKER_WALL_ID,
+      text: message.body,
+      sender: message.sender ?? null,
+      receivedAt: message.receivedAt ?? null,
+      messageId: message.id,
+    })
   },
 })
