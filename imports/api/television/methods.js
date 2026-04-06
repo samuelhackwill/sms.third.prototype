@@ -4,6 +4,7 @@ import os from "node:os"
 import path from "node:path"
 
 import { DEFAULT_TELEVISION_STATE_ID, TelevisionStates } from "/imports/api/television/collections"
+import { DEFAULT_WALL_ID, WallClients } from "/imports/api/wall/collections"
 
 const TELEVISION_STOP_FADE_MS = 900
 const NGINX_MEDIA_ROOT = "/opt/homebrew/var/www"
@@ -85,6 +86,34 @@ Meteor.methods({
       rootDir: NGINX_MEDIA_ROOT,
       sources: listNginxVideoSources(),
     }
+  },
+
+  async "television.reportClientMediaState"({
+    wallId = DEFAULT_WALL_ID,
+    clientId,
+    readyState = 0,
+    networkState = 0,
+    errorCode = null,
+    playbackState = "unknown",
+  } = {}) {
+    if (typeof clientId !== "string" || !clientId.trim()) {
+      throw new Meteor.Error("television.reportClientMediaState.invalidClientId", "clientId is required")
+    }
+
+    await WallClients.updateAsync(
+      { _id: clientId.trim(), wallId },
+      {
+        $set: {
+          televisionReadyState: Number(readyState) || 0,
+          televisionNetworkState: Number(networkState) || 0,
+          televisionErrorCode: Number(errorCode) || null,
+          televisionPlaybackState: typeof playbackState === "string" ? playbackState : "unknown",
+          televisionStatusUpdatedAt: new Date(),
+        },
+      },
+    )
+
+    return { ok: true }
   },
 
   async "television.loadUrl"({

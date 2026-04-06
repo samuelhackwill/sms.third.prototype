@@ -62,6 +62,32 @@ function readMediaSnapshot(videoEl) {
   }
 }
 
+function maybeReportMediaState(instance, playbackState = null) {
+  const snapshot = instance.mediaSnapshot.get()
+  const nextKey = JSON.stringify({
+    readyState: snapshot.readyState,
+    networkState: snapshot.networkState,
+    errorCode: snapshot.errorCode,
+    playbackState,
+  })
+
+  if (instance.lastReportedMediaKey === nextKey) {
+    return
+  }
+
+  instance.lastReportedMediaKey = nextKey
+  Meteor.callAsync("television.reportClientMediaState", {
+    wallId: DEFAULT_WALL_ID,
+    clientId: instance.clientId,
+    readyState: snapshot.readyState,
+    networkState: snapshot.networkState,
+    errorCode: snapshot.errorCode,
+    playbackState,
+  }).catch((error) => {
+    console.error("[television] failed to report media state", error)
+  })
+}
+
 function retryDelayMs() {
   const span = TELEVISION_RETRY_MAX_DELAY_MS - TELEVISION_RETRY_MIN_DELAY_MS
   return TELEVISION_RETRY_MIN_DELAY_MS + Math.floor(Math.random() * (span + 1))
@@ -196,6 +222,7 @@ function syncVideoPlayback(instance) {
       videoEl.removeAttribute("src")
       videoEl.load()
     }
+    maybeReportMediaState(instance, "waiting")
     return
   }
 
@@ -210,6 +237,8 @@ function syncVideoPlayback(instance) {
       videoEl.removeAttribute("src")
       videoEl.load()
     }
+    instance.mediaSnapshot.set(readMediaSnapshot(videoEl))
+    maybeReportMediaState(instance, "idle")
     return
   }
 
@@ -231,6 +260,8 @@ function syncVideoPlayback(instance) {
       safelySetCurrentTime(videoEl, 0)
     }
     videoEl.pause()
+    instance.mediaSnapshot.set(readMediaSnapshot(videoEl))
+    maybeReportMediaState(instance, "loaded")
     return
   }
 
@@ -247,11 +278,15 @@ function syncVideoPlayback(instance) {
         instance.stopFadeTimerId = null
       }, TELEVISION_STOP_FADE_MS)
     }
+    instance.mediaSnapshot.set(readMediaSnapshot(videoEl))
+    maybeReportMediaState(instance, "stopping")
     return
   }
 
   if (televisionState.playbackState !== "playing") {
     markStartupHealthy(instance, `state=${televisionState.playbackState}`)
+    instance.mediaSnapshot.set(readMediaSnapshot(videoEl))
+    maybeReportMediaState(instance, televisionState.playbackState)
     return
   }
 
@@ -281,6 +316,7 @@ function syncVideoPlayback(instance) {
     .then(() => {
       instance.lastPlayError.set("")
       instance.mediaSnapshot.set(readMediaSnapshot(videoEl))
+      maybeReportMediaState(instance, "playing")
       if (Number(videoEl.readyState) >= 3) {
         markStartupHealthy(instance, "play resolved")
       } else {
@@ -290,6 +326,7 @@ function syncVideoPlayback(instance) {
     .catch((error) => {
       instance.lastPlayError.set(error?.message || String(error))
       instance.mediaSnapshot.set(readMediaSnapshot(videoEl))
+      maybeReportMediaState(instance, "play-error")
       startStartupWatchdog(instance, "play-rejected")
     })
 }
@@ -315,6 +352,7 @@ Template.TelevisionPage.onCreated(function onCreated() {
   this.lastPlayError = new ReactiveVar("")
   this.retryCount = new ReactiveVar(0)
   this.watchdogStatus = new ReactiveVar("idle")
+  this.lastReportedMediaKey = null
 
   this.autorun(() => {
     this.subscribe("wall.current", DEFAULT_WALL_ID)
@@ -419,6 +457,7 @@ Template.TelevisionPage.onRendered(function onRendered() {
         const suffix = videoEl.error?.code ? ` error=${videoEl.error.code}` : ""
         this.lastMediaEvent.set(`${eventName}${suffix}`)
         this.mediaSnapshot.set(readMediaSnapshot(videoEl))
+        maybeReportMediaState(this, eventName)
         if (eventName === "playing" || Number(videoEl.readyState) >= 3) {
           markStartupHealthy(this, eventName)
         }
@@ -439,6 +478,7 @@ Template.TelevisionPage.onRendered(function onRendered() {
   this.mediaPollIntervalId = Meteor.setInterval(() => {
     const activeVideoEl = this.find("#televisionWallVideo")
     this.mediaSnapshot.set(readMediaSnapshot(activeVideoEl))
+    maybeReportMediaState(this, TelevisionStates.findOne({ _id: DEFAULT_TELEVISION_STATE_ID })?.playbackState ?? "unknown")
   }, 500)
 
   this.autorun(() => {

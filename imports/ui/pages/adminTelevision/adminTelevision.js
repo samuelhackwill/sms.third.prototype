@@ -4,7 +4,7 @@ import { ReactiveVar } from "meteor/reactive-var"
 
 import { streamer } from "/imports/both/streamer"
 import { DEFAULT_TELEVISION_STATE_ID, TelevisionStates } from "/imports/api/television/collections"
-import { DEFAULT_WALL_ID, Walls } from "/imports/api/wall/collections"
+import { DEFAULT_WALL_ID, WallClients, Walls } from "/imports/api/wall/collections"
 import { TICKER_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/ticker/tickerEvents"
 import { TELEVISION_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/television/televisionEvents"
 import { VIDEO_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/video/videoEvents"
@@ -19,6 +19,7 @@ Template.AdminTelevisionPage.onCreated(function onCreated() {
   this.autorun(() => {
     this.subscribe("television.state", DEFAULT_TELEVISION_STATE_ID)
     this.subscribe("wall.current", DEFAULT_WALL_ID)
+    this.subscribe("wall.clients", DEFAULT_WALL_ID)
   })
 
   Meteor.callAsync("television.listLocalSources")
@@ -63,6 +64,42 @@ Template.AdminTelevisionPage.helpers({
   },
   localSources() {
     return Template.instance().localSources.get()
+  },
+  readinessRows() {
+    const assignedClients = WallClients.find(
+      { wallId: DEFAULT_WALL_ID, slotIndex: { $ne: null } },
+      { sort: { slotIndex: 1 } },
+    ).fetch()
+
+    const slots = Array.from({ length: 30 }, (_, index) => {
+      const client = assignedClients.find((entry) => entry.slotIndex === index)
+      const readyState = Number(client?.televisionReadyState) || 0
+      const networkState = Number(client?.televisionNetworkState) || 0
+      const errorCode = Number(client?.televisionErrorCode) || null
+      const playbackState = client?.televisionPlaybackState || "unknown"
+      const statusClass = readyState >= 4
+        ? "border-emerald-500 bg-emerald-500/20 text-emerald-100"
+        : readyState >= 3
+          ? "border-amber-500 bg-amber-500/20 text-amber-100"
+          : "border-slate-700 bg-slate-950 text-slate-300"
+
+      return {
+        slotIndex: index,
+        slotNumber: index + 1,
+        shortCode: client?.shortCode ?? "-----",
+        readyState,
+        networkState,
+        errorCode: errorCode ?? "-",
+        playbackState,
+        statusClass,
+      }
+    })
+
+    const rows = []
+    for (let rowIndex = 0; rowIndex < 6; rowIndex += 1) {
+      rows.push(slots.slice(rowIndex * 5, (rowIndex + 1) * 5))
+    }
+    return rows
   },
 })
 

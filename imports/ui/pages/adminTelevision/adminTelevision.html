@@ -48,5 +48,27 @@
         <button type="button" class="rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 hover:bg-slate-700" data-action="move-all-clients-to-television">Move All Clients To /television</button>
       </div>
     </section>
+
+    <section class="mt-4 rounded border border-slate-800 bg-slate-900/80 p-4">
+      <div class="mb-3 flex items-center justify-between">
+        <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Readiness Grid</h2>
+        <span class="text-xs text-slate-500">Green = readyState 4</span>
+      </div>
+      <div class="grid gap-2">
+        {{#each readinessRows}}
+          <div class="grid grid-cols-5 gap-2">
+            {{#each this}}
+              <article class="min-h-24 rounded border p-2 text-xs {{statusClass}}">
+                <div class="font-semibold">#{{slotNumber}} {{shortCode}}</div>
+                <div class="mt-1">rs: {{readyState}}</div>
+                <div>ns: {{networkState}}</div>
+                <div>err: {{errorCode}}</div>
+                <div class="truncate">{{playbackState}}</div>
+              </article>
+            {{/each}}
+          </div>
+        {{/each}}
+      </div>
+    </section>
   </main>
 </template>
