@@ -15,6 +15,7 @@ import '/imports/api/television/methods';
 import '/imports/api/television/publications';
 import { getDataDir } from '/imports/server/filePaths';
 import '/imports/startup/server/apns';
+import '/imports/startup/server/sanity';
 import { startMessagesPoller } from '/imports/startup/server/jobs/messagesPoller';
 
 Meteor.startup(async () => {

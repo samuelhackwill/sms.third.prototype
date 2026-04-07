@@ -18,6 +18,7 @@
     "jquery": "^4.0.0",
     "meteor-node-stubs": "^1.2.27",
     "pixi.js": "^7.4.3",
+    "qrcode": "^1.5.4",
     "sqlite3": "^5.1.7"
   },
   "meteor": {

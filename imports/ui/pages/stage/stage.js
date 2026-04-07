@@ -1,6 +1,7 @@
 import { Template } from "meteor/templating"
 import { ReactiveVar } from "meteor/reactive-var"
 import * as PIXI from "pixi.js"
+import QRCode from "qrcode"
 import { streamer } from "/imports/both/streamer"
 import {
   STAGE_BACKGROUND_EVENT,
@@ -13,6 +14,8 @@ import {
 } from "/imports/ui/pages/stage/stageVideos"
 
 import "./stage.html"
+
+const TENDA_ROUTER_IP = "10.73.73.5"
 
 const PIXI_CHARS_FR =
   " " + // SPACE (must include)
@@ -598,6 +601,146 @@ Template.stage.helpers({
   },
   lastEvent() {
     return Template.instance().lastEvent.get()
+  },
+})
+
+async function fetchRouterSanity(instance) {
+  instance.routerSanity.set({
+    status: "checking",
+    latencyMs: null,
+    checkedAt: new Date(),
+    error: null,
+  })
+
+  try {
+    const response = await fetch("/api/sanity/router", {
+      method: "GET",
+      cache: "no-store",
+    })
+    const payload = await response.json()
+
+    instance.routerSanity.set({
+      status: payload?.ok ? "ok" : "down",
+      latencyMs:
+        Number.isFinite(payload?.latencyMs) ? payload.latencyMs : null,
+      checkedAt: new Date(),
+      error: payload?.error || null,
+    })
+  } catch (error) {
+    instance.routerSanity.set({
+      status: "down",
+      latencyMs: null,
+      checkedAt: new Date(),
+      error: error instanceof Error ? error.message : "Unable to reach sanity endpoint",
+    })
+  }
+}
+
+async function buildTickerQrCode(instance) {
+  let tickerUrl = "/ticker"
+
+  try {
+    const response = await fetch("/api/sanity/host", {
+      method: "GET",
+      cache: "no-store",
+    })
+    const payload = await response.json()
+
+    if (typeof payload?.tickerUrl === "string" && payload.tickerUrl.length > 0) {
+      tickerUrl = payload.tickerUrl
+    } else if (typeof window !== "undefined") {
+      tickerUrl = new URL("/ticker", window.location.origin).toString()
+    }
+  } catch (error) {
+    if (typeof window !== "undefined") {
+      tickerUrl = new URL("/ticker", window.location.origin).toString()
+    }
+  }
+
+  instance.tickerUrl.set(tickerUrl)
+
+  try {
+    const dataUrl = await QRCode.toDataURL(tickerUrl, {
+      errorCorrectionLevel: "M",
+      margin: 1,
+      width: 960,
+      color: {
+        dark: "#000000",
+        light: "#ffffff",
+      },
+    })
+    instance.tickerQrCodeDataUrl.set(dataUrl)
+  } catch (error) {
+    instance.tickerQrCodeDataUrl.set(null)
+  }
+}
+
+Template.home.onCreated(function onCreated() {
+  this.routerSanity = new ReactiveVar({
+    status: "checking",
+    latencyMs: null,
+    checkedAt: null,
+    error: null,
+  })
+  this.tickerQrCodeDataUrl = new ReactiveVar(null)
+  this.tickerUrl = new ReactiveVar("/ticker")
+})
+
+Template.home.onRendered(function onRendered() {
+  fetchRouterSanity(this)
+  buildTickerQrCode(this)
+})
+
+Template.home.helpers({
+  routerStatusLabel() {
+    const status = Template.instance().routerSanity.get()?.status
+
+    if (status === "ok") {
+      return `Router ${TENDA_ROUTER_IP} reachable`
+    }
+
+    if (status === "down") {
+      return `Router ${TENDA_ROUTER_IP} unreachable`
+    }
+
+    return `Checking router ${TENDA_ROUTER_IP}...`
+  },
+  routerStatusDotClass() {
+    const status = Template.instance().routerSanity.get()?.status
+
+    if (status === "ok") {
+      return "bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.95)]"
+    }
+
+    if (status === "down") {
+      return "bg-rose-400 shadow-[0_0_12px_rgba(251,113,133,0.95)]"
+    }
+
+    return "bg-amber-300 shadow-[0_0_12px_rgba(252,211,77,0.95)]"
+  },
+  routerLatencyLabel() {
+    const latencyMs = Template.instance().routerSanity.get()?.latencyMs
+    return Number.isFinite(latencyMs) ? `${latencyMs.toFixed(1)} ms` : "-"
+  },
+  routerCheckedAtLabel() {
+    const checkedAt = Template.instance().routerSanity.get()?.checkedAt
+    return checkedAt instanceof Date ? checkedAt.toLocaleTimeString() : "-"
+  },
+  routerError() {
+    return Template.instance().routerSanity.get()?.error || null
+  },
+  tickerQrCodeDataUrl() {
+    return Template.instance().tickerQrCodeDataUrl.get()
+  },
+  tickerUrl() {
+    return Template.instance().tickerUrl.get()
+  },
+})
+
+Template.home.events({
+  "click [data-action='refresh-router-check']"(event, instance) {
+    event.preventDefault()
+    fetchRouterSanity(instance)
   },
 })
 
