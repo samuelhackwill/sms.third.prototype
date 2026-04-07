@@ -19,6 +19,7 @@ const VIDEO_DEBUG_STORAGE_KEY = "video.showDebug"
 const VIDEO_REVEAL_STEP_MS = 120
 const VIDEO_REVEAL_DURATION_MS = 1200
 const VIDEO_FADE_OUT_DURATION_MS = 1000
+const VIDEO_SYNC_BATCH_FADE_OUT_DURATION_MS = 3000
 const VIDEO_FADE_OUT_LEAD_MS = 1200
 const VIDEO_NEXT_CLIP_DELAY_MS = 150
 const VIDEO_REFRESH_EVENT = "ticker.refresh"
@@ -58,6 +59,42 @@ function currentVideoAutoAdvance() {
 function currentVideoTrimClips() {
   const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
   return Boolean(wall?.videoTrimClips)
+}
+
+function currentVideoTrimStartOffsetSec() {
+  const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+  const value = Number(wall?.videoTrimStartOffsetSec)
+  return Number.isFinite(value) ? value : VIDEO_TRIM_START_OFFSET_SEC
+}
+
+function currentVideoTrimEndOffsetSec() {
+  const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+  const value = Number(wall?.videoTrimEndOffsetSec)
+  return Number.isFinite(value) ? value : VIDEO_TRIM_END_OFFSET_SEC
+}
+
+function currentVideoRevealDurationMs() {
+  const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+  const value = Number(wall?.videoRevealDurationMs)
+  return Number.isFinite(value) ? value : VIDEO_REVEAL_DURATION_MS
+}
+
+function currentVideoFadeOutDurationMs() {
+  const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+  const value = Number(wall?.videoFadeOutDurationMs)
+  return Number.isFinite(value) ? value : VIDEO_FADE_OUT_DURATION_MS
+}
+
+function currentVideoSyncBatchFadeOutDurationMs() {
+  const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+  const value = Number(wall?.videoSyncBatchFadeOutDurationMs)
+  return Number.isFinite(value) ? value : VIDEO_SYNC_BATCH_FADE_OUT_DURATION_MS
+}
+
+function currentVideoFadeOutLeadMs() {
+  const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+  const value = Number(wall?.videoFadeOutLeadMs)
+  return Number.isFinite(value) ? value : VIDEO_FADE_OUT_LEAD_MS
 }
 
 function currentVideoTag() {
@@ -204,14 +241,14 @@ function scheduleFadeOut(instance, revealDelayMs = 0) {
     return
   }
 
-  const durationSec = currentPlaybackDurationSec(instance, videoEl)
-  if (!Number.isFinite(durationSec) || durationSec <= 0) {
+  const remainingDurationSec = remainingPlaybackDurationSec(instance, videoEl)
+  if (!Number.isFinite(remainingDurationSec) || remainingDurationSec <= 0) {
     return
   }
 
   const fadeOutStartsInMs = Math.max(
     0,
-    Math.floor((durationSec * 1000) - VIDEO_FADE_OUT_LEAD_MS + revealDelayMs),
+    Math.floor((remainingDurationSec * 1000) - currentVideoFadeOutLeadMs() + revealDelayMs),
   )
 
   if (instance.fadeOutTimerId) {
@@ -219,8 +256,9 @@ function scheduleFadeOut(instance, revealDelayMs = 0) {
   }
 
   instance.fadeOutTimerId = Meteor.setTimeout(() => {
-    setVideoOpacity(instance, 0, VIDEO_FADE_OUT_DURATION_MS, 0)
-    scheduleNextClip(instance, VIDEO_FADE_OUT_DURATION_MS + VIDEO_NEXT_CLIP_DELAY_MS)
+    const fadeOutDurationMs = currentVideoFadeOutDurationMs()
+    setVideoOpacity(instance, 0, fadeOutDurationMs, 0)
+    scheduleNextClip(instance, fadeOutDurationMs + VIDEO_NEXT_CLIP_DELAY_MS)
     instance.fadeOutTimerId = null
   }, fadeOutStartsInMs)
 }
@@ -228,20 +266,46 @@ function scheduleFadeOut(instance, revealDelayMs = 0) {
 function applyFifoReveal(instance) {
   const delayMs = 0
   instance.appliedRevealKey = `fifo:${instance.currentSource.get() || ""}`
-  setVideoOpacity(instance, 1, VIDEO_REVEAL_DURATION_MS, delayMs)
+  setVideoOpacity(instance, 1, currentVideoRevealDurationMs(), delayMs)
   scheduleFadeOut(instance, delayMs)
+}
+
+function applySyncBatchReveal(instance) {
+  const delayMs = 0
+  instance.appliedRevealKey = `batch:${instance.currentSource.get() || ""}:${currentBatchToken() || "none"}`
+  setVideoOpacity(instance, 1, currentVideoRevealDurationMs(), delayMs)
+  scheduleFadeOut(instance, delayMs)
+}
+
+function endingFadeDurationMs(instance, videoEl = null) {
+  if (currentVideoDisplayMode() !== VIDEO_DISPLAY_MODE_SYNC_BATCH) {
+    return currentVideoFadeOutDurationMs()
+  }
+
+  const activeVideoEl = videoEl ?? instance.find("#remoteVideoPlayer")
+  const durationSec = activeVideoEl ? currentPlaybackDurationSec(instance, activeVideoEl) : null
+  const syncBatchFadeOutDurationMs = currentVideoSyncBatchFadeOutDurationMs()
+  const defaultFadeOutDurationMs = currentVideoFadeOutDurationMs()
+  if (!Number.isFinite(durationSec) || (durationSec * 1000) < syncBatchFadeOutDurationMs) {
+    return defaultFadeOutDurationMs
+  }
+
+  return syncBatchFadeOutDurationMs
 }
 
 function queueNextClipAfterFade(instance) {
   clearFadeTimers(instance)
   instance.startedPlaybackKey = null
-  setVideoOpacity(instance, 0, VIDEO_FADE_OUT_DURATION_MS, 0)
+  const fadeDurationMs = endingFadeDurationMs(instance)
+  setVideoOpacity(instance, 0, fadeDurationMs, 0)
   if (currentVideoDisplayMode() === VIDEO_DISPLAY_MODE_SYNC_BATCH) {
-    reportVideoMediaState(instance, "ended")
+    Meteor.setTimeout(() => {
+      reportVideoMediaState(instance, "ended")
+    }, fadeDurationMs)
     return
   }
 
-  scheduleNextClip(instance, VIDEO_FADE_OUT_DURATION_MS + VIDEO_NEXT_CLIP_DELAY_MS)
+  scheduleNextClip(instance, fadeDurationMs + VIDEO_NEXT_CLIP_DELAY_MS)
 }
 
 function currentBatchToken() {
@@ -252,6 +316,26 @@ function currentBatchToken() {
 function currentBatchState() {
   const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
   return wall?.videoBatchState ?? "idle"
+}
+
+function shouldAutoplayCurrentVideo({ preloadOnly = false } = {}) {
+  if (preloadOnly) {
+    return false
+  }
+
+  if (currentVideoDisplayMode() === VIDEO_DISPLAY_MODE_SYNC_BATCH) {
+    return false
+  }
+
+  return !currentVideoTrimClips()
+}
+
+function canStartCurrentPlayback() {
+  if (currentVideoDisplayMode() !== VIDEO_DISPLAY_MODE_SYNC_BATCH) {
+    return true
+  }
+
+  return currentBatchState() === "playing"
 }
 
 function reportVideoMediaState(instance, playbackState) {
@@ -433,10 +517,10 @@ function computeAppliedTrim(instance, videoEl) {
   const durationSec = Number(videoEl.duration)
   const startSec = Math.max(
     0,
-    Number.isFinite(trimWindow.kissStartSec) ? trimWindow.kissStartSec - VIDEO_TRIM_START_OFFSET_SEC : 0,
+    Number.isFinite(trimWindow.kissStartSec) ? trimWindow.kissStartSec - currentVideoTrimStartOffsetSec() : 0,
   )
   const endCandidateSec = Number.isFinite(trimWindow.kissEndSec)
-    ? trimWindow.kissEndSec + VIDEO_TRIM_END_OFFSET_SEC
+    ? trimWindow.kissEndSec + currentVideoTrimEndOffsetSec()
     : null
   const endSec = Number.isFinite(durationSec) && durationSec > 0 && Number.isFinite(endCandidateSec)
     ? Math.min(durationSec, endCandidateSec)
@@ -469,10 +553,74 @@ function currentPlaybackDurationSec(instance, videoEl) {
   return Math.max(0, playbackEndSec - (instance.appliedTrim.startSec ?? 0))
 }
 
+function remainingPlaybackDurationSec(instance, videoEl) {
+  const playbackDurationSec = currentPlaybackDurationSec(instance, videoEl)
+  if (!Number.isFinite(playbackDurationSec)) {
+    return null
+  }
+
+  const playbackStartSec = Number(instance.appliedTrim?.startSec) || 0
+  const currentTimeSec = Number(videoEl.currentTime)
+  const elapsedSec = Number.isFinite(currentTimeSec)
+    ? Math.max(0, currentTimeSec - playbackStartSec)
+    : 0
+
+  return Math.max(0, playbackDurationSec - elapsedSec)
+}
+
+function currentBatchStartedAtServerMs() {
+  const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+  const startedAtServerMs = Number(wall?.videoBatchStartedAtServerMs)
+  return Number.isFinite(startedAtServerMs) ? startedAtServerMs : null
+}
+
+function syncBatchPlaybackPosition(instance, videoEl) {
+  if (currentVideoDisplayMode() !== VIDEO_DISPLAY_MODE_SYNC_BATCH || currentBatchState() !== "playing") {
+    return true
+  }
+
+  const startedAtServerMs = currentBatchStartedAtServerMs()
+  if (!Number.isFinite(startedAtServerMs)) {
+    return true
+  }
+
+  const playbackStartSec = Number(instance.appliedTrim?.startSec) || 0
+  const playbackDurationSec = currentPlaybackDurationSec(instance, videoEl)
+  const elapsedSec = Math.max(0, (Date.now() - startedAtServerMs) / 1000)
+  const playbackEndSec = Number.isFinite(playbackDurationSec)
+    ? playbackStartSec + playbackDurationSec
+    : null
+  const targetTimeSec = Number.isFinite(playbackEndSec)
+    ? Math.min(playbackEndSec, playbackStartSec + elapsedSec)
+    : playbackStartSec + elapsedSec
+
+  if (Number.isFinite(playbackEndSec) && targetTimeSec >= playbackEndSec) {
+    queueNextClipAfterFade(instance)
+    return false
+  }
+
+  try {
+    videoEl.currentTime = targetTimeSec
+  } catch (error) {
+    // ignore seek failures and continue from the current position
+  }
+
+  return true
+}
+
 function startPlaybackForCurrentClip(instance) {
   const videoEl = instance.find("#remoteVideoPlayer")
   const currentSource = instance.currentSource.get()
   if (!videoEl || !currentSource) {
+    return
+  }
+
+  if (!canStartCurrentPlayback()) {
+    try {
+      videoEl.pause()
+    } catch (error) {
+      // ignore pause failures
+    }
     return
   }
 
@@ -494,12 +642,21 @@ function startPlaybackForCurrentClip(instance) {
     }
   }
 
+  if (!syncBatchPlaybackPosition(instance, videoEl)) {
+    return
+  }
+
   queueReveal(instance)
   videoEl.play()
     .then(() => {
       reportVideoMediaState(instance, "playing")
     })
     .catch(() => {})
+  if (currentVideoDisplayMode() === VIDEO_DISPLAY_MODE_SYNC_BATCH) {
+    applySyncBatchReveal(instance)
+    return
+  }
+
   applyFifoReveal(instance)
 }
 
@@ -570,7 +727,7 @@ async function loadVideo(instance, { preloadOnly = false, batchToken = null } = 
       return
     }
 
-    const shouldAutoplay = !preloadOnly && !currentVideoTrimClips()
+    const shouldAutoplay = shouldAutoplayCurrentVideo({ preloadOnly })
     videoEl.autoplay = shouldAutoplay
     if (shouldAutoplay) {
       videoEl.setAttribute("autoplay", "")
@@ -737,7 +894,7 @@ Template.VideoPage.onRendered(function onRendered() {
       return
     }
 
-    const shouldAutoplay = !currentVideoTrimClips()
+    const shouldAutoplay = shouldAutoplayCurrentVideo()
     videoEl.autoplay = shouldAutoplay
     if (shouldAutoplay) {
       videoEl.setAttribute("autoplay", "")
@@ -762,20 +919,23 @@ Template.VideoPage.onRendered(function onRendered() {
       return
     }
 
-    if (!batchToken) {
+    if (!batchToken || batchState === "idle") {
       reportVideoMediaState(this, "idle")
       return
     }
 
-    if (this.preloadedBatchToken.get() !== batchToken && batchState === "loading") {
-      loadVideo(this, { preloadOnly: true, batchToken })
+    if (this.preloadedBatchToken.get() !== batchToken) {
+      loadVideo(this, {
+        preloadOnly: batchState !== "playing",
+        batchToken,
+      })
       return
     }
 
     if (this.preloadedBatchToken.get() === batchToken && batchState === "loading") {
       const snapshot = readMediaSnapshot(videoEl)
       if (snapshot.readyState >= 4) {
-        reportVideoMediaState(this, "loaded")
+        reportVideoMediaState(this, "ready")
       } else {
         reportVideoMediaState(this, "loading")
       }
@@ -792,14 +952,27 @@ Template.VideoPage.onRendered(function onRendered() {
       this.trimCompletionStarted = false
       this.appliedTrim = null
       startPlaybackForCurrentClip(this)
+      return
+    }
+
+    if (this.preloadedBatchToken.get() === batchToken && batchState === "finished") {
+      reportVideoMediaState(this, "ended")
     }
   })
 
   const videoEl = this.find("#remoteVideoPlayer")
   if (videoEl) {
     videoEl.addEventListener("loadedmetadata", this.handleLoadedMetadata = () => {
-      if (currentVideoDisplayMode() === VIDEO_DISPLAY_MODE_SYNC_BATCH && currentBatchState() === "loading") {
-        reportVideoMediaState(this, readMediaSnapshot(videoEl).readyState >= 4 ? "loaded" : "loading")
+      if (currentVideoDisplayMode() === VIDEO_DISPLAY_MODE_SYNC_BATCH) {
+        try {
+          videoEl.pause()
+        } catch (error) {
+          // ignore pause failures
+        }
+      }
+
+      if (currentVideoDisplayMode() === VIDEO_DISPLAY_MODE_SYNC_BATCH && currentBatchState() !== "playing") {
+        reportVideoMediaState(this, readMediaSnapshot(videoEl).readyState >= 4 ? "ready" : "loading")
         return
       }
 
@@ -807,7 +980,7 @@ Template.VideoPage.onRendered(function onRendered() {
     })
     videoEl.addEventListener("canplaythrough", this.handleCanPlayThrough = () => {
       if (currentVideoDisplayMode() === VIDEO_DISPLAY_MODE_SYNC_BATCH) {
-        reportVideoMediaState(this, "loaded")
+        reportVideoMediaState(this, "ready")
       }
     })
     videoEl.addEventListener("ended", this.handleEnded = () => {
@@ -847,12 +1020,13 @@ Template.VideoPage.onRendered(function onRendered() {
     this.currentTrimKey.set("null")
     this.preloadedBatchToken.set(null)
 
-    activeVideoEl.style.transition = `opacity ${VIDEO_FADE_OUT_DURATION_MS}ms ease`
+    const fadeOutDurationMs = currentVideoFadeOutDurationMs()
+    activeVideoEl.style.transition = `opacity ${fadeOutDurationMs}ms ease`
     activeVideoEl.style.opacity = "0"
     Meteor.setTimeout(() => {
       resetVideoElement(this)
       reportVideoMediaState(this, "idle")
-    }, VIDEO_FADE_OUT_DURATION_MS)
+    }, fadeOutDurationMs)
   }
   streamer.on(VIDEO_PANIC_EVENT, this.panicHandler)
 

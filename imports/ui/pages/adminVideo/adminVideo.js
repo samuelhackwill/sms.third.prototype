@@ -18,6 +18,7 @@ import "/imports/ui/components/adminWallNav/adminWallNav.js"
 import "/imports/ui/pages/adminVideo/adminVideo.html"
 
 Template.AdminVideoPage.onCreated(function onCreated() {
+  this.tuningForm = null
   this.autorun(() => {
     this.subscribe("ticker.wall", DEFAULT_TICKER_WALL_ID)
     this.subscribe("wall.clients", DEFAULT_TICKER_WALL_ID)
@@ -26,6 +27,9 @@ Template.AdminVideoPage.onCreated(function onCreated() {
 
 Template.AdminVideoPage.onRendered(function onRendered() {
   document.body.classList.add("admin-page")
+  Meteor.callAsync("video.resetBatchState", { wallId: DEFAULT_TICKER_WALL_ID }).catch((error) => {
+    console.error("[admin/video] failed to reset batch state on panel load", error)
+  })
 })
 
 Template.AdminVideoPage.onDestroyed(function onDestroyed() {
@@ -44,6 +48,12 @@ Template.AdminVideoPage.events({
     event.preventDefault()
     Meteor.callAsync("ticker.forceRefreshClients", { wallId: DEFAULT_TICKER_WALL_ID }).catch((error) => {
       console.error("[admin/video] failed to refresh clients", error)
+    })
+  },
+  'click [data-action="start-batch"]'(event) {
+    event.preventDefault()
+    Meteor.callAsync("video.startBatch", { wallId: DEFAULT_TICKER_WALL_ID }).catch((error) => {
+      console.error("[admin/video] failed to start batch", error)
     })
   },
   'click [data-action="toggle-video-debug"]'(event) {
@@ -81,7 +91,28 @@ Template.AdminVideoPage.events({
   },
   'click [data-action="panic-stop"]'(event) {
     event.preventDefault()
-    streamer.emit(VIDEO_PANIC_EVENT, { wallId: DEFAULT_TICKER_WALL_ID, requestedAt: Date.now() })
+    Meteor.callAsync("video.panicStop", { wallId: DEFAULT_TICKER_WALL_ID })
+      .catch((error) => {
+        console.error("[admin/video] failed to panic stop", error)
+      })
+      .finally(() => {
+        streamer.emit(VIDEO_PANIC_EVENT, { wallId: DEFAULT_TICKER_WALL_ID, requestedAt: Date.now() })
+      })
+  },
+  'submit [data-action="playback-tuning"]'(event) {
+    event.preventDefault()
+    const form = event.currentTarget
+    Meteor.callAsync("video.updatePlaybackTuning", {
+      wallId: DEFAULT_TICKER_WALL_ID,
+      trimStartOffsetSec: form.trimStartOffsetSec.value,
+      trimEndOffsetSec: form.trimEndOffsetSec.value,
+      revealDurationMs: form.revealDurationMs.value,
+      fadeOutDurationMs: form.fadeOutDurationMs.value,
+      syncBatchFadeOutDurationMs: form.syncBatchFadeOutDurationMs.value,
+      fadeOutLeadMs: form.fadeOutLeadMs.value,
+    }).catch((error) => {
+      console.error("[admin/video] failed to update playback tuning", error)
+    })
   },
   'change [name="video-display-mode"]'(event) {
     const nextMode = event.currentTarget.value
@@ -144,6 +175,30 @@ Template.AdminVideoPage.helpers({
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
     return wall?.videoBatchState ?? "idle"
   },
+  trimStartOffsetSec() {
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    return wall?.videoTrimStartOffsetSec ?? 1
+  },
+  trimEndOffsetSec() {
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    return wall?.videoTrimEndOffsetSec ?? 1
+  },
+  revealDurationMs() {
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    return wall?.videoRevealDurationMs ?? 1200
+  },
+  fadeOutDurationMs() {
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    return wall?.videoFadeOutDurationMs ?? 1000
+  },
+  syncBatchFadeOutDurationMs() {
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    return wall?.videoSyncBatchFadeOutDurationMs ?? 3000
+  },
+  fadeOutLeadMs() {
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    return wall?.videoFadeOutLeadMs ?? 1200
+  },
   readinessRows() {
     const assignedClients = TickerClients.find(
       { wallId: DEFAULT_TICKER_WALL_ID, slotIndex: { $ne: null } },
@@ -156,11 +211,15 @@ Template.AdminVideoPage.helpers({
       const networkState = Number(client?.videoNetworkState) || 0
       const errorCode = Number(client?.videoErrorCode) || null
       const playbackState = client?.videoPlaybackState || "unknown"
-      const statusClass = readyState >= 4
-        ? "border-emerald-500 bg-emerald-500/20 text-emerald-100"
-        : readyState >= 3
-          ? "border-amber-500 bg-amber-500/20 text-amber-100"
-          : "border-slate-700 bg-slate-950 text-slate-300"
+      const statusClass = playbackState === "ended"
+        ? "border-cyan-500 bg-cyan-500/20 text-cyan-100"
+        : playbackState === "playing"
+          ? "border-fuchsia-500 bg-fuchsia-500/20 text-fuchsia-100"
+          : playbackState === "ready" || readyState >= 4
+            ? "border-emerald-500 bg-emerald-500/20 text-emerald-100"
+            : readyState >= 3
+              ? "border-amber-500 bg-amber-500/20 text-amber-100"
+              : "border-slate-700 bg-slate-950 text-slate-300"
 
       return {
         slotNumber: index + 1,
