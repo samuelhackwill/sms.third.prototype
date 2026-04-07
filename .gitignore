@@ -23,3 +23,7 @@ pnpm-debug.log*
 
 .*.p8
 settings.json
+
+# Python cache
+__pycache__/
+*.py[cod]
