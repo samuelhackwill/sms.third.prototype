@@ -50,7 +50,7 @@ const BRIGHTNESS_MAX = 245
 const USE_BITMAP_TEXT = true
 // const LANEATTRIBUTION = "RANDOM"
 const LANEATTRIBUTION = "ROUND_ROBIN"
-const MAX_DISPLAY_CHARS = 150
+const MAX_DISPLAY_CHARS = 200
 
 function curationFontSizePx() {
   if (typeof window === "undefined") {
