@@ -52,34 +52,69 @@
         <h1 class="text-3xl font-semibold tracking-tight">SMS System - Third Prototype</h1>
       </header>
 
-      <section class="grid gap-6 lg:grid-cols-[1.4fr_0.9fr]">
-        <div class="rounded-3xl border border-slate-800 bg-slate-900/80 p-6 shadow-[0_20px_60px_rgba(0,0,0,0.35)]">
-          <div class="flex items-start justify-between gap-4">
-            <div>
-              <p class="text-xs uppercase tracking-[0.3em] text-slate-400">Sanity Check</p>
-              <h2 class="mt-2 text-xl font-semibold text-white">Tenda Router Reachability</h2>
-              <p class="mt-1 text-sm text-slate-400">Target: <code>10.73.73.5</code></p>
+      <section class="grid gap-6 lg:grid-cols-[1.2fr_0.9fr]">
+        <div class="flex flex-col gap-6">
+          <div class="rounded-3xl border border-slate-800 bg-slate-900/80 p-6 shadow-[0_20px_60px_rgba(0,0,0,0.35)]">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <p class="text-xs uppercase tracking-[0.3em] text-slate-400">Sanity Check</p>
+                <h2 class="mt-2 text-xl font-semibold text-white">Tenda Router Reachability</h2>
+                <p class="mt-1 text-sm text-slate-400">Target: <code>10.73.73.5</code></p>
+              </div>
+              <button
+                type="button"
+                class="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm font-medium text-slate-100 transition hover:border-slate-600 hover:bg-slate-700"
+                data-action="refresh-router-check"
+              >
+                Refresh
+              </button>
             </div>
-            <button
-              type="button"
-              class="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm font-medium text-slate-100 transition hover:border-slate-600 hover:bg-slate-700"
-              data-action="refresh-router-check"
-            >
-              Refresh
-            </button>
+
+            <div class="mt-5 rounded-2xl border border-slate-800 bg-black/20 p-4">
+              <div class="flex items-center gap-3">
+                <div class="h-3 w-3 rounded-full {{routerStatusDotClass}}"></div>
+                <div class="text-base font-medium text-white">{{routerStatusLabel}}</div>
+              </div>
+              <div class="mt-3 grid gap-2 text-sm text-slate-300 sm:grid-cols-2">
+                <div>Latency: <strong class="text-white">{{routerLatencyLabel}}</strong></div>
+                <div>Last check: <strong class="text-white">{{routerCheckedAtLabel}}</strong></div>
+                {{#if routerError}}
+                  <div class="sm:col-span-2">Error: <strong class="text-rose-300">{{routerError}}</strong></div>
+                {{/if}}
+              </div>
+            </div>
           </div>
 
-          <div class="mt-5 rounded-2xl border border-slate-800 bg-black/20 p-4">
-            <div class="flex items-center gap-3">
-              <div class="h-3 w-3 rounded-full {{routerStatusDotClass}}"></div>
-              <div class="text-base font-medium text-white">{{routerStatusLabel}}</div>
+          <div class="rounded-3xl border border-slate-800 bg-slate-900/80 p-6 shadow-[0_20px_60px_rgba(0,0,0,0.35)]">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <p class="text-xs uppercase tracking-[0.3em] text-slate-400">Worker Check</p>
+                <h2 class="mt-2 text-xl font-semibold text-white">Tenda Router Scraper</h2>
+                <p class="mt-1 text-sm text-slate-400">Python daemon health and last heartbeat.</p>
+              </div>
+              <button
+                type="button"
+                class="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm font-medium text-slate-100 transition hover:border-slate-600 hover:bg-slate-700"
+                data-action="refresh-scraper-check"
+              >
+                Refresh
+              </button>
             </div>
-            <div class="mt-3 grid gap-2 text-sm text-slate-300 sm:grid-cols-2">
-              <div>Latency: <strong class="text-white">{{routerLatencyLabel}}</strong></div>
-              <div>Last check: <strong class="text-white">{{routerCheckedAtLabel}}</strong></div>
-              {{#if routerError}}
-                <div class="sm:col-span-2">Error: <strong class="text-rose-300">{{routerError}}</strong></div>
-              {{/if}}
+
+            <div class="mt-5 rounded-2xl border border-slate-800 bg-black/20 p-4">
+              <div class="flex items-center gap-3">
+                <div class="h-3 w-3 rounded-full {{scraperStatusDotClass}}"></div>
+                <div class="text-base font-medium text-white">{{scraperStatusLabel}}</div>
+              </div>
+              <div class="mt-3 grid gap-2 text-sm text-slate-300 sm:grid-cols-2">
+                <div>PID: <strong class="text-white">{{scraperPidLabel}}</strong></div>
+                <div>Heartbeat age: <strong class="text-white">{{scraperHeartbeatAgeLabel}}</strong></div>
+                <div>Last ingest count: <strong class="text-white">{{scraperLastIngestCountLabel}}</strong></div>
+                <div>Last heartbeat: <strong class="text-white">{{scraperCheckedAtLabel}}</strong></div>
+                {{#if scraperError}}
+                  <div class="sm:col-span-2">Error: <strong class="text-rose-300">{{scraperError}}</strong></div>
+                {{/if}}
+              </div>
             </div>
           </div>
         </div>

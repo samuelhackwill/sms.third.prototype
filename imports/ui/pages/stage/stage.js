@@ -636,6 +636,46 @@ async function fetchRouterSanity(instance) {
   }
 }
 
+async function fetchScraperSanity(instance) {
+  instance.scraperSanity.set({
+    status: "checking",
+    pid: null,
+    heartbeatAgeMs: null,
+    lastHeartbeatAt: null,
+    lastIngestCount: null,
+    error: null,
+  })
+
+  try {
+    const response = await fetch("/api/sanity/tenda-router-scraper", {
+      method: "GET",
+      cache: "no-store",
+    })
+    const payload = await response.json()
+
+    instance.scraperSanity.set({
+      status: payload?.ok || payload?.running ? "ok" : "down",
+      pid: payload?.pid ?? null,
+      heartbeatAgeMs:
+        Number.isFinite(payload?.heartbeatAgeMs) ? payload.heartbeatAgeMs : null,
+      lastHeartbeatAt: payload?.lastHeartbeatAt ? new Date(payload.lastHeartbeatAt) : null,
+      lastIngestCount:
+        Number.isFinite(payload?.lastIngestCount) ? payload.lastIngestCount : 0,
+      error:
+        payload?.lastIngestError || (payload?.running ? null : "Scraper is not running"),
+    })
+  } catch (error) {
+    instance.scraperSanity.set({
+      status: "down",
+      pid: null,
+      heartbeatAgeMs: null,
+      lastHeartbeatAt: null,
+      lastIngestCount: null,
+      error: error instanceof Error ? error.message : "Unable to reach scraper sanity endpoint",
+    })
+  }
+}
+
 async function buildTickerQrCode(instance) {
   let tickerUrl = "/ticker"
 
@@ -682,12 +722,21 @@ Template.home.onCreated(function onCreated() {
     checkedAt: null,
     error: null,
   })
+  this.scraperSanity = new ReactiveVar({
+    status: "checking",
+    pid: null,
+    heartbeatAgeMs: null,
+    lastHeartbeatAt: null,
+    lastIngestCount: null,
+    error: null,
+  })
   this.tickerQrCodeDataUrl = new ReactiveVar(null)
   this.tickerUrl = new ReactiveVar("/ticker")
 })
 
 Template.home.onRendered(function onRendered() {
   fetchRouterSanity(this)
+  fetchScraperSanity(this)
   buildTickerQrCode(this)
 })
 
@@ -729,6 +778,47 @@ Template.home.helpers({
   routerError() {
     return Template.instance().routerSanity.get()?.error || null
   },
+  scraperStatusLabel() {
+    const status = Template.instance().scraperSanity.get()?.status
+
+    if (status === "ok") {
+      return "Scraper healthy"
+    }
+
+    if (status === "down") {
+      return "Scraper down"
+    }
+
+    return "Checking scraper..."
+  },
+  scraperStatusDotClass() {
+    const status = Template.instance().scraperSanity.get()?.status
+
+    if (status === "ok") {
+      return "bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.95)]"
+    }
+
+    return "bg-rose-400 shadow-[0_0_12px_rgba(251,113,133,0.95)]"
+  },
+  scraperPidLabel() {
+    const pid = Template.instance().scraperSanity.get()?.pid
+    return pid ?? "-"
+  },
+  scraperHeartbeatAgeLabel() {
+    const heartbeatAgeMs = Template.instance().scraperSanity.get()?.heartbeatAgeMs
+    return Number.isFinite(heartbeatAgeMs) ? `${Math.round(heartbeatAgeMs / 1000)} s` : "-"
+  },
+  scraperLastIngestCountLabel() {
+    const count = Template.instance().scraperSanity.get()?.lastIngestCount
+    return Number.isFinite(count) ? String(count) : "-"
+  },
+  scraperCheckedAtLabel() {
+    const checkedAt = Template.instance().scraperSanity.get()?.lastHeartbeatAt
+    return checkedAt instanceof Date ? checkedAt.toLocaleTimeString() : "-"
+  },
+  scraperError() {
+    return Template.instance().scraperSanity.get()?.error || null
+  },
   tickerQrCodeDataUrl() {
     return Template.instance().tickerQrCodeDataUrl.get()
   },
@@ -741,6 +831,10 @@ Template.home.events({
   "click [data-action='refresh-router-check']"(event, instance) {
     event.preventDefault()
     fetchRouterSanity(instance)
+  },
+  "click [data-action='refresh-scraper-check']"(event, instance) {
+    event.preventDefault()
+    fetchScraperSanity(instance)
   },
 })
 

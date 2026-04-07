@@ -65,7 +65,7 @@ function externalIdForRecord(record) {
   return createHash("sha1").update(fallbackKey).digest("hex")
 }
 
-function canonicalIdForRecord(record) {
+export function canonicalIdForRecord(record) {
   return `${record?.source ?? "unknown"}:${externalIdForRecord(record)}`
 }
 
