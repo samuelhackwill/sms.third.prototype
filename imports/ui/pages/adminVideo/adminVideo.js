@@ -4,20 +4,23 @@ import { Meteor } from "meteor/meteor"
 import { streamer } from "/imports/both/streamer"
 import {
   DEFAULT_TICKER_WALL_ID,
+  TickerClients,
   TickerWalls,
 } from "/imports/api/ticker/collections"
 import {
   VIDEO_DISPLAY_MODE_FIFO,
+  VIDEO_DISPLAY_MODE_SYNC_BATCH,
 } from "/imports/api/video/constants"
 import { TICKER_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/ticker/tickerEvents"
 import { TELEVISION_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/television/televisionEvents"
-import { VIDEO_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/video/videoEvents"
+import { VIDEO_PANIC_EVENT, VIDEO_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/video/videoEvents"
 import "/imports/ui/components/adminWallNav/adminWallNav.js"
 import "/imports/ui/pages/adminVideo/adminVideo.html"
 
 Template.AdminVideoPage.onCreated(function onCreated() {
   this.autorun(() => {
     this.subscribe("ticker.wall", DEFAULT_TICKER_WALL_ID)
+    this.subscribe("wall.clients", DEFAULT_TICKER_WALL_ID)
   })
 })
 
@@ -65,6 +68,21 @@ Template.AdminVideoPage.events({
       console.error("[admin/video] failed to set autoAdvance", error)
     })
   },
+  'click [data-action="toggle-video-trim-clips"]'(event) {
+    event.preventDefault()
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    const nextValue = !(wall?.videoTrimClips ?? false)
+    Meteor.callAsync("video.setTrimClips", {
+      wallId: DEFAULT_TICKER_WALL_ID,
+      trimClips: nextValue,
+    }).catch((error) => {
+      console.error("[admin/video] failed to set trimClips", error)
+    })
+  },
+  'click [data-action="panic-stop"]'(event) {
+    event.preventDefault()
+    streamer.emit(VIDEO_PANIC_EVENT, { wallId: DEFAULT_TICKER_WALL_ID, requestedAt: Date.now() })
+  },
   'change [name="video-display-mode"]'(event) {
     const nextMode = event.currentTarget.value
     Meteor.callAsync("video.setDisplayMode", {
@@ -94,9 +112,21 @@ Template.AdminVideoPage.helpers({
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
     return (wall?.videoAutoAdvance ?? true) ? "Disable Auto Advance" : "Enable Auto Advance"
   },
+  isAutoAdvanceEnabled() {
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    return wall?.videoAutoAdvance ?? true
+  },
+  trimClipsToggleLabel() {
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    return (wall?.videoTrimClips ?? false) ? "Disable Trim Clips" : "Enable Trim Clips"
+  },
   fifoCheckedAttr() {
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
     return (wall?.videoDisplayMode ?? VIDEO_DISPLAY_MODE_FIFO) === VIDEO_DISPLAY_MODE_FIFO ? "checked" : null
+  },
+  syncBatchCheckedAttr() {
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    return wall?.videoDisplayMode === VIDEO_DISPLAY_MODE_SYNC_BATCH ? "checked" : null
   },
   kissCheckedAttr() {
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
@@ -109,5 +139,44 @@ Template.AdminVideoPage.helpers({
   cryCheckedAttr() {
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
     return (wall?.videoTag ?? "kiss") === "cry" ? "checked" : null
+  },
+  videoBatchState() {
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    return wall?.videoBatchState ?? "idle"
+  },
+  readinessRows() {
+    const assignedClients = TickerClients.find(
+      { wallId: DEFAULT_TICKER_WALL_ID, slotIndex: { $ne: null } },
+      { sort: { slotIndex: 1 } },
+    ).fetch()
+
+    const slots = Array.from({ length: 30 }, (_, index) => {
+      const client = assignedClients.find((entry) => entry.slotIndex === index)
+      const readyState = Number(client?.videoReadyState) || 0
+      const networkState = Number(client?.videoNetworkState) || 0
+      const errorCode = Number(client?.videoErrorCode) || null
+      const playbackState = client?.videoPlaybackState || "unknown"
+      const statusClass = readyState >= 4
+        ? "border-emerald-500 bg-emerald-500/20 text-emerald-100"
+        : readyState >= 3
+          ? "border-amber-500 bg-amber-500/20 text-amber-100"
+          : "border-slate-700 bg-slate-950 text-slate-300"
+
+      return {
+        slotNumber: index + 1,
+        shortCode: client?.shortCode ?? "-----",
+        readyState,
+        networkState,
+        errorCode: errorCode ?? "-",
+        playbackState,
+        statusClass,
+      }
+    })
+
+    const rows = []
+    for (let rowIndex = 0; rowIndex < 6; rowIndex += 1) {
+      rows.push(slots.slice(rowIndex * 5, (rowIndex + 1) * 5))
+    }
+    return rows
   },
 })

@@ -4,7 +4,6 @@
       <video
         id="remoteVideoPlayer"
         class="absolute inset-0 h-full w-full object-cover"
-        autoplay
         muted
         playsinline
       ></video>
@@ -25,6 +24,7 @@
         {{#if currentSource}}
           <div class="mt-2 break-all text-white/75">{{currentSource}}</div>
         {{/if}}
+        <div class="mt-2 text-white/60">{{trimStatus}}</div>
       </div>
 
       <pre class="absolute bottom-4 left-4 z-10 max-h-[48vh] w-[min(92vw,90rem)] overflow-auto rounded-lg border border-white/10 bg-black/80 p-5 font-mono text-[30px] leading-[1.2] text-white/92 backdrop-blur-sm">{{lastResponse}}</pre>
