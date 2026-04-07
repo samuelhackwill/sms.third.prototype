@@ -329,6 +329,12 @@ export async function startTendaRouterScraper() {
       .digest("hex")
       .slice(0, 12)})`
   )
+
+  return {
+    ok: true,
+    running: true,
+    pid: child.pid ?? null,
+  }
 }
 
 export async function stopTendaRouterScraper() {
@@ -364,4 +370,19 @@ process.once("SIGTERM", () => {
   stopTendaRouterScraper().catch((error) => {
     console.error("[tendaRouterScraper] stop on SIGTERM failed", error)
   })
+})
+
+Meteor.methods({
+  async "tendaRouterScraper.start"() {
+    if (state.child) {
+      return {
+        ok: true,
+        running: true,
+        pid: state.child.pid ?? null,
+        alreadyRunning: true,
+      }
+    }
+
+    return startTendaRouterScraper()
+  },
 })

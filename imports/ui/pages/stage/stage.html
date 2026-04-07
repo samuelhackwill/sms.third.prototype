@@ -92,14 +92,28 @@
                 <h2 class="mt-2 text-xl font-semibold text-white">Tenda Router Scraper</h2>
                 <p class="mt-1 text-sm text-slate-400">Python daemon health and last heartbeat.</p>
               </div>
-              <button
-                type="button"
-                class="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm font-medium text-slate-100 transition hover:border-slate-600 hover:bg-slate-700"
-                data-action="refresh-scraper-check"
-              >
-                Refresh
-              </button>
+              <div class="flex flex-col items-end gap-2">
+                <button
+                  type="button"
+                  class="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-100 transition hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                  data-action="start-tenda-scraper"
+                  {{scraperStartDisabledAttr}}
+                >
+                  {{scraperStartButtonLabel}}
+                </button>
+                <button
+                  type="button"
+                  class="rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm font-medium text-slate-100 transition hover:border-slate-600 hover:bg-slate-700"
+                  data-action="refresh-scraper-check"
+                >
+                  Refresh
+                </button>
+              </div>
             </div>
+
+            <p class="mt-4 rounded-xl border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-sm text-amber-100">
+              Only switch to Tenda router if iMessage scraper is crashed.
+            </p>
 
             <div class="mt-5 rounded-2xl border border-slate-800 bg-black/20 p-4">
               <div class="flex items-center gap-3">
@@ -111,6 +125,9 @@
                 <div>Heartbeat age: <strong class="text-white">{{scraperHeartbeatAgeLabel}}</strong></div>
                 <div>Last ingest count: <strong class="text-white">{{scraperLastIngestCountLabel}}</strong></div>
                 <div>Last heartbeat: <strong class="text-white">{{scraperCheckedAtLabel}}</strong></div>
+                {{#if scraperStartResult}}
+                  <div class="sm:col-span-2">Action: <strong class="text-cyan-100">{{scraperStartResult}}</strong></div>
+                {{/if}}
                 {{#if scraperError}}
                   <div class="sm:col-span-2">Error: <strong class="text-rose-300">{{scraperError}}</strong></div>
                 {{/if}}

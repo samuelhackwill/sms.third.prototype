@@ -1,3 +1,4 @@
+import { Meteor } from "meteor/meteor"
 import { Template } from "meteor/templating"
 import { ReactiveVar } from "meteor/reactive-var"
 import * as PIXI from "pixi.js"
@@ -730,6 +731,8 @@ Template.home.onCreated(function onCreated() {
     lastIngestCount: null,
     error: null,
   })
+  this.scraperStartPending = new ReactiveVar(false)
+  this.scraperStartResult = new ReactiveVar(null)
   this.tickerQrCodeDataUrl = new ReactiveVar(null)
   this.tickerUrl = new ReactiveVar("/ticker")
 })
@@ -804,6 +807,26 @@ Template.home.helpers({
     const pid = Template.instance().scraperSanity.get()?.pid
     return pid ?? "-"
   },
+  scraperStartButtonLabel() {
+    const instance = Template.instance()
+    if (instance.scraperStartPending.get()) {
+      return "STARTING..."
+    }
+    if (instance.scraperSanity.get()?.status === "ok") {
+      return "TENDA SCRAPER RUNNING"
+    }
+    return "START TENDA SCRAPER"
+  },
+  isScraperStartDisabled() {
+    const instance = Template.instance()
+    return instance.scraperStartPending.get() || instance.scraperSanity.get()?.status === "ok"
+  },
+  scraperStartDisabledAttr() {
+    const instance = Template.instance()
+    return instance.scraperStartPending.get() || instance.scraperSanity.get()?.status === "ok"
+      ? "disabled"
+      : null
+  },
   scraperHeartbeatAgeLabel() {
     const heartbeatAgeMs = Template.instance().scraperSanity.get()?.heartbeatAgeMs
     return Number.isFinite(heartbeatAgeMs) ? `${Math.round(heartbeatAgeMs / 1000)} s` : "-"
@@ -818,6 +841,9 @@ Template.home.helpers({
   },
   scraperError() {
     return Template.instance().scraperSanity.get()?.error || null
+  },
+  scraperStartResult() {
+    return Template.instance().scraperStartResult.get()
   },
   tickerQrCodeDataUrl() {
     return Template.instance().tickerQrCodeDataUrl.get()
@@ -835,6 +861,32 @@ Template.home.events({
   "click [data-action='refresh-scraper-check']"(event, instance) {
     event.preventDefault()
     fetchScraperSanity(instance)
+  },
+  async "click [data-action='start-tenda-scraper']"(event, instance) {
+    event.preventDefault()
+
+    if (instance.scraperStartPending.get() || instance.scraperSanity.get()?.status === "ok") {
+      return
+    }
+
+    instance.scraperStartPending.set(true)
+    instance.scraperStartResult.set(null)
+
+    try {
+      const result = await Meteor.callAsync("tendaRouterScraper.start")
+      if (result?.alreadyRunning) {
+        instance.scraperStartResult.set("Scraper was already running.")
+      } else {
+        instance.scraperStartResult.set("Tenda router scraper started.")
+      }
+    } catch (error) {
+      instance.scraperStartResult.set(
+        error instanceof Error ? error.message : "Failed to start scraper"
+      )
+    } finally {
+      instance.scraperStartPending.set(false)
+      fetchScraperSanity(instance)
+    }
   },
 })
 

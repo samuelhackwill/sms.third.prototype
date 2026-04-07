@@ -18,7 +18,6 @@ import '/imports/startup/server/apns';
 import '/imports/startup/server/sanity';
 import '/imports/startup/server/tendaRouterScraper';
 import { startMessagesPoller } from '/imports/startup/server/jobs/messagesPoller';
-import { startTendaRouterScraper } from '/imports/startup/server/tendaRouterScraper';
 
 Meteor.startup(async () => {
   console.info(`[storage] data dir: ${getDataDir()}`);
@@ -26,5 +25,4 @@ Meteor.startup(async () => {
   await ensureApnsIndexes();
   await ensureTickerIndexes();
   await startMessagesPoller();
-  await startTendaRouterScraper();
 });
