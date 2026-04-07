@@ -9,7 +9,7 @@ import {
   TickerWalls,
 } from "/imports/api/ticker/collections"
 import { streamer } from "/imports/both/streamer"
-import { FAKE_MESSAGES } from "/imports/ui/pages/stage/stageTestData"
+import { FAKE_MESSAGE_SOURCES, nextFakeMessageBody } from "/imports/ui/pages/stage/stageTestData"
 import { TICKER_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/ticker/tickerEvents"
 import { TELEVISION_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/television/televisionEvents"
 import { VIDEO_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/video/videoEvents"
@@ -20,10 +20,6 @@ const PROVISIONING_ROWS = 6
 const PROVISIONING_COLS = 5
 const PROVISIONING_SLOT_COUNT = PROVISIONING_ROWS * PROVISIONING_COLS
 const TICKER_CLIENT_STALE_AFTER_MS = 30 * 1000
-
-function randomFrom(list) {
-  return list[Math.floor(Math.random() * list.length)]
-}
 
 function isActiveClient(client) {
   const lastSeenAtMs = new Date(client?.lastSeenAt).getTime()
@@ -37,6 +33,7 @@ function isActiveClient(client) {
 Template.AdminTickerPage.onCreated(function onCreated() {
   this.panelWidth = new ReactiveVar(0)
   this.draggingClientId = null
+  this.selectedFakeSource = new ReactiveVar("drague")
 
   this.autorun(() => {
     this.subscribe("ticker.wall", DEFAULT_TICKER_WALL_ID)
@@ -73,6 +70,14 @@ Template.AdminTickerPage.onDestroyed(function onDestroyed() {
 Template.AdminTickerPage.helpers({
   wall() {
     return TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+  },
+  fakeMessageSources() {
+    const selectedSource = Template.instance().selectedFakeSource.get()
+    return Object.keys(FAKE_MESSAGE_SOURCES).map((key) => ({
+      key,
+      label: key === "default" ? "Default" : `${key.charAt(0).toUpperCase()}${key.slice(1)}`,
+      checked: selectedSource === key ? "checked" : null,
+    }))
   },
   wallJson() {
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
@@ -309,12 +314,15 @@ Template.AdminTickerPage.events({
       speedPxPerSec,
     })
   },
-  "click .js-send-random-text"(event) {
+  "click .js-send-random-text"(event, instance) {
     event.preventDefault()
     Meteor.callAsync("ticker.enqueueText", {
       wallId: DEFAULT_TICKER_WALL_ID,
-      text: randomFrom(FAKE_MESSAGES),
+      text: nextFakeMessageBody(instance.selectedFakeSource.get()),
     })
+  },
+  "change [name='fake-message-source']"(event, instance) {
+    instance.selectedFakeSource.set(event.currentTarget.value || "drague")
   },
   "click .js-move-all-clients-to-ticker"(event) {
     event.preventDefault()

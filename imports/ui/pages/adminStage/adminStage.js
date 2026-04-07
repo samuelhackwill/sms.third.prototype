@@ -16,7 +16,7 @@ import {
 import "/imports/ui/components/adminWallNav/adminWallNav.js"
 import "./adminStage.html"
 
-const DEFAULT_SOURCE = "default"
+const DEFAULT_SOURCE = "drague"
 const DEFAULT_CURATION_REVEAL_MS = 1400
 const DEFAULT_CURATION_DISPLAY_MODE = "line"
 
