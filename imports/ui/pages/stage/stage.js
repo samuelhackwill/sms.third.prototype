@@ -1,4 +1,5 @@
 import { Meteor } from "meteor/meteor"
+import { Spacebars } from "meteor/spacebars"
 import { Template } from "meteor/templating"
 import { ReactiveVar } from "meteor/reactive-var"
 import * as PIXI from "pixi.js"
@@ -17,6 +18,7 @@ import {
 import "./stage.html"
 
 const TENDA_ROUTER_IP = "10.73.73.5"
+const SETUP_GUIDE_URL = "/mise-armoire-a-textos.md"
 
 const PIXI_CHARS_FR =
   " " + // SPACE (must include)
@@ -132,6 +134,131 @@ function buildCurationMessageState(payload) {
     animationDurationMs: Math.max(300, Number.parseInt(payload?.animationDurationMs, 10) || 420),
     animationStepMs: Math.max(120, Number.parseInt(payload?.animationStepMs, 10) || 180),
   }
+}
+
+async function fetchSetupGuide(instance) {
+  instance.setupGuide.set("")
+
+  try {
+    const response = await fetch(SETUP_GUIDE_URL, { cache: "no-store" })
+    if (!response.ok) {
+      throw new Error(`Failed to load setup guide (${response.status})`)
+    }
+
+    instance.setupGuide.set(await response.text())
+  } catch (error) {
+    instance.setupGuide.set(
+      error instanceof Error ? error.message : "Failed to load setup guide"
+    )
+  }
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;")
+}
+
+function renderInlineMarkdown(text) {
+  return escapeHtml(text)
+    .replace(/\*([^*]+)\*/g, "<em>$1</em>")
+    .replace(/`([^`]+)`/g, "<code class=\"rounded bg-black/30 px-1.5 py-0.5 text-cyan-100\">$1</code>")
+}
+
+function renderSetupGuideMarkdown(markdown) {
+  const lines = String(markdown ?? "").replace(/\r\n/g, "\n").split("\n")
+  const html = []
+  let inCodeBlock = false
+  let inList = false
+  let paragraph = []
+
+  function flushParagraph() {
+    if (!paragraph.length) {
+      return
+    }
+
+    html.push(`<p class="text-sm leading-7 text-slate-200">${renderInlineMarkdown(paragraph.join(" "))}</p>`)
+    paragraph = []
+  }
+
+  function closeList() {
+    if (!inList) {
+      return
+    }
+
+    html.push("</ul>")
+    inList = false
+  }
+
+  lines.forEach((line) => {
+    const trimmed = line.trim()
+
+    if (inCodeBlock) {
+      if (trimmed.startsWith("```")) {
+        html.push("</code></pre>")
+        inCodeBlock = false
+      } else {
+        html.push(`${escapeHtml(line)}\n`)
+      }
+      return
+    }
+
+    if (trimmed.startsWith("```")) {
+      flushParagraph()
+      closeList()
+      html.push("<pre class=\"mt-4 overflow-x-auto rounded-2xl border border-slate-800 bg-black/30 p-4 font-mono text-sm leading-6 text-slate-100\"><code>")
+      inCodeBlock = true
+      return
+    }
+
+    if (!trimmed) {
+      flushParagraph()
+      closeList()
+      return
+    }
+
+    if (trimmed.startsWith("### ")) {
+      flushParagraph()
+      closeList()
+      html.push(`<h3 class="mt-6 text-lg font-semibold text-white">${renderInlineMarkdown(trimmed.slice(4))}</h3>`)
+      return
+    }
+
+    if (trimmed.startsWith("## ")) {
+      flushParagraph()
+      closeList()
+      html.push(`<h2 class="text-2xl font-semibold text-white">${renderInlineMarkdown(trimmed.slice(3))}</h2>`)
+      return
+    }
+
+    const checklistMatch = trimmed.match(/^- \[ \] (.+)$/)
+    if (checklistMatch) {
+      flushParagraph()
+      if (!inList) {
+        html.push("<ul class=\"space-y-3 text-sm text-slate-200\">")
+        inList = true
+      }
+      html.push(
+        `<li class="flex gap-3 leading-6"><span class="mt-[2px] text-cyan-300">□</span><span>${renderInlineMarkdown(checklistMatch[1])}</span></li>`
+      )
+      return
+    }
+
+    closeList()
+    paragraph.push(trimmed)
+  })
+
+  flushParagraph()
+  closeList()
+
+  if (inCodeBlock) {
+    html.push("</code></pre>")
+  }
+
+  return html.join("")
 }
 function randomInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min
@@ -717,6 +844,7 @@ async function buildTickerQrCode(instance) {
 }
 
 Template.home.onCreated(function onCreated() {
+  this.setupGuide = new ReactiveVar("")
   this.routerSanity = new ReactiveVar({
     status: "checking",
     latencyMs: null,
@@ -738,12 +866,16 @@ Template.home.onCreated(function onCreated() {
 })
 
 Template.home.onRendered(function onRendered() {
+  fetchSetupGuide(this)
   fetchRouterSanity(this)
   fetchScraperSanity(this)
   buildTickerQrCode(this)
 })
 
 Template.home.helpers({
+  setupGuideHtml() {
+    return Spacebars.SafeString(renderSetupGuideMarkdown(Template.instance().setupGuide.get()))
+  },
   routerStatusLabel() {
     const status = Template.instance().routerSanity.get()?.status
 
