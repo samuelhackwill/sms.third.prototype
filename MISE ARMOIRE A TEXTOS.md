@@ -1,6 +1,8 @@
 ## MISE ARMOIRE A TEXTOS
 autrement appellé "la vache à Tim"
 
+ne JAMAIS mettre à jour le mac mini si possible.
+
 ### montage de l'étagère
 - [ ] monter l'étagère (30 écrous environ) en portant des gants (*attention c'est coupant*)
 
@@ -53,3 +55,12 @@ ouvrir ce qr code avec les iphones de l'étagère un à un
 envoyer un texto à 06 21 65 65 43
 
 - [ ] le texto devrait apparaître sur la première rangée des téléphones.
+
+### troubleshooting
+
+si samuel dit un truc du genre "ouin j'ai pas accès au port 3000"
+
+```
+  tailscale serve --bg 3000
+
+```
