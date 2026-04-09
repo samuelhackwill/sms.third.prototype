@@ -20,6 +20,8 @@ const PROVISIONING_ROWS = 6
 const PROVISIONING_COLS = 5
 const PROVISIONING_SLOT_COUNT = PROVISIONING_ROWS * PROVISIONING_COLS
 const TICKER_CLIENT_STALE_AFTER_MS = 30 * 1000
+const TICKER_DISPATCH_MODE_AUTO = "auto"
+const TICKER_DISPATCH_MODE_BUCKET_HOLD = "bucket_hold"
 
 function isActiveClient(client) {
   const lastSeenAtMs = new Date(client?.lastSeenAt).getTime()
@@ -181,6 +183,33 @@ Template.AdminTickerPage.helpers({
   queueDepth() {
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
     return wall?.queueState?.queuedCount ?? 0
+  },
+  queueDispatchMode() {
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    return wall?.queueState?.dispatchMode ?? TICKER_DISPATCH_MODE_AUTO
+  },
+  isBucketModeEnabled() {
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    return wall?.queueState?.dispatchMode === TICKER_DISPATCH_MODE_BUCKET_HOLD
+  },
+  bucketModeButtonLabel() {
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    return wall?.queueState?.dispatchMode === TICKER_DISPATCH_MODE_BUCKET_HOLD
+      ? "Disable Bucket Mode"
+      : "Enable Bucket Mode"
+  },
+  emptyBucketButtonLabel() {
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    const queuedCount = Number(wall?.queueState?.queuedCount) || 0
+    return queuedCount > 0 ? `Empty Bucket (${queuedCount})` : "Empty Bucket"
+  },
+  emptyBucketDisabledAttr() {
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    const queueState = wall?.queueState
+    const rows = Array.isArray(queueState?.rows) ? queueState.rows : []
+    const hasIdleRows = rows.some((row) => row?.state === "idle")
+    const queuedCount = Number(queueState?.queuedCount) || 0
+    return queuedCount > 0 && hasIdleRows ? null : "disabled"
   },
   tickerRows() {
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
@@ -372,6 +401,24 @@ Template.AdminTickerPage.events({
       console.error("[adminTicker] failed to toggle Barthes mode", error)
       globalThis.alert?.(error?.reason || error?.message || "Failed to toggle Barthes mode")
     }
+  },
+  "click .js-toggle-bucket-mode"(event) {
+    event.preventDefault()
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    const nextDispatchMode = wall?.queueState?.dispatchMode === TICKER_DISPATCH_MODE_BUCKET_HOLD
+      ? TICKER_DISPATCH_MODE_AUTO
+      : TICKER_DISPATCH_MODE_BUCKET_HOLD
+
+    Meteor.callAsync("ticker.setDispatchMode", {
+      wallId: DEFAULT_TICKER_WALL_ID,
+      dispatchMode: nextDispatchMode,
+    })
+  },
+  "click .js-empty-bucket"(event) {
+    event.preventDefault()
+    Meteor.callAsync("ticker.emptyBucket", {
+      wallId: DEFAULT_TICKER_WALL_ID,
+    })
   },
   "click .js-panic-stop"(event) {
     event.preventDefault()

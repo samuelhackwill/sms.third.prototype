@@ -8,6 +8,8 @@ export const TICKER_ROW_STATE_IDLE = "idle"
 export const TICKER_ROW_STATE_PLAYING = "playing"
 export const TICKER_MACHINE_STATE_IDLE = "idle"
 export const TICKER_MACHINE_STATE_ACTIVE = "active"
+export const TICKER_DISPATCH_MODE_AUTO = "auto"
+export const TICKER_DISPATCH_MODE_BUCKET_HOLD = "bucket_hold"
 
 const queuesByWall = new Map()
 
@@ -74,6 +76,7 @@ export function createDefaultRowState(rowIndex) {
 export function createDefaultMachineState() {
   return {
     machineState: TICKER_MACHINE_STATE_IDLE,
+    dispatchMode: TICKER_DISPATCH_MODE_AUTO,
     queuedCount: 0,
     queuePreview: [],
     totalEnqueued: 0,

@@ -14,6 +14,8 @@ import {
   dequeueTickerMessage,
   enqueueTickerMessage,
   getTickerQueueSnapshot,
+  TICKER_DISPATCH_MODE_AUTO,
+  TICKER_DISPATCH_MODE_BUCKET_HOLD,
   TICKER_MACHINE_STATE_ACTIVE,
   TICKER_MACHINE_STATE_IDLE,
   TICKER_ROW_COUNT,
@@ -37,6 +39,10 @@ const TICKER_REFRESH_EVENT = "ticker.refresh"
 const BARTHES_QUEUE_LOW_WATERMARK = 12
 const BARTHES_SPEED_MIN_PX_PER_SEC = 1000
 const BARTHES_SPEED_MAX_PX_PER_SEC = 6000
+const TICKER_DISPATCH_EVENT_MESSAGE_ENQUEUED = "message_enqueued"
+const TICKER_DISPATCH_EVENT_ROW_COMPLETED = "row_completed"
+const TICKER_DISPATCH_EVENT_STARTUP_SYNC = "startup_sync"
+const TICKER_DISPATCH_EVENT_EMPTY_BUCKET_CLICKED = "empty_bucket_clicked"
 
 const rowCompletionTimersByWall = new Map()
 const wallOperationChains = new Map()
@@ -69,6 +75,33 @@ function normalizeSpecialMode(specialMode) {
   return specialMode === TICKER_SPECIAL_MODE_BARTHES
     ? TICKER_SPECIAL_MODE_BARTHES
     : TICKER_SPECIAL_MODE_NONE
+}
+
+function normalizeDispatchMode(dispatchMode) {
+  return dispatchMode === TICKER_DISPATCH_MODE_BUCKET_HOLD
+    ? TICKER_DISPATCH_MODE_BUCKET_HOLD
+    : TICKER_DISPATCH_MODE_AUTO
+}
+
+function transitionTickerDispatchMode({ dispatchMode, eventType }) {
+  const normalizedMode = normalizeDispatchMode(dispatchMode)
+
+  if (normalizedMode === TICKER_DISPATCH_MODE_BUCKET_HOLD) {
+    return {
+      dispatchMode: normalizedMode,
+      shouldAssignQueuedMessages: eventType === TICKER_DISPATCH_EVENT_EMPTY_BUCKET_CLICKED,
+    }
+  }
+
+  return {
+    dispatchMode: normalizedMode,
+    shouldAssignQueuedMessages: [
+      TICKER_DISPATCH_EVENT_MESSAGE_ENQUEUED,
+      TICKER_DISPATCH_EVENT_ROW_COMPLETED,
+      TICKER_DISPATCH_EVENT_STARTUP_SYNC,
+      TICKER_DISPATCH_EVENT_EMPTY_BUCKET_CLICKED,
+    ].includes(eventType),
+  }
 }
 
 function resolveBarthesSourcePath() {
@@ -167,6 +200,7 @@ function normalizeMachineState(queueState) {
     ...defaults,
     ...queueState,
     rows: nextRows,
+    dispatchMode: normalizeDispatchMode(queueState?.dispatchMode),
     queuedCount: Number(queueState?.queuedCount) || 0,
     totalEnqueued: Number(queueState?.totalEnqueued) || 0,
     totalDequeued: Number(queueState?.totalDequeued) || 0,
@@ -275,6 +309,8 @@ async function ensureWall(wallId = DEFAULT_TICKER_WALL_ID) {
       patch.matrixWallHeightPx = 0
     }
     if (!existing.queueState || !Array.isArray(existing.queueState.rows)) {
+      patch.queueState = normalizeMachineState(existing.queueState)
+    } else if (normalizeDispatchMode(existing.queueState?.dispatchMode) !== existing.queueState?.dispatchMode) {
       patch.queueState = normalizeMachineState(existing.queueState)
     }
     if (!Array.isArray(existing.rowMetrics) || existing.rowMetrics.length !== TICKER_ROW_COUNT) {
@@ -517,6 +553,20 @@ async function updateWallQueueState(wallId, mutate, extraSet = {}) {
   return nextQueueState
 }
 
+async function maybeAssignQueuedMessagesForEvent(wallId, queueStateOrWall, eventType) {
+  const queueState = normalizeMachineState(queueStateOrWall?.queueState ?? queueStateOrWall)
+  const transition = transitionTickerDispatchMode({
+    dispatchMode: queueState.dispatchMode,
+    eventType,
+  })
+
+  if (!transition.shouldAssignQueuedMessages || getTickerQueueSnapshot(wallId).length === 0) {
+    return normalizeMachineState(queueState)
+  }
+
+  return assignQueuedMessagesToFreeRows(wallId)
+}
+
 async function refillBarthesQueueIfNeeded(wallId = DEFAULT_TICKER_WALL_ID) {
   return enqueueWallOperation(wallId, async () => {
     const wall = await ensureWall(wallId)
@@ -581,9 +631,17 @@ async function refillBarthesQueueIfNeeded(wallId = DEFAULT_TICKER_WALL_ID) {
 }
 
 async function panicStopWall(wallId = DEFAULT_TICKER_WALL_ID, extraSet = {}) {
-  await ensureWall(wallId)
+  const wall = await ensureWall(wallId)
   clearTickerQueue(wallId)
-  const queueState = await updateWallQueueState(wallId, () => createDefaultMachineState(), extraSet)
+  const currentQueueState = normalizeMachineState(wall.queueState)
+  const queueState = await updateWallQueueState(
+    wallId,
+    () => ({
+      ...createDefaultMachineState(),
+      dispatchMode: currentQueueState.dispatchMode,
+    }),
+    extraSet,
+  )
   for (const row of queueState.rows) {
     clearRowCompletionTimer(wallId, row.rowIndex)
   }
@@ -636,7 +694,12 @@ async function completeRowRun(wallId, rowIndex, runId) {
 
   if (shouldAssign) {
     await refillBarthesQueueIfNeeded(wallId)
-    const nextQueueState = await assignQueuedMessagesToFreeRows(wallId)
+    const wall = await ensureWall(wallId)
+    const nextQueueState = await maybeAssignQueuedMessagesForEvent(
+      wallId,
+      wall.queueState,
+      TICKER_DISPATCH_EVENT_ROW_COMPLETED,
+    )
     await refillBarthesQueueIfNeeded(wallId)
     return nextQueueState
   }
@@ -686,7 +749,12 @@ async function enqueueTextInternal({ wallId = DEFAULT_TICKER_WALL_ID, text, send
     lastEnqueuedAt: nowIso,
   }))
 
-  await assignQueuedMessagesToFreeRows(wallId)
+  const wall = await ensureWall(wallId)
+  await maybeAssignQueuedMessagesForEvent(
+    wallId,
+    wall.queueState,
+    TICKER_DISPATCH_EVENT_MESSAGE_ENQUEUED,
+  )
 
   return {
     ok: true,
@@ -795,7 +863,11 @@ async function initializeTickerCompletionTimers() {
     }
 
     if (getTickerQueueSnapshot(wall._id).length > 0) {
-      await assignQueuedMessagesToFreeRows(wall._id)
+      await maybeAssignQueuedMessagesForEvent(
+        wall._id,
+        wall.queueState,
+        TICKER_DISPATCH_EVENT_STARTUP_SYNC,
+      )
     }
   }
 }
@@ -1114,7 +1186,12 @@ Meteor.methods({
       })
 
       await refillBarthesQueueIfNeeded(wallId)
-      await assignQueuedMessagesToFreeRows(wallId)
+      const nextWall = await ensureWall(wallId)
+      await maybeAssignQueuedMessagesForEvent(
+        wallId,
+        nextWall.queueState,
+        TICKER_DISPATCH_EVENT_STARTUP_SYNC,
+      )
       await refillBarthesQueueIfNeeded(wallId)
 
       return { ok: true, specialMode: TICKER_SPECIAL_MODE_BARTHES }
@@ -1152,6 +1229,44 @@ Meteor.methods({
       )
 
       return { ok: true, showDebug: Boolean(showDebug) }
+    })
+  },
+
+  async "ticker.setDispatchMode"({ wallId = DEFAULT_TICKER_WALL_ID, dispatchMode } = {}) {
+    return withServer(async () => {
+      await ensureWall(wallId)
+      const normalizedDispatchMode = normalizeDispatchMode(dispatchMode)
+      const queueState = await updateWallQueueState(wallId, (currentQueueState) => ({
+        ...currentQueueState,
+        dispatchMode: normalizedDispatchMode,
+      }))
+
+      if (normalizedDispatchMode === TICKER_DISPATCH_MODE_AUTO) {
+        await maybeAssignQueuedMessagesForEvent(
+          wallId,
+          queueState,
+          TICKER_DISPATCH_EVENT_STARTUP_SYNC,
+        )
+      }
+
+      return { ok: true, dispatchMode: queueState.dispatchMode }
+    })
+  },
+
+  async "ticker.emptyBucket"({ wallId = DEFAULT_TICKER_WALL_ID } = {}) {
+    return withServer(async () => {
+      const wall = await ensureWall(wallId)
+      const queueState = await maybeAssignQueuedMessagesForEvent(
+        wallId,
+        wall.queueState,
+        TICKER_DISPATCH_EVENT_EMPTY_BUCKET_CLICKED,
+      )
+
+      return {
+        ok: true,
+        dispatchMode: queueState.dispatchMode,
+        queuedCount: getTickerQueueSnapshot(wallId).length,
+      }
     })
   },
 
