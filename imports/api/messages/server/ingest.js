@@ -2,6 +2,8 @@ import { createHash } from "node:crypto"
 
 import { Messages } from "/imports/api/messages/messages"
 import { ingestRawRecord as ingestTickerRawRecord } from "/imports/api/ticker/ingest"
+import { DEFAULT_TICKER_WALL_ID, TickerWalls } from "/imports/api/ticker/collections"
+import { STAGE_DISPATCH_MODE_BUCKET_HOLD } from "/imports/api/ticker/queue"
 import { streamer } from "/imports/both/streamer"
 import { appendRawRecord } from "/imports/server/rawLog"
 
@@ -131,7 +133,12 @@ export async function ingestIncomingMessageRecord(record) {
 
   if (stageMessage) {
     try {
-      streamer.emit("stage.raw.spawn", { messages: [stageMessage] })
+      const wall = await TickerWalls.findOneAsync({ _id: DEFAULT_TICKER_WALL_ID })
+      const stageDispatchMode = wall?.queueState?.stageDispatchMode
+
+      if (stageDispatchMode !== STAGE_DISPATCH_MODE_BUCKET_HOLD) {
+        streamer.emit("stage.raw.spawn", { messages: [stageMessage] })
+      }
     } catch (error) {
       console.error("[messages.ingest] stage.raw.spawn emit failed", error)
     }

@@ -14,6 +14,8 @@ import {
   dequeueTickerMessage,
   enqueueTickerMessage,
   getTickerQueueSnapshot,
+  STAGE_DISPATCH_MODE_AUTO,
+  STAGE_DISPATCH_MODE_BUCKET_HOLD,
   TICKER_DISPATCH_MODE_AUTO,
   TICKER_DISPATCH_MODE_BUCKET_HOLD,
   TICKER_MACHINE_STATE_ACTIVE,
@@ -83,6 +85,12 @@ function normalizeDispatchMode(dispatchMode) {
     : TICKER_DISPATCH_MODE_AUTO
 }
 
+function normalizeStageDispatchMode(dispatchMode) {
+  return dispatchMode === STAGE_DISPATCH_MODE_BUCKET_HOLD
+    ? STAGE_DISPATCH_MODE_BUCKET_HOLD
+    : STAGE_DISPATCH_MODE_AUTO
+}
+
 function transitionTickerDispatchMode({ dispatchMode, eventType }) {
   const normalizedMode = normalizeDispatchMode(dispatchMode)
 
@@ -102,6 +110,10 @@ function transitionTickerDispatchMode({ dispatchMode, eventType }) {
       TICKER_DISPATCH_EVENT_EMPTY_BUCKET_CLICKED,
     ].includes(eventType),
   }
+}
+
+function shouldContinueManualDrain(queueState, eventType) {
+  return Boolean(queueState?.drainUntilEmpty) && eventType === TICKER_DISPATCH_EVENT_ROW_COMPLETED
 }
 
 function resolveBarthesSourcePath() {
@@ -201,6 +213,8 @@ function normalizeMachineState(queueState) {
     ...queueState,
     rows: nextRows,
     dispatchMode: normalizeDispatchMode(queueState?.dispatchMode),
+    stageDispatchMode: normalizeStageDispatchMode(queueState?.stageDispatchMode),
+    drainUntilEmpty: Boolean(queueState?.drainUntilEmpty),
     queuedCount: Number(queueState?.queuedCount) || 0,
     totalEnqueued: Number(queueState?.totalEnqueued) || 0,
     totalDequeued: Number(queueState?.totalDequeued) || 0,
@@ -311,7 +325,10 @@ async function ensureWall(wallId = DEFAULT_TICKER_WALL_ID) {
     }
     if (!existing.queueState || !Array.isArray(existing.queueState.rows)) {
       patch.queueState = normalizeMachineState(existing.queueState)
-    } else if (normalizeDispatchMode(existing.queueState?.dispatchMode) !== existing.queueState?.dispatchMode) {
+    } else if (
+      normalizeDispatchMode(existing.queueState?.dispatchMode) !== existing.queueState?.dispatchMode ||
+      normalizeStageDispatchMode(existing.queueState?.stageDispatchMode) !== existing.queueState?.stageDispatchMode
+    ) {
       patch.queueState = normalizeMachineState(existing.queueState)
     }
     if (!Array.isArray(existing.rowMetrics) || existing.rowMetrics.length !== TICKER_ROW_COUNT) {
@@ -560,12 +577,23 @@ async function maybeAssignQueuedMessagesForEvent(wallId, queueStateOrWall, event
     dispatchMode: queueState.dispatchMode,
     eventType,
   })
+  const shouldAssignQueuedMessages =
+    transition.shouldAssignQueuedMessages || shouldContinueManualDrain(queueState, eventType)
 
-  if (!transition.shouldAssignQueuedMessages || getTickerQueueSnapshot(wallId).length === 0) {
+  if (!shouldAssignQueuedMessages || getTickerQueueSnapshot(wallId).length === 0) {
     return normalizeMachineState(queueState)
   }
 
-  return assignQueuedMessagesToFreeRows(wallId)
+  const nextQueueState = await assignQueuedMessagesToFreeRows(wallId)
+
+  if (queueState.drainUntilEmpty && getTickerQueueSnapshot(wallId).length === 0) {
+    return updateWallQueueState(wallId, (currentQueueState) => ({
+      ...currentQueueState,
+      drainUntilEmpty: false,
+    }))
+  }
+
+  return nextQueueState
 }
 
 async function refillBarthesQueueIfNeeded(wallId = DEFAULT_TICKER_WALL_ID) {
@@ -1324,8 +1352,25 @@ Meteor.methods({
     })
   },
 
+  async "ticker.setStageDispatchMode"({ wallId = DEFAULT_TICKER_WALL_ID, stageDispatchMode } = {}) {
+    return withServer(async () => {
+      await ensureWall(wallId)
+      const normalizedStageDispatchMode = normalizeStageDispatchMode(stageDispatchMode)
+      const queueState = await updateWallQueueState(wallId, (currentQueueState) => ({
+        ...currentQueueState,
+        stageDispatchMode: normalizedStageDispatchMode,
+      }))
+
+      return { ok: true, stageDispatchMode: queueState.stageDispatchMode }
+    })
+  },
+
   async "ticker.emptyBucket"({ wallId = DEFAULT_TICKER_WALL_ID } = {}) {
     return withServer(async () => {
+      await updateWallQueueState(wallId, (queueState) => ({
+        ...queueState,
+        drainUntilEmpty: true,
+      }))
       const wall = await ensureWall(wallId)
       const queueState = await maybeAssignQueuedMessagesForEvent(
         wallId,
