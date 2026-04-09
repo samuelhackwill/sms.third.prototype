@@ -10,6 +10,7 @@ import {
 } from "/imports/api/ticker/collections"
 import { streamer } from "/imports/both/streamer"
 import { FAKE_MESSAGE_SOURCES, nextFakeMessageBody } from "/imports/ui/pages/stage/stageTestData"
+import { KISS_O_MATIC_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/kissOMatic/kissOMaticEvents"
 import { TICKER_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/ticker/tickerEvents"
 import { TELEVISION_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/television/televisionEvents"
 import { VIDEO_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/video/videoEvents"
@@ -374,6 +375,7 @@ Template.AdminTickerPage.events({
     streamer.emit(TICKER_ROUTE_CONTROL_EVENT, payload)
     streamer.emit(TELEVISION_ROUTE_CONTROL_EVENT, payload)
     streamer.emit(VIDEO_ROUTE_CONTROL_EVENT, payload)
+    streamer.emit(KISS_O_MATIC_ROUTE_CONTROL_EVENT, payload)
   },
   "click .js-toggle-provisioning"(event, instance) {
     event.preventDefault()

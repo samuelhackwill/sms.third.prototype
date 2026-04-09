@@ -1,6 +1,7 @@
 {
   "public": {
-    "videoEndpointUrl": "https://example.com/api/random-clips"
+    "videoEndpointUrl": "https://example.com/api/random-clips",
+    "kissOMaticEndpointUrl": "https://example.com/api/random-clips"
   },
   "private": {
     "apns": {

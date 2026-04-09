@@ -1,0 +1,44 @@
+<template name="KissOMaticPage">
+  <main class="relative isolate h-screen w-screen overflow-hidden bg-black text-white">
+    <div class="fixed inset-0 overflow-hidden bg-black">
+      <video
+        id="kissOMaticWallVideo"
+        class="absolute max-w-none"
+        muted
+        playsinline
+        preload="auto"
+      ></video>
+    </div>
+
+    {{#if isProvisioningMode}}
+      <div class="pointer-events-none fixed inset-0 bg-rose-500/80" style="animation: ticker-provisioning-blink 950ms ease-in-out infinite;"></div>
+      <div class="pointer-events-none fixed inset-0 flex items-center justify-center">
+        <div class="rounded-2xl border border-rose-200/70 bg-black/70 px-8 py-6 text-center font-mono shadow-2xl">
+          <div class="text-sm uppercase tracking-[0.35em] text-rose-200">Provisioning</div>
+          <div class="mt-3 text-7xl font-bold text-white">{{shortCode}}</div>
+          <div class="mt-3 text-sm text-rose-100">Tap this phone to assign its slot.</div>
+        </div>
+      </div>
+    {{/if}}
+
+    {{#if showDebug}}
+      <div class="pointer-events-none fixed left-3 top-3 rounded bg-black/60 px-2 py-1 font-mono text-6xl text-rose-300">
+        <div>client: {{shortCode}}</div>
+        <div>slot: {{slotIndex}}</div>
+        <div>row: {{rowIndex}}</div>
+        <div>col: {{colIndex}}</div>
+        <div>source: {{currentSource}}</div>
+        <div>state: {{playbackState}}</div>
+        <div>trim: {{trimRange}}</div>
+        <div>paused: {{mediaPaused}}</div>
+        <div>readyState: <span class="{{mediaReadyStateClass}}">{{mediaReadyState}}</span></div>
+        <div>networkState: {{mediaNetworkState}}</div>
+        <div>currentTime: {{mediaCurrentTime}}</div>
+        <div>duration: {{mediaDuration}}</div>
+        <div>errorCode: {{mediaErrorCode}}</div>
+        <div>lastEvent: {{lastMediaEvent}}</div>
+        <div>playError: {{lastPlayError}}</div>
+      </div>
+    {{/if}}
+  </main>
+</template>

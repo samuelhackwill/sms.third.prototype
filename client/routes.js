@@ -7,6 +7,8 @@ import '/imports/ui/pages/ticker/ticker.js';
 import '/imports/ui/pages/adminTicker/adminTicker.js';
 import '/imports/ui/pages/video/video.js';
 import '/imports/ui/pages/adminVideo/adminVideo.js';
+import '/imports/ui/pages/kissOMatic/kissOMatic.js';
+import '/imports/ui/pages/adminKissOMatic/adminKissOMatic.js';
 import '/imports/ui/pages/television/television.js';
 import '/imports/ui/pages/adminTelevision/adminTelevision.js';
 import '/imports/ui/pages/adminPush/adminPush.js';
@@ -67,6 +69,13 @@ FlowRouter.route('/television', {
   },
 });
 
+FlowRouter.route('/kiss-o-matic', {
+  name: 'kissOMatic',
+  action() {
+    this.render('KissOMaticPage');
+  },
+});
+
 FlowRouter.route('/admin/video', {
   name: 'adminVideo',
   action() {
@@ -78,6 +87,13 @@ FlowRouter.route('/admin/television', {
   name: 'adminTelevision',
   action() {
     this.render('AdminTelevisionPage');
+  },
+});
+
+FlowRouter.route('/admin/kiss-o-matic', {
+  name: 'adminKissOMatic',
+  action() {
+    this.render('AdminKissOMaticPage');
   },
 });
 

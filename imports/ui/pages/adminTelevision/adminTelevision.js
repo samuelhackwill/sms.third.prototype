@@ -5,6 +5,7 @@ import { ReactiveVar } from "meteor/reactive-var"
 import { streamer } from "/imports/both/streamer"
 import { DEFAULT_TELEVISION_STATE_ID, TelevisionStates } from "/imports/api/television/collections"
 import { DEFAULT_WALL_ID, WallClients, Walls } from "/imports/api/wall/collections"
+import { KISS_O_MATIC_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/kissOMatic/kissOMaticEvents"
 import { TICKER_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/ticker/tickerEvents"
 import { TELEVISION_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/television/televisionEvents"
 import { VIDEO_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/video/videoEvents"
@@ -110,6 +111,7 @@ Template.AdminTelevisionPage.events({
     streamer.emit(TICKER_ROUTE_CONTROL_EVENT, payload)
     streamer.emit(TELEVISION_ROUTE_CONTROL_EVENT, payload)
     streamer.emit(VIDEO_ROUTE_CONTROL_EVENT, payload)
+    streamer.emit(KISS_O_MATIC_ROUTE_CONTROL_EVENT, payload)
   },
   async "click .js-load-url"(event, instance) {
     event.preventDefault()

@@ -9,6 +9,7 @@ import {
 } from "/imports/api/ticker/collections"
 import "/imports/api/ticker/publications"
 import { VIDEO_DISPLAY_MODE_FIFO, VIDEO_DISPLAY_MODE_SYNC_BATCH } from "/imports/api/video/constants"
+import { resolveClipData } from "/imports/api/video/clipPayload"
 import { streamer } from "/imports/both/streamer"
 import { getOrCreateClientId, getOrCreateDeviceKey, toShortCode } from "/imports/ui/lib/wallClientIdentity"
 import { VIDEO_DEBUG_CONTROL_EVENT, VIDEO_PANIC_EVENT, VIDEO_ROUTE_CONTROL_EVENT } from "./videoEvents"
@@ -373,137 +374,6 @@ function reportVideoMediaState(instance, playbackState) {
   })
 }
 
-function isObject(value) {
-  return value && typeof value === "object" && !Array.isArray(value)
-}
-
-function absolutizeUrl(maybeUrl, endpoint) {
-  if (!maybeUrl || typeof maybeUrl !== "string") {
-    return null
-  }
-
-  try {
-    return new URL(maybeUrl, endpoint || window.location.href).toString()
-  } catch (error) {
-    return maybeUrl
-  }
-}
-
-function resolveClipUrl(payload, endpoint) {
-  if (!payload) {
-    return null
-  }
-
-  if (typeof payload === "string") {
-    const trimmed = payload.trim()
-    return trimmed ? absolutizeUrl(trimmed, endpoint) : null
-  }
-
-  if (Array.isArray(payload)) {
-    for (const item of payload) {
-      const resolved = resolveClipUrl(item, endpoint)
-      if (resolved) {
-        return resolved
-      }
-    }
-    return null
-  }
-
-  if (isObject(payload)) {
-    const directKeys = ["media_url", "videoUrl", "url", "src", "playbackUrl", "streamUrl", "mp4"]
-    for (const key of directKeys) {
-      const resolved = resolveClipUrl(payload[key], endpoint)
-      if (resolved) {
-        return resolved
-      }
-    }
-
-    const nestedKeys = ["clip", "video", "data", "result", "item", "items", "clips", "videos"]
-    for (const key of nestedKeys) {
-      const resolved = resolveClipUrl(payload[key], endpoint)
-      if (resolved) {
-        return resolved
-      }
-    }
-  }
-
-  return null
-}
-
-function toFiniteNumber(value) {
-  const number = Number(value)
-  return Number.isFinite(number) ? number : null
-}
-
-function extractTrimWindow(payload) {
-  if (!isObject(payload)) {
-    return null
-  }
-
-  const kissStartSec = toFiniteNumber(
-    payload.kiss_start_seconds
-    ?? payload.kiss_start
-    ?? payload.kissStart
-    ?? payload.kiss_start_sec,
-  )
-  const kissEndSec = toFiniteNumber(
-    payload.kiss_end_seconds
-    ?? payload.kiss_end
-    ?? payload.kissEnd
-    ?? payload.kiss_end_sec,
-  )
-
-  if (kissStartSec === null && kissEndSec === null) {
-    return null
-  }
-
-  return { kissStartSec, kissEndSec }
-}
-
-function resolveClipData(payload, endpoint) {
-  if (!payload) {
-    return { clipUrl: null, trimWindow: null }
-  }
-
-  if (typeof payload === "string") {
-    const clipUrl = resolveClipUrl(payload, endpoint)
-    return { clipUrl, trimWindow: null }
-  }
-
-  if (Array.isArray(payload)) {
-    for (const item of payload) {
-      const resolved = resolveClipData(item, endpoint)
-      if (resolved.clipUrl) {
-        return resolved
-      }
-    }
-    return { clipUrl: null, trimWindow: null }
-  }
-
-  if (isObject(payload)) {
-    const directKeys = ["media_url", "videoUrl", "url", "src", "playbackUrl", "streamUrl", "mp4"]
-    for (const key of directKeys) {
-      const clipUrl = resolveClipUrl(payload[key], endpoint)
-      if (clipUrl) {
-        return {
-          clipUrl,
-          trimWindow: extractTrimWindow(payload),
-        }
-      }
-    }
-
-    const nestedKeys = ["clip", "video", "data", "result", "item", "items", "clips", "videos"]
-    for (const key of nestedKeys) {
-      const resolved = resolveClipData(payload[key], endpoint)
-      if (resolved.clipUrl) {
-        return resolved
-      }
-    }
-  }
-
-  return { clipUrl: null, trimWindow: null }
-}
-
 function computeAppliedTrim(instance, videoEl) {
   if (!currentVideoTrimClips()) {
     return null
@@ -839,7 +709,7 @@ Template.VideoPage.onRendered(function onRendered() {
 
   this.routeControlHandler = (payload) => {
     const target = payload?.target
-    if (target !== "ticker" && target !== "television") {
+    if (target !== "ticker" && target !== "television" && target !== "kiss-o-matic") {
       return
     }
 

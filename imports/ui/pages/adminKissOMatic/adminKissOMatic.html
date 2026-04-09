@@ -1,0 +1,60 @@
+<template name="AdminKissOMaticPage">
+  <main class="mx-auto min-h-screen max-w-5xl bg-slate-950 px-6 py-8 text-slate-100">
+    {{> AdminWallNav}}
+    <h1 class="text-2xl font-semibold text-slate-50">Admin Kiss-O-Matic</h1>
+    <p class="mt-2 text-sm text-slate-400">Wall-wide kissing clips fetched from the clips API and auto-advanced by the server.</p>
+
+    <section class="mt-6 rounded border border-slate-800 bg-slate-900/80 p-4">
+      <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Playback</h2>
+      <div class="mt-4 flex flex-wrap gap-2">
+        <button type="button" class="rounded border border-rose-700 bg-rose-900/70 px-3 py-2 text-sm font-medium text-rose-100 hover:border-rose-600 hover:bg-rose-800" data-action="fetch-next">Fetch Next Kiss</button>
+        <button type="button" class="rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm font-medium text-slate-100 hover:border-slate-600 hover:bg-slate-700" data-action="refresh-clients">Force Refresh Clients</button>
+        <button type="button" class="rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm font-medium text-slate-100 hover:border-slate-600 hover:bg-slate-700" data-action="toggle-debug">{{debugToggleLabel}}</button>
+        <button type="button" class="rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm font-medium text-slate-100 hover:border-slate-600 hover:bg-slate-700" data-action="toggle-auto-advance">{{autoAdvanceToggleLabel}}</button>
+        <button type="button" class="rounded border border-red-800 bg-red-950 px-3 py-2 text-sm font-semibold text-red-100 hover:border-red-700 hover:bg-red-900" data-action="stop">Stop</button>
+      </div>
+      <div class="mt-3 text-sm text-slate-400">Playback state: <span class="text-slate-200">{{playbackState}}</span></div>
+      <div class="mt-1 text-sm text-slate-400">Current source: <span class="break-all text-slate-200">{{currentSource}}</span></div>
+      <div class="mt-1 text-sm text-slate-400">Trim window: <span class="text-slate-200">{{trimRange}}</span></div>
+      <div class="mt-1 text-sm text-slate-400">Duration: <span class="text-slate-200">{{clipDuration}}</span></div>
+      <div class="mt-1 text-sm text-slate-400">Endpoint: <span class="break-all text-slate-200">{{endpointUrl}}</span></div>
+      <div class="mt-1 text-sm text-slate-400">Auto-advance: <span class="text-slate-200">{{autoAdvanceStatus}}</span></div>
+      {{#if lastError}}
+        <div class="mt-3 rounded border border-red-900/70 bg-red-950/70 px-3 py-2 text-sm text-red-100">{{lastError}}</div>
+      {{/if}}
+      <div class="mt-4 rounded border border-slate-800 bg-slate-950 p-3">
+        <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Last API Payload</div>
+        <pre class="mt-2 whitespace-pre-wrap break-words text-xs text-slate-300">{{lastPayload}}</pre>
+      </div>
+    </section>
+
+    <section class="mt-4 rounded border border-slate-800 bg-slate-900/80 p-4">
+      <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Routing</h2>
+      <div class="mt-3 flex flex-wrap gap-2">
+        <button type="button" class="rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 hover:bg-slate-700" data-action="move-all-clients-to-kiss-o-matic">Move All Clients To /kiss-o-matic</button>
+      </div>
+    </section>
+
+    <section class="mt-4 rounded border border-slate-800 bg-slate-900/80 p-4">
+      <div class="mb-3 flex items-center justify-between">
+        <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Readiness Grid</h2>
+        <span class="text-xs text-slate-500">Green = readyState 4</span>
+      </div>
+      <div class="grid gap-2">
+        {{#each readinessRows}}
+          <div class="grid grid-cols-5 gap-2">
+            {{#each this}}
+              <article class="min-h-24 rounded border p-2 text-xs {{statusClass}}">
+                <div class="font-semibold">#{{slotNumber}} {{shortCode}}</div>
+                <div class="mt-1">rs: {{readyState}}</div>
+                <div>ns: {{networkState}}</div>
+                <div>err: {{errorCode}}</div>
+                <div class="truncate">{{playbackState}}</div>
+              </article>
+            {{/each}}
+          </div>
+        {{/each}}
+      </div>
+    </section>
+  </main>
+</template>

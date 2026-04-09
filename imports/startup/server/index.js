@@ -13,6 +13,8 @@ import '/imports/api/ticker/methods';
 import '/imports/api/ticker/publications';
 import '/imports/api/television/methods';
 import '/imports/api/television/publications';
+import '/imports/api/kissOMatic/methods';
+import '/imports/api/kissOMatic/publications';
 import { getDataDir } from '/imports/server/filePaths';
 import '/imports/startup/server/apns';
 import '/imports/startup/server/sanity';
