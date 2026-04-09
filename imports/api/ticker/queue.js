@@ -82,9 +82,11 @@ export function createDefaultMachineState() {
     totalEnqueued: 0,
     totalDequeued: 0,
     totalCompleted: 0,
+    stageConsumedCount: 0,
     lastEnqueuedAt: null,
     lastDequeuedAt: null,
     lastCompletedAt: null,
+    lastStageConsumedAt: null,
     lastWorkerTickAt: null,
     rows: Array.from({ length: TICKER_ROW_COUNT }, (_, rowIndex) => createDefaultRowState(rowIndex)),
   }

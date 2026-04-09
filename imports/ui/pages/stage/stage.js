@@ -626,6 +626,10 @@ Template.stage.onRendered(function onRendered() {
       return
     }
 
+    if (!Array.isArray(payload.messages)) {
+      return
+    }
+
     this.pixiStage.spawnMessages(payload.messages)
   }
 

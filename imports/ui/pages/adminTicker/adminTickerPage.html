@@ -49,6 +49,7 @@
             <button type="button" class="js-send-random-text rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm font-medium text-slate-100 hover:border-slate-600 hover:bg-slate-700">Send Next Fake Text</button>
             <button type="button" class="js-toggle-bucket-mode rounded border border-amber-900 bg-amber-950 px-3 py-1.5 text-sm font-semibold text-amber-100 hover:border-amber-700 hover:bg-amber-900 {{#if isBucketModeEnabled}}animate-pulse{{/if}}">{{bucketModeButtonLabel}}</button>
             <button type="button" class="js-empty-bucket rounded border border-amber-700 bg-amber-800 px-3 py-1.5 text-sm font-semibold text-amber-50 hover:border-amber-600 hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-40" {{emptyBucketDisabledAttr}}>{{emptyBucketButtonLabel}}</button>
+            <button type="button" class="js-empty-stage-bucket rounded border border-amber-700 bg-amber-800 px-3 py-1.5 text-sm font-semibold text-amber-50 hover:border-amber-600 hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-40" {{stageEmptyBucketDisabledAttr}}>{{stageEmptyBucketButtonLabel}}</button>
             <button type="button" class="js-toggle-barthes-mode rounded border border-cyan-900 bg-cyan-950 px-3 py-1.5 text-sm font-semibold text-cyan-100 hover:border-cyan-700 hover:bg-cyan-900 {{#if isBarthesMode}}animate-pulse{{/if}}">{{barthesModeButtonLabel}}</button>
           </div>
         </div>

@@ -36,6 +36,7 @@ Template.AdminTickerPage.onCreated(function onCreated() {
   this.panelWidth = new ReactiveVar(0)
   this.draggingClientId = null
   this.selectedFakeSource = new ReactiveVar("drague")
+  this.stageBucketDrainTimer = null
 
   this.autorun(() => {
     this.subscribe("ticker.wall", DEFAULT_TICKER_WALL_ID)
@@ -66,6 +67,11 @@ Template.AdminTickerPage.onDestroyed(function onDestroyed() {
 
   if (this.updatePanelWidth) {
     window.removeEventListener("resize", this.updatePanelWidth)
+  }
+
+  if (this.stageBucketDrainTimer) {
+    globalThis.clearTimeout(this.stageBucketDrainTimer)
+    this.stageBucketDrainTimer = null
   }
 })
 
@@ -210,6 +216,16 @@ Template.AdminTickerPage.helpers({
     const hasIdleRows = rows.some((row) => row?.state === "idle")
     const queuedCount = Number(queueState?.queuedCount) || 0
     return queuedCount > 0 && hasIdleRows ? null : "disabled"
+  },
+  stageEmptyBucketButtonLabel() {
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    const queuedCount = Number(wall?.queueState?.queuedCount) || 0
+    const consumedCount = Number(wall?.queueState?.stageConsumedCount) || 0
+    return `Stage Empty Bucket (${queuedCount} queued / ${consumedCount} consumed)`
+  },
+  stageEmptyBucketDisabledAttr() {
+    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
+    return Number(wall?.queueState?.queuedCount) > 0 ? null : "disabled"
   },
   tickerRows() {
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
@@ -418,6 +434,31 @@ Template.AdminTickerPage.events({
     event.preventDefault()
     Meteor.callAsync("ticker.emptyBucket", {
       wallId: DEFAULT_TICKER_WALL_ID,
+    })
+  },
+  "click .js-empty-stage-bucket"(event) {
+    event.preventDefault()
+    const instance = Template.instance()
+
+    async function consumeNext() {
+      const result = await Meteor.callAsync("ticker.emptyStageBucket", {
+        wallId: DEFAULT_TICKER_WALL_ID,
+      })
+
+      if ((Number(result?.queuedCount) || 0) > 0) {
+        instance.stageBucketDrainTimer = globalThis.setTimeout(consumeNext, 1000)
+      } else {
+        instance.stageBucketDrainTimer = null
+      }
+    }
+
+    if (instance.stageBucketDrainTimer) {
+      return
+    }
+
+    consumeNext().catch((error) => {
+      instance.stageBucketDrainTimer = null
+      console.error("[adminTicker] failed to drain stage bucket", error)
     })
   },
   "click .js-panic-stop"(event) {

@@ -205,6 +205,7 @@ function normalizeMachineState(queueState) {
     totalEnqueued: Number(queueState?.totalEnqueued) || 0,
     totalDequeued: Number(queueState?.totalDequeued) || 0,
     totalCompleted: Number(queueState?.totalCompleted) || 0,
+    stageConsumedCount: Number(queueState?.stageConsumedCount) || 0,
     queuePreview: Array.isArray(queueState?.queuePreview) ? queueState.queuePreview : [],
   }
 }
@@ -843,6 +844,76 @@ async function assignQueuedMessagesToFreeRows(wallId = DEFAULT_TICKER_WALL_ID) {
   })
 }
 
+async function consumeOneQueuedMessageForStage(wallId = DEFAULT_TICKER_WALL_ID) {
+  return enqueueWallOperation(wallId, async () => {
+    const wall = await ensureWall(wallId)
+    const queueState = normalizeMachineState(wall.queueState)
+    const queued = dequeueTickerMessage(wallId)
+
+    if (!queued) {
+      const nextQueueState = normalizeMachineState({
+        ...queueState,
+        queuedCount: getTickerQueueSnapshot(wallId).length,
+        queuePreview: getTickerQueueSnapshot(wallId).slice(0, 5),
+      })
+      nextQueueState.machineState = machineStateForRows(nextQueueState.rows, nextQueueState.queuedCount)
+
+      await TickerWalls.updateAsync(
+        { _id: wallId },
+        {
+          $set: {
+            queueState: nextQueueState,
+            updatedAt: new Date(),
+          },
+        },
+      )
+
+      return {
+        ok: true,
+        drainedCount: 0,
+        queuedCount: nextQueueState.queuedCount,
+        consumedCount: nextQueueState.stageConsumedCount,
+      }
+    }
+
+    streamer.emit("stage.raw.spawn", {
+      messages: [{
+        id: queued.id,
+        phone: queued.sender ?? null,
+        body: queued.text,
+        receivedAt: queued.receivedAt,
+      }],
+    })
+
+    const nowIso = new Date().toISOString()
+    const nextQueueState = normalizeMachineState({
+      ...queueState,
+      stageConsumedCount: Number(queueState.stageConsumedCount) + 1,
+      lastStageConsumedAt: nowIso,
+    })
+    nextQueueState.queuedCount = getTickerQueueSnapshot(wallId).length
+    nextQueueState.queuePreview = getTickerQueueSnapshot(wallId).slice(0, 5)
+    nextQueueState.machineState = machineStateForRows(nextQueueState.rows, nextQueueState.queuedCount)
+
+    await TickerWalls.updateAsync(
+      { _id: wallId },
+      {
+        $set: {
+          queueState: nextQueueState,
+          updatedAt: new Date(),
+        },
+      },
+    )
+
+    return {
+      ok: true,
+      drainedCount: 1,
+      queuedCount: nextQueueState.queuedCount,
+      consumedCount: nextQueueState.stageConsumedCount,
+    }
+  })
+}
+
 async function initializeTickerCompletionTimers() {
   const walls = await TickerWalls.find({}, { fields: { _id: 1, queueState: 1, specialMode: 1 } }).fetchAsync()
 
@@ -1268,6 +1339,10 @@ Meteor.methods({
         queuedCount: getTickerQueueSnapshot(wallId).length,
       }
     })
+  },
+
+  async "ticker.emptyStageBucket"({ wallId = DEFAULT_TICKER_WALL_ID } = {}) {
+    return withServer(async () => consumeOneQueuedMessageForStage(wallId))
   },
 
   async "ticker.forceRefreshClients"({ wallId = DEFAULT_TICKER_WALL_ID } = {}) {

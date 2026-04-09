@@ -50,6 +50,8 @@ ouvrir ce qr code avec les iphones de l'étagère un à un
 
 - [ ] normalement tous les téléphones ont maintenant leur navigateur web ouvert à la bonne adresse (on voit un fond noir)
 
+- [ ] vérifier que tous les téléphones sont bien branchés
+
 ### test
 
 envoyer un texto à 06 21 65 65 43
