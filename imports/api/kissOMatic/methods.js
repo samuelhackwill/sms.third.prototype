@@ -1,4 +1,5 @@
 import { Meteor } from "meteor/meteor"
+import { Random } from "meteor/random"
 
 import { DEFAULT_KISS_O_MATIC_STATE_ID, KissOMaticStates } from "/imports/api/kissOMatic/collections"
 import { resolveClipData } from "/imports/api/video/clipPayload"
@@ -11,11 +12,9 @@ const KISS_O_MATIC_ADVANCE_DELAY_MS = 150
 const KISS_O_MATIC_MAX_FETCH_ATTEMPTS = 5
 const DEFAULT_KISS_O_MATIC_TRIM_START_OFFSET_SEC = 1
 const DEFAULT_KISS_O_MATIC_TRIM_END_OFFSET_SEC = 1
-const DEFAULT_KISS_O_MATIC_START_FADE_DURATION_MS = 1200
-const DEFAULT_KISS_O_MATIC_END_FADE_DURATION_MS = 1000
-const DEFAULT_KISS_O_MATIC_END_FADE_LEAD_MS = 1200
 
 const advanceTimersByStateId = new Map()
+const KISS_O_MATIC_ALLOWED_TAGS = new Set(["kiss", "dance", "phone", "cry"])
 
 function clearAdvanceTimer(stateId) {
   const timerId = advanceTimersByStateId.get(stateId)
@@ -23,6 +22,10 @@ function clearAdvanceTimer(stateId) {
     Meteor.clearTimeout(timerId)
     advanceTimersByStateId.delete(stateId)
   }
+}
+
+function normalizeTag(tag) {
+  return KISS_O_MATIC_ALLOWED_TAGS.has(tag) ? tag : DEFAULT_KISS_O_MATIC_TAG
 }
 
 async function ensureKissOMaticStateDoc(stateId = DEFAULT_KISS_O_MATIC_STATE_ID) {
@@ -33,6 +36,7 @@ async function ensureKissOMaticStateDoc(stateId = DEFAULT_KISS_O_MATIC_STATE_ID)
         sourceUrl: "",
         playbackState: "idle",
         startedAtServerMs: null,
+        switchAtServerMs: null,
         stopRequestedAtServerMs: null,
         muted: true,
         trimStartSec: null,
@@ -40,12 +44,11 @@ async function ensureKissOMaticStateDoc(stateId = DEFAULT_KISS_O_MATIC_STATE_ID)
         clipDurationSec: null,
         trimStartOffsetSec: DEFAULT_KISS_O_MATIC_TRIM_START_OFFSET_SEC,
         trimEndOffsetSec: DEFAULT_KISS_O_MATIC_TRIM_END_OFFSET_SEC,
-        startFadeDurationMs: DEFAULT_KISS_O_MATIC_START_FADE_DURATION_MS,
-        endFadeDurationMs: DEFAULT_KISS_O_MATIC_END_FADE_DURATION_MS,
-        endFadeLeadMs: DEFAULT_KISS_O_MATIC_END_FADE_LEAD_MS,
         clipTag: DEFAULT_KISS_O_MATIC_TAG,
         endpointUrl: "",
         autoAdvance: true,
+        currentClip: null,
+        nextClip: null,
         lastPayload: null,
         lastError: "",
         updatedAt: new Date(),
@@ -64,16 +67,7 @@ function normalizeSeconds(value, fallback) {
   return Math.max(0, Math.round(number * 100) / 100)
 }
 
-function normalizeMilliseconds(value, fallback) {
-  const number = Number(value)
-  if (!Number.isFinite(number)) {
-    return fallback
-  }
-
-  return Math.max(0, Math.round(number))
-}
-
-function effectivePlaybackDurationSec({
+function effectivePlaybackWindow({
   trimStartSec,
   trimEndSec,
   trimStartOffsetSec = DEFAULT_KISS_O_MATIC_TRIM_START_OFFSET_SEC,
@@ -100,7 +94,11 @@ function effectivePlaybackDurationSec({
     return null
   }
 
-  return Math.max(0, effectiveEndSec - effectiveStartSec)
+  return {
+    startSec: effectiveStartSec,
+    endSec: effectiveEndSec,
+    durationSec: Math.max(0, effectiveEndSec - effectiveStartSec),
+  }
 }
 
 function configuredEndpoint() {
@@ -113,16 +111,17 @@ function configuredEndpoint() {
   return typeof configured === "string" ? configured.trim() : DEFAULT_VIDEO_ENDPOINT_URL
 }
 
-function endpointWithTag() {
+function endpointWithTag(tag = DEFAULT_KISS_O_MATIC_TAG) {
   const endpoint = configuredEndpoint()
+  const normalizedTag = normalizeTag(tag)
 
   try {
     const url = new URL(endpoint)
-    url.searchParams.set("tag", DEFAULT_KISS_O_MATIC_TAG)
+    url.searchParams.set("tag", normalizedTag)
     return url.toString()
   } catch (error) {
     const separator = endpoint.includes("?") ? "&" : "?"
-    return `${endpoint}${separator}tag=${encodeURIComponent(DEFAULT_KISS_O_MATIC_TAG)}`
+    return `${endpoint}${separator}tag=${encodeURIComponent(normalizedTag)}`
   }
 }
 
@@ -163,8 +162,8 @@ function summarizePayload(payload) {
   }
 }
 
-async function fetchPlayableClip() {
-  const endpointUrl = endpointWithTag()
+async function fetchPlayableClip(tag = DEFAULT_KISS_O_MATIC_TAG) {
+  const endpointUrl = endpointWithTag(tag)
   let lastError = null
 
   for (let attempt = 1; attempt <= KISS_O_MATIC_MAX_FETCH_ATTEMPTS; attempt += 1) {
@@ -177,7 +176,8 @@ async function fetchPlayableClip() {
       if (!clipUrl) {
         throw new Meteor.Error("kissOMatic.invalidPayload", "No clip URL found in clips API response")
       }
-      if (!Number.isFinite(trimStartSec) || !Number.isFinite(trimEndSec) || trimEndSec <= trimStartSec) {
+      const hasValidTrimWindow = Number.isFinite(trimStartSec) && Number.isFinite(trimEndSec) && trimEndSec > trimStartSec
+      if (trimWindow && !hasValidTrimWindow) {
         throw new Meteor.Error("kissOMatic.invalidTrimWindow", "Clips API response did not include a valid kiss trim window")
       }
 
@@ -185,9 +185,8 @@ async function fetchPlayableClip() {
         endpointUrl,
         payload,
         clipUrl,
-        trimStartSec,
-        trimEndSec,
-        clipDurationSec: Math.max(0, trimEndSec - trimStartSec),
+        trimStartSec: hasValidTrimWindow ? trimStartSec : null,
+        trimEndSec: hasValidTrimWindow ? trimEndSec : null,
       }
     } catch (error) {
       lastError = error
@@ -197,79 +196,155 @@ async function fetchPlayableClip() {
   throw lastError ?? new Meteor.Error("kissOMatic.fetchFailed", "Failed to fetch a playable kiss clip")
 }
 
-function scheduleAutoAdvance(stateId, durationMs) {
-  clearAdvanceTimer(stateId)
-  const timerId = Meteor.setTimeout(() => {
-    advanceTimersByStateId.delete(stateId)
-    Meteor.callAsync("kissOMatic.fetchNextClipAndPlay", { stateId })
-      .catch((error) => {
-        console.error("[kiss-o-matic] failed to auto-advance", { stateId, error })
-      })
-  }, Math.max(0, durationMs))
-  advanceTimersByStateId.set(stateId, timerId)
-}
+function clipFromFetchResult(rawClip, state) {
+  const playbackWindow = Number.isFinite(Number(rawClip.trimStartSec)) && Number.isFinite(Number(rawClip.trimEndSec))
+    ? effectivePlaybackWindow({
+      trimStartSec: rawClip.trimStartSec,
+      trimEndSec: rawClip.trimEndSec,
+      trimStartOffsetSec: state?.trimStartOffsetSec,
+      trimEndOffsetSec: state?.trimEndOffsetSec,
+    })
+    : null
 
-async function playFetchedClip(stateId = DEFAULT_KISS_O_MATIC_STATE_ID) {
-  await ensureKissOMaticStateDoc(stateId)
-  clearAdvanceTimer(stateId)
-
-  await KissOMaticStates.updateAsync(
-    { _id: stateId },
-    {
-      $set: {
-        playbackState: "loading",
-        lastError: "",
-        updatedAt: new Date(),
-      },
-    },
-  )
-
-  const clip = await fetchPlayableClip()
-  const stateBeforePlay = await KissOMaticStates.findOneAsync({ _id: stateId })
-  const clipDurationSec = effectivePlaybackDurationSec({
-    trimStartSec: clip.trimStartSec,
-    trimEndSec: clip.trimEndSec,
-    trimStartOffsetSec: stateBeforePlay?.trimStartOffsetSec,
-    trimEndOffsetSec: stateBeforePlay?.trimEndOffsetSec,
-  }) ?? clip.clipDurationSec
-  await KissOMaticStates.updateAsync(
-    { _id: stateId },
-    {
-      $set: {
-        sourceUrl: clip.clipUrl,
-        playbackState: "playing",
-        startedAtServerMs: Date.now(),
-        stopRequestedAtServerMs: null,
-        muted: true,
-        trimStartSec: clip.trimStartSec,
-        trimEndSec: clip.trimEndSec,
-        clipDurationSec,
-        clipTag: DEFAULT_KISS_O_MATIC_TAG,
-        endpointUrl: clip.endpointUrl,
-        lastPayload: summarizePayload(clip.payload),
-        lastError: "",
-        updatedAt: new Date(),
-      },
-    },
-  )
-
-  const state = await KissOMaticStates.findOneAsync({ _id: stateId })
-  if (state?.autoAdvance !== false) {
-    scheduleAutoAdvance(
-      stateId,
-      Math.ceil((clipDurationSec * 1000) + KISS_O_MATIC_ADVANCE_DELAY_MS),
-    )
+  if ((rawClip.trimStartSec !== null || rawClip.trimEndSec !== null) && !playbackWindow) {
+    throw new Meteor.Error("kissOMatic.invalidTrimWindow", "Computed playback window is invalid")
   }
 
   return {
-    ok: true,
-    stateId,
-    sourceUrl: clip.clipUrl,
-    trimStartSec: clip.trimStartSec,
-    trimEndSec: clip.trimEndSec,
-    clipDurationSec,
-    playbackState: "playing",
+    token: Random.id(),
+    sourceUrl: rawClip.clipUrl,
+    trimStartSec: rawClip.trimStartSec,
+    trimEndSec: rawClip.trimEndSec,
+    clipDurationSec: playbackWindow?.durationSec ?? null,
   }
+}
+
+function rootClipPatch(currentClip) {
+  return {
+    sourceUrl: currentClip?.sourceUrl ?? "",
+    trimStartSec: currentClip?.trimStartSec ?? null,
+    trimEndSec: currentClip?.trimEndSec ?? null,
+    clipDurationSec: currentClip?.clipDurationSec ?? null,
+  }
+}
+
+async function applyClipState(stateId, {
+  playbackState,
+  startedAtServerMs,
+  currentClip,
+  nextClip,
+  endpointUrl = "",
+  payloadSummary = null,
+  lastError = "",
+}) {
+  const switchAtServerMs = currentClip && Number.isFinite(currentClip?.clipDurationSec)
+    ? Math.round(startedAtServerMs + (Number(currentClip.clipDurationSec) * 1000))
+    : null
+
+  await KissOMaticStates.updateAsync(
+    { _id: stateId },
+    {
+      $set: {
+        playbackState,
+        startedAtServerMs,
+        switchAtServerMs,
+        stopRequestedAtServerMs: null,
+        currentClip: currentClip ?? null,
+        nextClip: nextClip ?? null,
+        endpointUrl,
+        lastPayload: payloadSummary,
+        lastError,
+        muted: true,
+        updatedAt: new Date(),
+        ...rootClipPatch(currentClip),
+      },
+    },
+  )
+}
+
+function scheduleAdvance(stateId, delayMs) {
+  clearAdvanceTimer(stateId)
+  const timerId = Meteor.setTimeout(() => {
+    advanceTimersByStateId.delete(stateId)
+    Meteor.callAsync("kissOMatic.advancePlaylist", { stateId }).catch((error) => {
+      console.error("[kiss-o-matic] failed to advance playlist", { stateId, error })
+    })
+  }, Math.max(0, delayMs))
+  advanceTimersByStateId.set(stateId, timerId)
+}
+
+async function scheduleAdvanceFromState(stateId) {
+  const state = await KissOMaticStates.findOneAsync({ _id: stateId })
+  if (!state || state.autoAdvance === false || state.playbackState !== "playing" || !Number.isFinite(state.switchAtServerMs)) {
+    clearAdvanceTimer(stateId)
+    return
+  }
+
+  const remainingMs = Number(state.switchAtServerMs) - Date.now() + KISS_O_MATIC_ADVANCE_DELAY_MS
+  scheduleAdvance(stateId, remainingMs)
+}
+
+async function buildNextClip(state) {
+  const fetchedClip = await fetchPlayableClip(state?.clipTag)
+  const clip = clipFromFetchResult(fetchedClip, state)
+  return {
+    clip,
+    endpointUrl: fetchedClip.endpointUrl,
+    payloadSummary: summarizePayload(fetchedClip.payload),
+  }
+}
+
+async function refreshClipDurations(stateId) {
+  const state = await KissOMaticStates.findOneAsync({ _id: stateId })
+  if (!state) {
+    return null
+  }
+
+  const updateClip = (clip) => {
+    if (!clip) {
+      return null
+    }
+
+    const playbackWindow = effectivePlaybackWindow({
+      trimStartSec: clip.trimStartSec,
+      trimEndSec: clip.trimEndSec,
+      trimStartOffsetSec: state.trimStartOffsetSec,
+      trimEndOffsetSec: state.trimEndOffsetSec,
+    })
+
+    if (!Number.isFinite(Number(clip?.trimStartSec)) || !Number.isFinite(Number(clip?.trimEndSec))) {
+      return {
+        ...clip,
+        clipDurationSec: null,
+      }
+    }
+
+    if (!playbackWindow) {
+      return clip
+    }
+
+    return {
+      ...clip,
+      clipDurationSec: playbackWindow.durationSec,
+    }
+  }
+
+  const currentClip = updateClip(state.currentClip)
+  const nextClip = updateClip(state.nextClip)
+  const patch = {
+    currentClip,
+    nextClip,
+    updatedAt: new Date(),
+    ...rootClipPatch(currentClip),
+  }
+
+  if (Number.isFinite(state.startedAtServerMs) && currentClip) {
+    patch.switchAtServerMs = Math.round(Number(state.startedAtServerMs) + (Number(currentClip.clipDurationSec) * 1000))
+    patch.clipDurationSec = currentClip.clipDurationSec
+  }
+
+  await KissOMaticStates.updateAsync({ _id: stateId }, { $set: patch })
+  return KissOMaticStates.findOneAsync({ _id: stateId })
 }
 
 Meteor.methods({
@@ -302,10 +377,45 @@ Meteor.methods({
   },
 
   async "kissOMatic.fetchNextClipAndPlay"({ stateId = DEFAULT_KISS_O_MATIC_STATE_ID } = {}) {
+    clearAdvanceTimer(stateId)
+    await ensureKissOMaticStateDoc(stateId)
+    const state = await KissOMaticStates.findOneAsync({ _id: stateId })
+
+    await KissOMaticStates.updateAsync(
+      { _id: stateId },
+      {
+        $set: {
+          playbackState: "loading",
+          lastError: "",
+          updatedAt: new Date(),
+        },
+      },
+    )
+
     try {
-      return await playFetchedClip(stateId)
+      const [currentResult, nextResult] = await Promise.all([
+        buildNextClip(state),
+        buildNextClip(state),
+      ])
+      const startedAtServerMs = Date.now()
+      await applyClipState(stateId, {
+        playbackState: "playing",
+        startedAtServerMs,
+        currentClip: currentResult.clip,
+        nextClip: nextResult.clip,
+        endpointUrl: nextResult.endpointUrl || currentResult.endpointUrl,
+        payloadSummary: nextResult.payloadSummary || currentResult.payloadSummary,
+      })
+      await scheduleAdvanceFromState(stateId)
+
+      return {
+        ok: true,
+        stateId,
+        playbackState: "playing",
+        currentClip: currentResult.clip,
+        nextClip: nextResult.clip,
+      }
     } catch (error) {
-      await ensureKissOMaticStateDoc(stateId)
       await KissOMaticStates.updateAsync(
         { _id: stateId },
         {
@@ -320,13 +430,68 @@ Meteor.methods({
     }
   },
 
+  async "kissOMatic.advancePlaylist"({ stateId = DEFAULT_KISS_O_MATIC_STATE_ID } = {}) {
+    clearAdvanceTimer(stateId)
+    await ensureKissOMaticStateDoc(stateId)
+    const state = await KissOMaticStates.findOneAsync({ _id: stateId })
+    if (!state?.currentClip) {
+      return Meteor.callAsync("kissOMatic.fetchNextClipAndPlay", { stateId })
+    }
+
+    try {
+      const nextCurrentClip = state.nextClip ?? (await buildNextClip(state)).clip
+      const nextResult = await buildNextClip(state)
+      const startedAtServerMs = Date.now()
+
+      await applyClipState(stateId, {
+        playbackState: "playing",
+        startedAtServerMs,
+        currentClip: nextCurrentClip,
+        nextClip: nextResult.clip,
+        endpointUrl: nextResult.endpointUrl || state.endpointUrl,
+        payloadSummary: nextResult.payloadSummary || state.lastPayload,
+      })
+      await scheduleAdvanceFromState(stateId)
+
+      return {
+        ok: true,
+        stateId,
+        playbackState: "playing",
+        currentClip: nextCurrentClip,
+        nextClip: nextResult.clip,
+      }
+    } catch (error) {
+      await KissOMaticStates.updateAsync(
+        { _id: stateId },
+        {
+          $set: {
+            playbackState: "error",
+            lastError: error?.reason || error?.message || String(error),
+            updatedAt: new Date(),
+          },
+        },
+      )
+      throw error
+    }
+  },
+
+  async "kissOMatic.advancePlaylistIfCurrent"({
+    stateId = DEFAULT_KISS_O_MATIC_STATE_ID,
+    currentClipToken,
+  } = {}) {
+    await ensureKissOMaticStateDoc(stateId)
+    const state = await KissOMaticStates.findOneAsync({ _id: stateId })
+    if (!state?.currentClip?.token || state.currentClip.token !== currentClipToken) {
+      return { ok: true, skipped: true }
+    }
+
+    return Meteor.callAsync("kissOMatic.advancePlaylist", { stateId })
+  },
+
   async "kissOMatic.updatePlaybackTuning"({
     stateId = DEFAULT_KISS_O_MATIC_STATE_ID,
     trimStartOffsetSec,
     trimEndOffsetSec,
-    startFadeDurationMs,
-    endFadeDurationMs,
-    endFadeLeadMs,
   } = {}) {
     await ensureKissOMaticStateDoc(stateId)
 
@@ -340,55 +505,39 @@ Meteor.methods({
     if (trimEndOffsetSec !== undefined) {
       patch.trimEndOffsetSec = normalizeSeconds(trimEndOffsetSec, DEFAULT_KISS_O_MATIC_TRIM_END_OFFSET_SEC)
     }
-    if (startFadeDurationMs !== undefined) {
-      patch.startFadeDurationMs = normalizeMilliseconds(startFadeDurationMs, DEFAULT_KISS_O_MATIC_START_FADE_DURATION_MS)
-    }
-    if (endFadeDurationMs !== undefined) {
-      patch.endFadeDurationMs = normalizeMilliseconds(endFadeDurationMs, DEFAULT_KISS_O_MATIC_END_FADE_DURATION_MS)
-    }
-    if (endFadeLeadMs !== undefined) {
-      patch.endFadeLeadMs = normalizeMilliseconds(endFadeLeadMs, DEFAULT_KISS_O_MATIC_END_FADE_LEAD_MS)
-    }
 
     await KissOMaticStates.updateAsync({ _id: stateId }, { $set: patch })
-
-    const state = await KissOMaticStates.findOneAsync({ _id: stateId })
-    if (state?.playbackState === "playing") {
-      const nextClipDurationSec = effectivePlaybackDurationSec({
-        trimStartSec: state?.trimStartSec,
-        trimEndSec: state?.trimEndSec,
-        trimStartOffsetSec: state?.trimStartOffsetSec,
-        trimEndOffsetSec: state?.trimEndOffsetSec,
-      })
-
-      if (Number.isFinite(nextClipDurationSec)) {
-        await KissOMaticStates.updateAsync(
-          { _id: stateId },
-          {
-            $set: {
-              clipDurationSec: nextClipDurationSec,
-              updatedAt: new Date(),
-            },
-          },
-        )
-      }
-    }
-
-    const refreshedState = await KissOMaticStates.findOneAsync({ _id: stateId })
-    if (refreshedState?.autoAdvance !== false && refreshedState?.playbackState === "playing" && Number.isFinite(refreshedState?.startedAtServerMs) && Number.isFinite(refreshedState?.clipDurationSec)) {
-      const elapsedMs = Date.now() - Number(refreshedState.startedAtServerMs)
-      const remainingMs = (Number(refreshedState.clipDurationSec) * 1000) - elapsedMs + KISS_O_MATIC_ADVANCE_DELAY_MS
-      scheduleAutoAdvance(stateId, remainingMs)
-    }
+    const refreshedState = await refreshClipDurations(stateId)
+    await scheduleAdvanceFromState(stateId)
 
     return {
       ok: true,
       trimStartOffsetSec: refreshedState?.trimStartOffsetSec ?? DEFAULT_KISS_O_MATIC_TRIM_START_OFFSET_SEC,
       trimEndOffsetSec: refreshedState?.trimEndOffsetSec ?? DEFAULT_KISS_O_MATIC_TRIM_END_OFFSET_SEC,
-      startFadeDurationMs: refreshedState?.startFadeDurationMs ?? DEFAULT_KISS_O_MATIC_START_FADE_DURATION_MS,
-      endFadeDurationMs: refreshedState?.endFadeDurationMs ?? DEFAULT_KISS_O_MATIC_END_FADE_DURATION_MS,
-      endFadeLeadMs: refreshedState?.endFadeLeadMs ?? DEFAULT_KISS_O_MATIC_END_FADE_LEAD_MS,
       clipDurationSec: refreshedState?.clipDurationSec ?? null,
+    }
+  },
+
+  async "kissOMatic.setTag"({
+    stateId = DEFAULT_KISS_O_MATIC_STATE_ID,
+    tag,
+  } = {}) {
+    await ensureKissOMaticStateDoc(stateId)
+    const normalizedTag = normalizeTag(tag)
+
+    await KissOMaticStates.updateAsync(
+      { _id: stateId },
+      {
+        $set: {
+          clipTag: normalizedTag,
+          updatedAt: new Date(),
+        },
+      },
+    )
+
+    return {
+      ok: true,
+      tag: normalizedTag,
     }
   },
 
@@ -413,13 +562,7 @@ Meteor.methods({
       return { ok: true, autoAdvance: nextValue }
     }
 
-    const state = await KissOMaticStates.findOneAsync({ _id: stateId })
-    if (state?.playbackState === "playing" && Number.isFinite(state?.startedAtServerMs) && Number.isFinite(state?.clipDurationSec)) {
-      const elapsedMs = Date.now() - Number(state.startedAtServerMs)
-      const remainingMs = (Number(state.clipDurationSec) * 1000) - elapsedMs + KISS_O_MATIC_ADVANCE_DELAY_MS
-      scheduleAutoAdvance(stateId, remainingMs)
-    }
-
+    await scheduleAdvanceFromState(stateId)
     return { ok: true, autoAdvance: nextValue }
   },
 
@@ -450,10 +593,13 @@ Meteor.methods({
             sourceUrl: "",
             playbackState: "idle",
             startedAtServerMs: null,
+            switchAtServerMs: null,
             stopRequestedAtServerMs: null,
             trimStartSec: null,
             trimEndSec: null,
             clipDurationSec: null,
+            currentClip: null,
+            nextClip: null,
             updatedAt: new Date(),
           },
         },

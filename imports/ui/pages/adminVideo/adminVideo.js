@@ -12,6 +12,7 @@ import {
   VIDEO_DISPLAY_MODE_SYNC_BATCH,
 } from "/imports/api/video/constants"
 import { TICKER_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/ticker/tickerEvents"
+import { DISCO_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/disco/discoEvents"
 import { KISS_O_MATIC_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/kissOMatic/kissOMaticEvents"
 import { TELEVISION_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/television/televisionEvents"
 import { VIDEO_PANIC_EVENT, VIDEO_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/video/videoEvents"
@@ -45,6 +46,7 @@ Template.AdminVideoPage.events({
     streamer.emit(TELEVISION_ROUTE_CONTROL_EVENT, payload)
     streamer.emit(VIDEO_ROUTE_CONTROL_EVENT, payload)
     streamer.emit(KISS_O_MATIC_ROUTE_CONTROL_EVENT, payload)
+    streamer.emit(DISCO_ROUTE_CONTROL_EVENT, payload)
   },
   'click [data-action="refresh-clients"]'(event) {
     event.preventDefault()

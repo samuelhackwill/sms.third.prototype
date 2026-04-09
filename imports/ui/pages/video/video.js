@@ -709,7 +709,7 @@ Template.VideoPage.onRendered(function onRendered() {
 
   this.routeControlHandler = (payload) => {
     const target = payload?.target
-    if (target !== "ticker" && target !== "television" && target !== "kiss-o-matic") {
+    if (target !== "ticker" && target !== "television" && target !== "kiss-o-matic" && target !== "disco") {
       return
     }
 

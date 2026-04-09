@@ -5,6 +5,7 @@ import { DEFAULT_KISS_O_MATIC_STATE_ID, KissOMaticStates } from "/imports/api/ki
 import { streamer } from "/imports/both/streamer"
 import { DEFAULT_WALL_ID, WallClients, Walls } from "/imports/api/wall/collections"
 import "/imports/ui/components/adminWallNav/adminWallNav.js"
+import { DISCO_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/disco/discoEvents"
 import { KISS_O_MATIC_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/kissOMatic/kissOMaticEvents"
 import { TICKER_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/ticker/tickerEvents"
 import { TELEVISION_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/television/televisionEvents"
@@ -57,14 +58,17 @@ Template.AdminKissOMaticPage.helpers({
   trimEndOffsetSec() {
     return KissOMaticStates.findOne({ _id: DEFAULT_KISS_O_MATIC_STATE_ID })?.trimEndOffsetSec ?? 1
   },
-  startFadeDurationMs() {
-    return KissOMaticStates.findOne({ _id: DEFAULT_KISS_O_MATIC_STATE_ID })?.startFadeDurationMs ?? 1200
+  kissCheckedAttr() {
+    return (KissOMaticStates.findOne({ _id: DEFAULT_KISS_O_MATIC_STATE_ID })?.clipTag ?? "kiss") === "kiss" ? "checked" : null
   },
-  endFadeDurationMs() {
-    return KissOMaticStates.findOne({ _id: DEFAULT_KISS_O_MATIC_STATE_ID })?.endFadeDurationMs ?? 1000
+  danceCheckedAttr() {
+    return (KissOMaticStates.findOne({ _id: DEFAULT_KISS_O_MATIC_STATE_ID })?.clipTag ?? "kiss") === "dance" ? "checked" : null
   },
-  endFadeLeadMs() {
-    return KissOMaticStates.findOne({ _id: DEFAULT_KISS_O_MATIC_STATE_ID })?.endFadeLeadMs ?? 1200
+  phoneCheckedAttr() {
+    return (KissOMaticStates.findOne({ _id: DEFAULT_KISS_O_MATIC_STATE_ID })?.clipTag ?? "kiss") === "phone" ? "checked" : null
+  },
+  cryCheckedAttr() {
+    return (KissOMaticStates.findOne({ _id: DEFAULT_KISS_O_MATIC_STATE_ID })?.clipTag ?? "kiss") === "cry" ? "checked" : null
   },
   endpointUrl() {
     return KissOMaticStates.findOne({ _id: DEFAULT_KISS_O_MATIC_STATE_ID })?.endpointUrl ?? "unknown"
@@ -168,11 +172,17 @@ Template.AdminKissOMaticPage.events({
       stateId: DEFAULT_KISS_O_MATIC_STATE_ID,
       trimStartOffsetSec: form.trimStartOffsetSec.value,
       trimEndOffsetSec: form.trimEndOffsetSec.value,
-      startFadeDurationMs: form.startFadeDurationMs.value,
-      endFadeDurationMs: form.endFadeDurationMs.value,
-      endFadeLeadMs: form.endFadeLeadMs.value,
     }).catch((error) => {
       console.error("[admin/kiss-o-matic] failed to update playback tuning", error)
+    })
+  },
+  "change [name='kiss-o-matic-tag']"(event) {
+    const nextTag = event.currentTarget.value
+    Meteor.callAsync("kissOMatic.setTag", {
+      stateId: DEFAULT_KISS_O_MATIC_STATE_ID,
+      tag: nextTag,
+    }).catch((error) => {
+      console.error("[admin/kiss-o-matic] failed to set tag", error)
     })
   },
   "click [data-action='stop']"(event) {
@@ -189,5 +199,6 @@ Template.AdminKissOMaticPage.events({
     streamer.emit(TELEVISION_ROUTE_CONTROL_EVENT, payload)
     streamer.emit(VIDEO_ROUTE_CONTROL_EVENT, payload)
     streamer.emit(KISS_O_MATIC_ROUTE_CONTROL_EVENT, payload)
+    streamer.emit(DISCO_ROUTE_CONTROL_EVENT, payload)
   },
 })

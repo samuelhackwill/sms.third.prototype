@@ -9,6 +9,7 @@ const ADMIN_WALL_TABS = [
   { label: "Ticker", routeName: "adminTicker", path: "/admin/ticker" },
   { label: "Video", routeName: "adminVideo", path: "/admin/video" },
   { label: "Kiss-O-Matic", routeName: "adminKissOMatic", path: "/admin/kiss-o-matic" },
+  { label: "Disco", routeName: "adminDisco", path: "/admin/disco" },
   { label: "Television", routeName: "adminTelevision", path: "/admin/television" },
 ]
 

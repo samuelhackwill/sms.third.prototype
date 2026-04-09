@@ -15,12 +15,8 @@ const WALL_REFRESH_EVENT = "ticker.refresh"
 const WALL_HEARTBEAT_MS = 5 * 1000
 const KISS_O_MATIC_WALL_COLS = 5
 const KISS_O_MATIC_WALL_ROWS = 6
-const KISS_O_MATIC_STOP_FADE_MS = 900
 const DEFAULT_KISS_O_MATIC_TRIM_START_OFFSET_SEC = 1
 const DEFAULT_KISS_O_MATIC_TRIM_END_OFFSET_SEC = 1
-const DEFAULT_KISS_O_MATIC_START_FADE_DURATION_MS = 1200
-const DEFAULT_KISS_O_MATIC_END_FADE_DURATION_MS = 1000
-const DEFAULT_KISS_O_MATIC_END_FADE_LEAD_MS = 1200
 
 function canSeekVideo(videoEl) {
   return Boolean(videoEl) && Number(videoEl.readyState) >= 1
@@ -62,86 +58,35 @@ function readMediaSnapshot(videoEl) {
   }
 }
 
-function maybeReportMediaState(instance, playbackState = null) {
-  const snapshot = instance.mediaSnapshot.get()
-  const nextKey = JSON.stringify({
-    readyState: snapshot.readyState,
-    networkState: snapshot.networkState,
-    errorCode: snapshot.errorCode,
-    playbackState,
-  })
-
-  if (instance.lastReportedMediaKey === nextKey) {
-    return
-  }
-
-  instance.lastReportedMediaKey = nextKey
-  Meteor.callAsync("kissOMatic.reportClientMediaState", {
-    wallId: DEFAULT_WALL_ID,
-    clientId: instance.clientId,
-    readyState: snapshot.readyState,
-    networkState: snapshot.networkState,
-    errorCode: snapshot.errorCode,
-    playbackState,
-  }).catch((error) => {
-    console.error("[kiss-o-matic] failed to report media state", error)
-  })
+function currentState() {
+  return KissOMaticStates.findOne({ _id: DEFAULT_KISS_O_MATIC_STATE_ID }) ?? null
 }
 
-function syncVideoViewport(instance) {
-  const videoEl = instance.find("#kissOMaticWallVideo")
-  if (!videoEl) {
-    return
-  }
-
-  const selfClient = WallClients.findOne({ _id: instance.clientId, wallId: DEFAULT_WALL_ID })
-  const colIndex = Number.isInteger(selfClient?.colIndex) ? selfClient.colIndex : 0
-  const rowIndex = Number.isInteger(selfClient?.rowIndex) ? selfClient.rowIndex : 0
-  const clientWidth = Math.max(1, window.innerWidth)
-  const clientHeight = Math.max(1, window.innerHeight)
-  const totalWallWidth = clientWidth * KISS_O_MATIC_WALL_COLS
-  const totalWallHeight = clientHeight * KISS_O_MATIC_WALL_ROWS
-  const xStart = colIndex * clientWidth
-  const yStart = rowIndex * clientHeight
-
-  videoEl.style.width = `${totalWallWidth}px`
-  videoEl.style.height = `${totalWallHeight}px`
-  videoEl.style.left = `${-xStart}px`
-  videoEl.style.top = `${-yStart}px`
-  videoEl.style.objectFit = "cover"
+function currentClip(state = currentState()) {
+  return state?.currentClip ?? null
 }
 
-function stopPlayback(instance, playbackState) {
-  const videoEl = instance.find("#kissOMaticWallVideo")
-  if (!videoEl) {
-    return
-  }
-
-  instance.completedPlaybackKey = instance.currentPlaybackKey()
-  const endFadeDurationMs = Number(KissOMaticStates.findOne({ _id: DEFAULT_KISS_O_MATIC_STATE_ID })?.endFadeDurationMs)
-  const durationMs = Number.isFinite(endFadeDurationMs) ? endFadeDurationMs : DEFAULT_KISS_O_MATIC_END_FADE_DURATION_MS
-  Meteor.clearTimeout(instance.fadeOutTimerId)
-  videoEl.style.transition = `opacity ${Math.max(0, durationMs)}ms ease`
-  videoEl.style.opacity = "0"
-  instance.fadeOutTimerId = Meteor.setTimeout(() => {
-    videoEl.pause()
-    instance.mediaSnapshot.set(readMediaSnapshot(videoEl))
-    maybeReportMediaState(instance, playbackState)
-    instance.fadeOutTimerId = null
-  }, Math.max(0, durationMs))
+function nextClip(state = currentState()) {
+  return state?.nextClip ?? null
 }
 
-function currentEndFadeLeadMs(state) {
-  const leadMs = Number(state?.endFadeLeadMs)
-  return Number.isFinite(leadMs) ? leadMs : DEFAULT_KISS_O_MATIC_END_FADE_LEAD_MS
-}
-
-function effectiveTrimWindow(state, videoEl) {
-  const rawTrimStartSec = Number(state?.trimStartSec)
-  const rawTrimEndSec = Number(state?.trimEndSec)
+function effectiveTrimWindow(clip, state, videoEl) {
+  const rawTrimStartSec = Number(clip?.trimStartSec)
+  const rawTrimEndSec = Number(clip?.trimEndSec)
   const trimStartOffsetSec = Number(state?.trimStartOffsetSec)
   const trimEndOffsetSec = Number(state?.trimEndOffsetSec)
   const durationSec = Number(videoEl?.duration)
+
+  if (!Number.isFinite(rawTrimStartSec) || !Number.isFinite(rawTrimEndSec)) {
+    if (!Number.isFinite(durationSec) || durationSec <= 0) {
+      return null
+    }
+
+    return {
+      startSec: 0,
+      endSec: durationSec,
+    }
+  }
 
   if (!Number.isFinite(rawTrimStartSec) || !Number.isFinite(rawTrimEndSec) || rawTrimEndSec <= rawTrimStartSec) {
     return null
@@ -165,98 +110,280 @@ function effectiveTrimWindow(state, videoEl) {
   return { startSec, endSec }
 }
 
-function syncVideoPlayback(instance) {
-  const videoEl = instance.find("#kissOMaticWallVideo")
-  const state = KissOMaticStates.findOne({ _id: DEFAULT_KISS_O_MATIC_STATE_ID })
-  if (!videoEl) {
+function maybeReportMediaState(instance, playbackState = null) {
+  const snapshot = instance.mediaSnapshot.get()
+  const nextKey = JSON.stringify({
+    readyState: snapshot.readyState,
+    networkState: snapshot.networkState,
+    errorCode: snapshot.errorCode,
+    playbackState,
+    activeBufferKey: instance.activeBufferKey,
+  })
+
+  if (instance.lastReportedMediaKey === nextKey) {
     return
   }
 
-  if (!state?.sourceUrl) {
-    instance.completedPlaybackKey = null
-    if (videoEl.getAttribute("src")) {
-      videoEl.pause()
-      videoEl.removeAttribute("src")
-      videoEl.load()
+  instance.lastReportedMediaKey = nextKey
+  Meteor.callAsync("kissOMatic.reportClientMediaState", {
+    wallId: DEFAULT_WALL_ID,
+    clientId: instance.clientId,
+    readyState: snapshot.readyState,
+    networkState: snapshot.networkState,
+    errorCode: snapshot.errorCode,
+    playbackState,
+  }).catch((error) => {
+    console.error("[kiss-o-matic] failed to report media state", error)
+  })
+}
+
+function videoForBuffer(instance, key) {
+  const id = key === "a" ? "#kissOMaticWallVideoA" : "#kissOMaticWallVideoB"
+  return instance.find(id)
+}
+
+function otherBufferKey(key) {
+  return key === "a" ? "b" : "a"
+}
+
+function bufferState(instance, key) {
+  return instance.buffers[key]
+}
+
+function clipIdentityKey(clip) {
+  if (!clip) {
+    return "none"
+  }
+
+  return clip.token || `${clip.sourceUrl || ""}:${clip.trimStartSec || 0}:${clip.trimEndSec || 0}`
+}
+
+function updateMediaSnapshotFromActive(instance) {
+  const activeVideoEl = videoForBuffer(instance, instance.activeBufferKey)
+  instance.mediaSnapshot.set(readMediaSnapshot(activeVideoEl))
+}
+
+function applyBufferVisibility(instance) {
+  for (const key of ["a", "b"]) {
+    const videoEl = videoForBuffer(instance, key)
+    if (!videoEl) {
+      continue
     }
-    instance.mediaSnapshot.set(readMediaSnapshot(videoEl))
+
+    const isActive = key === instance.activeBufferKey
+    videoEl.style.visibility = isActive ? "visible" : "hidden"
+    videoEl.style.zIndex = isActive ? "2" : "1"
+  }
+}
+
+function syncVideoViewport(instance) {
+  const selfClient = WallClients.findOne({ _id: instance.clientId, wallId: DEFAULT_WALL_ID })
+  const colIndex = Number.isInteger(selfClient?.colIndex) ? selfClient.colIndex : 0
+  const rowIndex = Number.isInteger(selfClient?.rowIndex) ? selfClient.rowIndex : 0
+  const clientWidth = Math.max(1, window.innerWidth)
+  const clientHeight = Math.max(1, window.innerHeight)
+  const totalWallWidth = clientWidth * KISS_O_MATIC_WALL_COLS
+  const totalWallHeight = clientHeight * KISS_O_MATIC_WALL_ROWS
+  const xStart = colIndex * clientWidth
+  const yStart = rowIndex * clientHeight
+
+  for (const key of ["a", "b"]) {
+    const videoEl = videoForBuffer(instance, key)
+    if (!videoEl) {
+      continue
+    }
+
+    videoEl.style.width = `${totalWallWidth}px`
+    videoEl.style.height = `${totalWallHeight}px`
+    videoEl.style.left = `${-xStart}px`
+    videoEl.style.top = `${-yStart}px`
+    videoEl.style.objectFit = "cover"
+  }
+}
+
+function unloadBuffer(instance, key) {
+  const videoEl = videoForBuffer(instance, key)
+  const state = bufferState(instance, key)
+  if (!videoEl || !state) {
+    return
+  }
+
+  try {
+    videoEl.pause()
+  } catch (error) {
+    // ignore pause failures
+  }
+
+  state.clipKey = null
+  state.isPrimed = false
+  videoEl.removeAttribute("src")
+  videoEl.load()
+}
+
+function ensureBufferLoaded(instance, key, clip) {
+  const videoEl = videoForBuffer(instance, key)
+  const state = bufferState(instance, key)
+  if (!videoEl || !state) {
+    return
+  }
+
+  const nextClipKey = clipIdentityKey(clip)
+  if (!clip || !clip.sourceUrl) {
+    unloadBuffer(instance, key)
+    return
+  }
+
+  if (state.clipKey === nextClipKey && videoEl.getAttribute("src") === clip.sourceUrl) {
+    return
+  }
+
+  state.clipKey = nextClipKey
+  state.isPrimed = false
+  videoEl.src = clip.sourceUrl
+  videoEl.load()
+}
+
+function primeBufferAtClipStart(instance, key, clip, stateDoc) {
+  const videoEl = videoForBuffer(instance, key)
+  const state = bufferState(instance, key)
+  if (!videoEl || !state || !clip) {
+    return false
+  }
+
+  const trimWindow = effectiveTrimWindow(clip, stateDoc, videoEl)
+  if (!trimWindow) {
+    return false
+  }
+
+  if (!state.isPrimed && canSeekVideo(videoEl)) {
+    safelySetCurrentTime(videoEl, trimWindow.startSec)
+    state.isPrimed = true
+  }
+
+  return state.isPrimed
+}
+
+function promoteCurrentClipBuffer(instance, clip) {
+  const currentKey = clipIdentityKey(clip)
+  if (instance.pendingSwitchClipKey && instance.pendingSwitchClipKey !== currentKey) {
+    return
+  }
+
+  if (bufferState(instance, instance.activeBufferKey)?.clipKey === currentKey) {
+    if (instance.pendingSwitchClipKey === currentKey) {
+      instance.pendingSwitchClipKey = null
+    }
+    return
+  }
+
+  const alternateKey = otherBufferKey(instance.activeBufferKey)
+  if (bufferState(instance, alternateKey)?.clipKey === currentKey) {
+    instance.activeBufferKey = alternateKey
+    applyBufferVisibility(instance)
+    if (instance.pendingSwitchClipKey === currentKey) {
+      instance.pendingSwitchClipKey = null
+    }
+  }
+}
+
+function syncVideoPlayback(instance) {
+  const stateDoc = currentState()
+  const current = currentClip(stateDoc)
+  const upcoming = nextClip(stateDoc)
+
+  if (!current?.sourceUrl) {
+    instance.pendingSwitchClipKey = null
+    unloadBuffer(instance, "a")
+    unloadBuffer(instance, "b")
+    applyBufferVisibility(instance)
+    updateMediaSnapshotFromActive(instance)
     maybeReportMediaState(instance, "idle")
     return
   }
 
-  videoEl.muted = true
-  if (videoEl.getAttribute("src") !== state.sourceUrl) {
-    instance.completedPlaybackKey = null
-    Meteor.clearTimeout(instance.fadeOutTimerId)
-    instance.fadeOutTimerId = null
-    videoEl.style.opacity = "0"
-    videoEl.src = state.sourceUrl
-    videoEl.load()
+  promoteCurrentClipBuffer(instance, current)
+  ensureBufferLoaded(instance, instance.activeBufferKey, current)
+  ensureBufferLoaded(instance, otherBufferKey(instance.activeBufferKey), upcoming)
+
+  const activeVideoEl = videoForBuffer(instance, instance.activeBufferKey)
+  const inactiveKey = otherBufferKey(instance.activeBufferKey)
+  const inactiveVideoEl = videoForBuffer(instance, inactiveKey)
+  if (!activeVideoEl) {
+    return
   }
 
-  if (Number(videoEl.readyState) < 1) {
-    instance.mediaSnapshot.set(readMediaSnapshot(videoEl))
+  activeVideoEl.muted = true
+  if (inactiveVideoEl) {
+    inactiveVideoEl.muted = true
+  }
+
+  if (Number(activeVideoEl.readyState) < 1) {
+    updateMediaSnapshotFromActive(instance)
     maybeReportMediaState(instance, "loading")
     return
   }
 
-  if (state.playbackState === "stopping") {
-    stopPlayback(instance, "stopping")
-    return
-  }
-
-  if (state.playbackState !== "playing") {
-    instance.mediaSnapshot.set(readMediaSnapshot(videoEl))
-    maybeReportMediaState(instance, state.playbackState ?? "idle")
-    return
-  }
-
-  const startedAtServerMs = Number(state.startedAtServerMs)
-  const trimWindow = effectiveTrimWindow(state, videoEl)
-  if (!trimWindow || !Number.isFinite(startedAtServerMs)) {
-    instance.mediaSnapshot.set(readMediaSnapshot(videoEl))
+  const activeTrimWindow = effectiveTrimWindow(current, stateDoc, activeVideoEl)
+  const startedAtServerMs = Number(stateDoc?.startedAtServerMs)
+  const switchAtServerMs = Number(stateDoc?.switchAtServerMs)
+  if (!activeTrimWindow || !Number.isFinite(startedAtServerMs)) {
+    updateMediaSnapshotFromActive(instance)
     maybeReportMediaState(instance, "invalid-trim")
     return
   }
 
-  const playbackKey = instance.currentPlaybackKey()
-  const elapsedSec = Math.max(0, ((Date.now() + instance.offsetMs) - startedAtServerMs) / 1000)
-  const targetTime = trimWindow.startSec + elapsedSec
-  if (targetTime >= trimWindow.endSec) {
-    if (instance.completedPlaybackKey !== playbackKey) {
-      stopPlayback(instance, "ended")
+  if (stateDoc?.playbackState === "stopping") {
+    try {
+      activeVideoEl.pause()
+      inactiveVideoEl?.pause()
+    } catch (error) {
+      // ignore pause failures
     }
+    updateMediaSnapshotFromActive(instance)
+    maybeReportMediaState(instance, "stopping")
     return
   }
 
-  instance.completedPlaybackKey = null
-  const startFadeDurationMs = Number(state.startFadeDurationMs)
-  const durationMs = Number.isFinite(startFadeDurationMs) ? startFadeDurationMs : DEFAULT_KISS_O_MATIC_START_FADE_DURATION_MS
-  const remainingMs = Math.max(0, Math.round((trimWindow.endSec - targetTime) * 1000))
-  const fadeLeadMs = currentEndFadeLeadMs(state)
-  const shouldFadeOut = remainingMs <= fadeLeadMs
-  if (shouldFadeOut) {
-    const endFadeDurationMs = Number(state.endFadeDurationMs)
-    const fadeDurationMs = Number.isFinite(endFadeDurationMs) ? endFadeDurationMs : DEFAULT_KISS_O_MATIC_END_FADE_DURATION_MS
-    videoEl.style.transition = `opacity ${Math.max(0, fadeDurationMs)}ms ease`
-    videoEl.style.opacity = "0"
-  } else {
-    videoEl.style.transition = `opacity ${Math.max(0, durationMs)}ms ease`
-    videoEl.style.opacity = "1"
-  }
-  if (canSeekVideo(videoEl) && Math.abs(videoEl.currentTime - targetTime) > 0.35) {
-    safelySetCurrentTime(videoEl, targetTime)
+  const nowServerMs = Date.now() + instance.offsetMs
+  const elapsedSec = Math.max(0, (nowServerMs - startedAtServerMs) / 1000)
+  const targetTime = Math.min(activeTrimWindow.endSec, activeTrimWindow.startSec + elapsedSec)
+  if (canSeekVideo(activeVideoEl) && Math.abs(activeVideoEl.currentTime - targetTime) > 0.35) {
+    safelySetCurrentTime(activeVideoEl, targetTime)
   }
 
-  videoEl.play()
+  const remainingMs = Math.max(0, switchAtServerMs - nowServerMs)
+  const shouldSwitchNow = Boolean(upcoming?.sourceUrl) && Number.isFinite(switchAtServerMs) && remainingMs <= 0
+  const nextSwitchClipKey = shouldSwitchNow ? clipIdentityKey(upcoming) : null
+
+  if (shouldSwitchNow && inactiveVideoEl && primeBufferAtClipStart(instance, inactiveKey, upcoming, stateDoc)) {
+    instance.pendingSwitchClipKey = nextSwitchClipKey
+    instance.activeBufferKey = inactiveKey
+    applyBufferVisibility(instance)
+    inactiveVideoEl.play().catch(() => {})
+    try {
+      activeVideoEl.pause()
+    } catch (error) {
+      // ignore pause failures
+    }
+  } else {
+    if (!instance.pendingSwitchClipKey) {
+      applyBufferVisibility(instance)
+    }
+    if (inactiveVideoEl) {
+      inactiveVideoEl.pause()
+      primeBufferAtClipStart(instance, inactiveKey, upcoming, stateDoc)
+    }
+  }
+
+  activeVideoEl.play()
     .then(() => {
       instance.lastPlayError.set("")
-      instance.mediaSnapshot.set(readMediaSnapshot(videoEl))
+      updateMediaSnapshotFromActive(instance)
       maybeReportMediaState(instance, "playing")
     })
     .catch((error) => {
       instance.lastPlayError.set(error?.message || String(error))
-      instance.mediaSnapshot.set(readMediaSnapshot(videoEl))
+      updateMediaSnapshotFromActive(instance)
       maybeReportMediaState(instance, "play-error")
     })
 }
@@ -273,24 +400,16 @@ Template.KissOMaticPage.onCreated(function onCreated() {
   this.routeControlHandler = null
   this.mediaPollIntervalId = null
   this.mediaEventHandlers = []
-  this.completedPlaybackKey = null
-  this.fadeOutTimerId = null
+  this.activeBufferKey = "a"
+  this.pendingSwitchClipKey = null
+  this.buffers = {
+    a: { clipKey: null, isPrimed: false },
+    b: { clipKey: null, isPrimed: false },
+  }
   this.mediaSnapshot = new ReactiveVar(readMediaSnapshot(null))
   this.lastMediaEvent = new ReactiveVar("none")
   this.lastPlayError = new ReactiveVar("")
   this.lastReportedMediaKey = null
-  this.currentPlaybackKey = () => {
-    const state = KissOMaticStates.findOne({ _id: DEFAULT_KISS_O_MATIC_STATE_ID })
-    return JSON.stringify({
-      sourceUrl: state?.sourceUrl ?? "",
-      startedAtServerMs: Number(state?.startedAtServerMs) || 0,
-      trimStartSec: Number(state?.trimStartSec) || 0,
-      trimEndSec: Number(state?.trimEndSec) || 0,
-      trimStartOffsetSec: Number(state?.trimStartOffsetSec) || 0,
-      trimEndOffsetSec: Number(state?.trimEndOffsetSec) || 0,
-      endFadeLeadMs: Number(state?.endFadeLeadMs) || 0,
-    })
-  }
 
   this.autorun(() => {
     this.subscribe("wall.current", DEFAULT_WALL_ID)
@@ -338,7 +457,7 @@ Template.KissOMaticPage.onRendered(function onRendered() {
 
   this.routeControlHandler = (payload) => {
     const target = payload?.target
-    if (target !== "ticker" && target !== "video" && target !== "television" && target !== "kiss-o-matic") {
+    if (target !== "ticker" && target !== "video" && target !== "television" && target !== "kiss-o-matic" && target !== "disco") {
       return
     }
 
@@ -369,48 +488,63 @@ Template.KissOMaticPage.onRendered(function onRendered() {
   streamer.on(WALL_REFRESH_EVENT, this.refreshHandler)
   streamer.on(KISS_O_MATIC_ROUTE_CONTROL_EVENT, this.routeControlHandler)
 
-  const videoEl = this.find("#kissOMaticWallVideo")
-  if (videoEl) {
-    videoEl.style.opacity = "0"
-    videoEl.style.transition = `opacity ${KISS_O_MATIC_STOP_FADE_MS}ms ease`
-    const mediaEvents = [
-      "loadstart",
-      "loadedmetadata",
-      "loadeddata",
-      "canplay",
-      "canplaythrough",
-      "play",
-      "playing",
-      "pause",
-      "waiting",
-      "stalled",
-      "suspend",
-      "abort",
-      "emptied",
-      "ended",
-      "error",
-    ]
+  const mediaEvents = [
+    "loadstart",
+    "loadedmetadata",
+    "loadeddata",
+    "canplay",
+    "canplaythrough",
+    "play",
+    "playing",
+    "pause",
+    "waiting",
+    "stalled",
+    "suspend",
+    "abort",
+    "emptied",
+    "ended",
+    "error",
+  ]
 
-    this.mediaEventHandlers = mediaEvents.map((eventName) => {
+  this.mediaEventHandlers = ["a", "b"].flatMap((key) => {
+    const videoEl = videoForBuffer(this, key)
+    if (!videoEl) {
+      return []
+    }
+
+    videoEl.style.visibility = key === this.activeBufferKey ? "visible" : "hidden"
+    videoEl.style.zIndex = key === this.activeBufferKey ? "2" : "1"
+
+    return mediaEvents.map((eventName) => {
       const handler = () => {
         const suffix = videoEl.error?.code ? ` error=${videoEl.error.code}` : ""
-        this.lastMediaEvent.set(`${eventName}${suffix}`)
-        this.mediaSnapshot.set(readMediaSnapshot(videoEl))
+        this.lastMediaEvent.set(`${key}:${eventName}${suffix}`)
+        updateMediaSnapshotFromActive(this)
         maybeReportMediaState(this, eventName)
+        if (eventName === "ended" && key === this.activeBufferKey) {
+          Meteor.callAsync("kissOMatic.advancePlaylistIfCurrent", {
+            stateId: DEFAULT_KISS_O_MATIC_STATE_ID,
+            currentClipToken: currentClip()?.token ?? null,
+          }).catch((error) => {
+            console.error("[kiss-o-matic] failed to advance on ended", error)
+          })
+        }
         if (eventName === "loadedmetadata") {
+          const clip = key === this.activeBufferKey ? currentClip() : nextClip()
+          primeBufferAtClipStart(this, key, clip, currentState())
           syncVideoViewport(this)
           syncVideoPlayback(this)
         }
       }
+
       videoEl.addEventListener(eventName, handler)
-      return { eventName, handler }
+      return { key, eventName, handler }
     })
-  }
+  })
 
   this.mediaPollIntervalId = Meteor.setInterval(() => {
-    const activeVideoEl = this.find("#kissOMaticWallVideo")
-    this.mediaSnapshot.set(readMediaSnapshot(activeVideoEl))
-    maybeReportMediaState(this, KissOMaticStates.findOne({ _id: DEFAULT_KISS_O_MATIC_STATE_ID })?.playbackState ?? "unknown")
+    updateMediaSnapshotFromActive(this)
+    maybeReportMediaState(this, currentState()?.playbackState ?? "unknown")
   }, 500)
 
   this.autorun(() => {
@@ -422,7 +556,6 @@ Template.KissOMaticPage.onRendered(function onRendered() {
 Template.KissOMaticPage.onDestroyed(function onDestroyed() {
   window.removeEventListener("resize", this.handleResize)
   Meteor.clearTimeout(this.resizeTimeout)
-  Meteor.clearTimeout(this.fadeOutTimerId)
   if (this.mediaPollIntervalId) {
     Meteor.clearInterval(this.mediaPollIntervalId)
   }
@@ -438,8 +571,9 @@ Template.KissOMaticPage.onDestroyed(function onDestroyed() {
   if (this.routeControlHandler) {
     streamer.removeListener(KISS_O_MATIC_ROUTE_CONTROL_EVENT, this.routeControlHandler)
   }
-  const videoEl = this.find?.("#kissOMaticWallVideo")
+
   for (const item of this.mediaEventHandlers ?? []) {
+    const videoEl = videoForBuffer(this, item.key)
     videoEl?.removeEventListener(item.eventName, item.handler)
   }
 })
@@ -465,17 +599,18 @@ Template.KissOMaticPage.helpers({
     return Number.isInteger(doc?.slotIndex) ? doc.slotIndex : "-"
   },
   currentSource() {
-    return KissOMaticStates.findOne({ _id: DEFAULT_KISS_O_MATIC_STATE_ID })?.sourceUrl ?? "none"
+    return currentClip()?.sourceUrl ?? "none"
   },
   playbackState() {
-    return KissOMaticStates.findOne({ _id: DEFAULT_KISS_O_MATIC_STATE_ID })?.playbackState ?? "idle"
+    return currentState()?.playbackState ?? "idle"
   },
   trimRange() {
-    const state = KissOMaticStates.findOne({ _id: DEFAULT_KISS_O_MATIC_STATE_ID })
-    const trimWindow = effectiveTrimWindow(state, null)
+    const clip = currentClip()
+    const trimWindow = effectiveTrimWindow(clip, currentState(), null)
     if (!trimWindow) {
       return "none"
     }
+
     return `${trimWindow.startSec.toFixed(2)}-${trimWindow.endSec.toFixed(2)}`
   },
   showDebug() {

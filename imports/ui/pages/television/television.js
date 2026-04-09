@@ -399,7 +399,7 @@ Template.TelevisionPage.onRendered(function onRendered() {
 
   this.routeControlHandler = (payload) => {
     const target = payload?.target
-    if (target !== "ticker" && target !== "video" && target !== "kiss-o-matic") {
+    if (target !== "ticker" && target !== "video" && target !== "kiss-o-matic" && target !== "disco") {
       return
     }
 

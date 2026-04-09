@@ -487,7 +487,7 @@ Template.TickerPage.onRendered(function onRendered() {
 
     this.routeControlHandler = (payload) => {
       const target = payload?.target
-      if (target !== "video" && target !== "television" && target !== "kiss-o-matic") {
+      if (target !== "video" && target !== "television" && target !== "kiss-o-matic" && target !== "disco") {
         return
       }
 
