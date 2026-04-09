@@ -9,6 +9,11 @@ const DEFAULT_KISS_O_MATIC_TAG = "kiss"
 const KISS_O_MATIC_STOP_FADE_MS = 900
 const KISS_O_MATIC_ADVANCE_DELAY_MS = 150
 const KISS_O_MATIC_MAX_FETCH_ATTEMPTS = 5
+const DEFAULT_KISS_O_MATIC_TRIM_START_OFFSET_SEC = 1
+const DEFAULT_KISS_O_MATIC_TRIM_END_OFFSET_SEC = 1
+const DEFAULT_KISS_O_MATIC_START_FADE_DURATION_MS = 1200
+const DEFAULT_KISS_O_MATIC_END_FADE_DURATION_MS = 1000
+const DEFAULT_KISS_O_MATIC_END_FADE_LEAD_MS = 1200
 
 const advanceTimersByStateId = new Map()
 
@@ -33,6 +38,11 @@ async function ensureKissOMaticStateDoc(stateId = DEFAULT_KISS_O_MATIC_STATE_ID)
         trimStartSec: null,
         trimEndSec: null,
         clipDurationSec: null,
+        trimStartOffsetSec: DEFAULT_KISS_O_MATIC_TRIM_START_OFFSET_SEC,
+        trimEndOffsetSec: DEFAULT_KISS_O_MATIC_TRIM_END_OFFSET_SEC,
+        startFadeDurationMs: DEFAULT_KISS_O_MATIC_START_FADE_DURATION_MS,
+        endFadeDurationMs: DEFAULT_KISS_O_MATIC_END_FADE_DURATION_MS,
+        endFadeLeadMs: DEFAULT_KISS_O_MATIC_END_FADE_LEAD_MS,
         clipTag: DEFAULT_KISS_O_MATIC_TAG,
         endpointUrl: "",
         autoAdvance: true,
@@ -43,6 +53,54 @@ async function ensureKissOMaticStateDoc(stateId = DEFAULT_KISS_O_MATIC_STATE_ID)
       },
     },
   )
+}
+
+function normalizeSeconds(value, fallback) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) {
+    return fallback
+  }
+
+  return Math.max(0, Math.round(number * 100) / 100)
+}
+
+function normalizeMilliseconds(value, fallback) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) {
+    return fallback
+  }
+
+  return Math.max(0, Math.round(number))
+}
+
+function effectivePlaybackDurationSec({
+  trimStartSec,
+  trimEndSec,
+  trimStartOffsetSec = DEFAULT_KISS_O_MATIC_TRIM_START_OFFSET_SEC,
+  trimEndOffsetSec = DEFAULT_KISS_O_MATIC_TRIM_END_OFFSET_SEC,
+}) {
+  const rawTrimStartSec = Number(trimStartSec)
+  const rawTrimEndSec = Number(trimEndSec)
+  const startOffsetSec = Number(trimStartOffsetSec)
+  const endOffsetSec = Number(trimEndOffsetSec)
+
+  if (!Number.isFinite(rawTrimStartSec) || !Number.isFinite(rawTrimEndSec) || rawTrimEndSec <= rawTrimStartSec) {
+    return null
+  }
+
+  const effectiveStartSec = Math.max(
+    0,
+    rawTrimStartSec - (Number.isFinite(startOffsetSec) ? startOffsetSec : DEFAULT_KISS_O_MATIC_TRIM_START_OFFSET_SEC),
+  )
+  const effectiveEndSec = rawTrimEndSec + (
+    Number.isFinite(endOffsetSec) ? endOffsetSec : DEFAULT_KISS_O_MATIC_TRIM_END_OFFSET_SEC
+  )
+
+  if (!Number.isFinite(effectiveEndSec) || effectiveEndSec <= effectiveStartSec) {
+    return null
+  }
+
+  return Math.max(0, effectiveEndSec - effectiveStartSec)
 }
 
 function configuredEndpoint() {
@@ -167,6 +225,13 @@ async function playFetchedClip(stateId = DEFAULT_KISS_O_MATIC_STATE_ID) {
   )
 
   const clip = await fetchPlayableClip()
+  const stateBeforePlay = await KissOMaticStates.findOneAsync({ _id: stateId })
+  const clipDurationSec = effectivePlaybackDurationSec({
+    trimStartSec: clip.trimStartSec,
+    trimEndSec: clip.trimEndSec,
+    trimStartOffsetSec: stateBeforePlay?.trimStartOffsetSec,
+    trimEndOffsetSec: stateBeforePlay?.trimEndOffsetSec,
+  }) ?? clip.clipDurationSec
   await KissOMaticStates.updateAsync(
     { _id: stateId },
     {
@@ -178,7 +243,7 @@ async function playFetchedClip(stateId = DEFAULT_KISS_O_MATIC_STATE_ID) {
         muted: true,
         trimStartSec: clip.trimStartSec,
         trimEndSec: clip.trimEndSec,
-        clipDurationSec: clip.clipDurationSec,
+        clipDurationSec,
         clipTag: DEFAULT_KISS_O_MATIC_TAG,
         endpointUrl: clip.endpointUrl,
         lastPayload: summarizePayload(clip.payload),
@@ -192,7 +257,7 @@ async function playFetchedClip(stateId = DEFAULT_KISS_O_MATIC_STATE_ID) {
   if (state?.autoAdvance !== false) {
     scheduleAutoAdvance(
       stateId,
-      Math.ceil((clip.clipDurationSec * 1000) + KISS_O_MATIC_ADVANCE_DELAY_MS),
+      Math.ceil((clipDurationSec * 1000) + KISS_O_MATIC_ADVANCE_DELAY_MS),
     )
   }
 
@@ -202,7 +267,7 @@ async function playFetchedClip(stateId = DEFAULT_KISS_O_MATIC_STATE_ID) {
     sourceUrl: clip.clipUrl,
     trimStartSec: clip.trimStartSec,
     trimEndSec: clip.trimEndSec,
-    clipDurationSec: clip.clipDurationSec,
+    clipDurationSec,
     playbackState: "playing",
   }
 }
@@ -252,6 +317,78 @@ Meteor.methods({
         },
       )
       throw error
+    }
+  },
+
+  async "kissOMatic.updatePlaybackTuning"({
+    stateId = DEFAULT_KISS_O_MATIC_STATE_ID,
+    trimStartOffsetSec,
+    trimEndOffsetSec,
+    startFadeDurationMs,
+    endFadeDurationMs,
+    endFadeLeadMs,
+  } = {}) {
+    await ensureKissOMaticStateDoc(stateId)
+
+    const patch = {
+      updatedAt: new Date(),
+    }
+
+    if (trimStartOffsetSec !== undefined) {
+      patch.trimStartOffsetSec = normalizeSeconds(trimStartOffsetSec, DEFAULT_KISS_O_MATIC_TRIM_START_OFFSET_SEC)
+    }
+    if (trimEndOffsetSec !== undefined) {
+      patch.trimEndOffsetSec = normalizeSeconds(trimEndOffsetSec, DEFAULT_KISS_O_MATIC_TRIM_END_OFFSET_SEC)
+    }
+    if (startFadeDurationMs !== undefined) {
+      patch.startFadeDurationMs = normalizeMilliseconds(startFadeDurationMs, DEFAULT_KISS_O_MATIC_START_FADE_DURATION_MS)
+    }
+    if (endFadeDurationMs !== undefined) {
+      patch.endFadeDurationMs = normalizeMilliseconds(endFadeDurationMs, DEFAULT_KISS_O_MATIC_END_FADE_DURATION_MS)
+    }
+    if (endFadeLeadMs !== undefined) {
+      patch.endFadeLeadMs = normalizeMilliseconds(endFadeLeadMs, DEFAULT_KISS_O_MATIC_END_FADE_LEAD_MS)
+    }
+
+    await KissOMaticStates.updateAsync({ _id: stateId }, { $set: patch })
+
+    const state = await KissOMaticStates.findOneAsync({ _id: stateId })
+    if (state?.playbackState === "playing") {
+      const nextClipDurationSec = effectivePlaybackDurationSec({
+        trimStartSec: state?.trimStartSec,
+        trimEndSec: state?.trimEndSec,
+        trimStartOffsetSec: state?.trimStartOffsetSec,
+        trimEndOffsetSec: state?.trimEndOffsetSec,
+      })
+
+      if (Number.isFinite(nextClipDurationSec)) {
+        await KissOMaticStates.updateAsync(
+          { _id: stateId },
+          {
+            $set: {
+              clipDurationSec: nextClipDurationSec,
+              updatedAt: new Date(),
+            },
+          },
+        )
+      }
+    }
+
+    const refreshedState = await KissOMaticStates.findOneAsync({ _id: stateId })
+    if (refreshedState?.autoAdvance !== false && refreshedState?.playbackState === "playing" && Number.isFinite(refreshedState?.startedAtServerMs) && Number.isFinite(refreshedState?.clipDurationSec)) {
+      const elapsedMs = Date.now() - Number(refreshedState.startedAtServerMs)
+      const remainingMs = (Number(refreshedState.clipDurationSec) * 1000) - elapsedMs + KISS_O_MATIC_ADVANCE_DELAY_MS
+      scheduleAutoAdvance(stateId, remainingMs)
+    }
+
+    return {
+      ok: true,
+      trimStartOffsetSec: refreshedState?.trimStartOffsetSec ?? DEFAULT_KISS_O_MATIC_TRIM_START_OFFSET_SEC,
+      trimEndOffsetSec: refreshedState?.trimEndOffsetSec ?? DEFAULT_KISS_O_MATIC_TRIM_END_OFFSET_SEC,
+      startFadeDurationMs: refreshedState?.startFadeDurationMs ?? DEFAULT_KISS_O_MATIC_START_FADE_DURATION_MS,
+      endFadeDurationMs: refreshedState?.endFadeDurationMs ?? DEFAULT_KISS_O_MATIC_END_FADE_DURATION_MS,
+      endFadeLeadMs: refreshedState?.endFadeLeadMs ?? DEFAULT_KISS_O_MATIC_END_FADE_LEAD_MS,
+      clipDurationSec: refreshedState?.clipDurationSec ?? null,
     }
   },
 

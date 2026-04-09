@@ -38,14 +38,33 @@ Template.AdminKissOMaticPage.helpers({
     const state = KissOMaticStates.findOne({ _id: DEFAULT_KISS_O_MATIC_STATE_ID })
     const trimStartSec = Number(state?.trimStartSec)
     const trimEndSec = Number(state?.trimEndSec)
+    const trimStartOffsetSec = Number(state?.trimStartOffsetSec)
+    const trimEndOffsetSec = Number(state?.trimEndOffsetSec)
     if (!Number.isFinite(trimStartSec) || !Number.isFinite(trimEndSec)) {
       return "none"
     }
-    return `${trimStartSec.toFixed(2)}s - ${trimEndSec.toFixed(2)}s`
+    const effectiveStartSec = Math.max(0, trimStartSec - (Number.isFinite(trimStartOffsetSec) ? trimStartOffsetSec : 1))
+    const effectiveEndSec = trimEndSec + (Number.isFinite(trimEndOffsetSec) ? trimEndOffsetSec : 1)
+    return `${effectiveStartSec.toFixed(2)}s - ${effectiveEndSec.toFixed(2)}s`
   },
   clipDuration() {
     const duration = Number(KissOMaticStates.findOne({ _id: DEFAULT_KISS_O_MATIC_STATE_ID })?.clipDurationSec)
     return Number.isFinite(duration) ? `${duration.toFixed(2)}s` : "unknown"
+  },
+  trimStartOffsetSec() {
+    return KissOMaticStates.findOne({ _id: DEFAULT_KISS_O_MATIC_STATE_ID })?.trimStartOffsetSec ?? 1
+  },
+  trimEndOffsetSec() {
+    return KissOMaticStates.findOne({ _id: DEFAULT_KISS_O_MATIC_STATE_ID })?.trimEndOffsetSec ?? 1
+  },
+  startFadeDurationMs() {
+    return KissOMaticStates.findOne({ _id: DEFAULT_KISS_O_MATIC_STATE_ID })?.startFadeDurationMs ?? 1200
+  },
+  endFadeDurationMs() {
+    return KissOMaticStates.findOne({ _id: DEFAULT_KISS_O_MATIC_STATE_ID })?.endFadeDurationMs ?? 1000
+  },
+  endFadeLeadMs() {
+    return KissOMaticStates.findOne({ _id: DEFAULT_KISS_O_MATIC_STATE_ID })?.endFadeLeadMs ?? 1200
   },
   endpointUrl() {
     return KissOMaticStates.findOne({ _id: DEFAULT_KISS_O_MATIC_STATE_ID })?.endpointUrl ?? "unknown"
@@ -140,6 +159,20 @@ Template.AdminKissOMaticPage.events({
       autoAdvance: state?.autoAdvance === false,
     }).catch((error) => {
       console.error("[admin/kiss-o-matic] failed to toggle auto-advance", error)
+    })
+  },
+  "submit [data-action='playback-tuning']"(event) {
+    event.preventDefault()
+    const form = event.currentTarget
+    Meteor.callAsync("kissOMatic.updatePlaybackTuning", {
+      stateId: DEFAULT_KISS_O_MATIC_STATE_ID,
+      trimStartOffsetSec: form.trimStartOffsetSec.value,
+      trimEndOffsetSec: form.trimEndOffsetSec.value,
+      startFadeDurationMs: form.startFadeDurationMs.value,
+      endFadeDurationMs: form.endFadeDurationMs.value,
+      endFadeLeadMs: form.endFadeLeadMs.value,
+    }).catch((error) => {
+      console.error("[admin/kiss-o-matic] failed to update playback tuning", error)
     })
   },
   "click [data-action='stop']"(event) {

@@ -16,6 +16,11 @@ const WALL_HEARTBEAT_MS = 5 * 1000
 const KISS_O_MATIC_WALL_COLS = 5
 const KISS_O_MATIC_WALL_ROWS = 6
 const KISS_O_MATIC_STOP_FADE_MS = 900
+const DEFAULT_KISS_O_MATIC_TRIM_START_OFFSET_SEC = 1
+const DEFAULT_KISS_O_MATIC_TRIM_END_OFFSET_SEC = 1
+const DEFAULT_KISS_O_MATIC_START_FADE_DURATION_MS = 1200
+const DEFAULT_KISS_O_MATIC_END_FADE_DURATION_MS = 1000
+const DEFAULT_KISS_O_MATIC_END_FADE_LEAD_MS = 1200
 
 function canSeekVideo(videoEl) {
   return Boolean(videoEl) && Number(videoEl.readyState) >= 1
@@ -113,11 +118,51 @@ function stopPlayback(instance, playbackState) {
   }
 
   instance.completedPlaybackKey = instance.currentPlaybackKey()
-  videoEl.style.transition = `opacity ${KISS_O_MATIC_STOP_FADE_MS}ms ease`
+  const endFadeDurationMs = Number(KissOMaticStates.findOne({ _id: DEFAULT_KISS_O_MATIC_STATE_ID })?.endFadeDurationMs)
+  const durationMs = Number.isFinite(endFadeDurationMs) ? endFadeDurationMs : DEFAULT_KISS_O_MATIC_END_FADE_DURATION_MS
+  Meteor.clearTimeout(instance.fadeOutTimerId)
+  videoEl.style.transition = `opacity ${Math.max(0, durationMs)}ms ease`
   videoEl.style.opacity = "0"
-  videoEl.pause()
-  instance.mediaSnapshot.set(readMediaSnapshot(videoEl))
-  maybeReportMediaState(instance, playbackState)
+  instance.fadeOutTimerId = Meteor.setTimeout(() => {
+    videoEl.pause()
+    instance.mediaSnapshot.set(readMediaSnapshot(videoEl))
+    maybeReportMediaState(instance, playbackState)
+    instance.fadeOutTimerId = null
+  }, Math.max(0, durationMs))
+}
+
+function currentEndFadeLeadMs(state) {
+  const leadMs = Number(state?.endFadeLeadMs)
+  return Number.isFinite(leadMs) ? leadMs : DEFAULT_KISS_O_MATIC_END_FADE_LEAD_MS
+}
+
+function effectiveTrimWindow(state, videoEl) {
+  const rawTrimStartSec = Number(state?.trimStartSec)
+  const rawTrimEndSec = Number(state?.trimEndSec)
+  const trimStartOffsetSec = Number(state?.trimStartOffsetSec)
+  const trimEndOffsetSec = Number(state?.trimEndOffsetSec)
+  const durationSec = Number(videoEl?.duration)
+
+  if (!Number.isFinite(rawTrimStartSec) || !Number.isFinite(rawTrimEndSec) || rawTrimEndSec <= rawTrimStartSec) {
+    return null
+  }
+
+  const startSec = Math.max(
+    0,
+    rawTrimStartSec - (Number.isFinite(trimStartOffsetSec) ? trimStartOffsetSec : DEFAULT_KISS_O_MATIC_TRIM_START_OFFSET_SEC),
+  )
+  const unclampedEndSec = rawTrimEndSec + (
+    Number.isFinite(trimEndOffsetSec) ? trimEndOffsetSec : DEFAULT_KISS_O_MATIC_TRIM_END_OFFSET_SEC
+  )
+  const endSec = Number.isFinite(durationSec) && durationSec > 0
+    ? Math.min(durationSec, unclampedEndSec)
+    : unclampedEndSec
+
+  if (!Number.isFinite(endSec) || endSec <= startSec) {
+    return null
+  }
+
+  return { startSec, endSec }
 }
 
 function syncVideoPlayback(instance) {
@@ -142,7 +187,9 @@ function syncVideoPlayback(instance) {
   videoEl.muted = true
   if (videoEl.getAttribute("src") !== state.sourceUrl) {
     instance.completedPlaybackKey = null
-    videoEl.style.opacity = "1"
+    Meteor.clearTimeout(instance.fadeOutTimerId)
+    instance.fadeOutTimerId = null
+    videoEl.style.opacity = "0"
     videoEl.src = state.sourceUrl
     videoEl.load()
   }
@@ -164,10 +211,9 @@ function syncVideoPlayback(instance) {
     return
   }
 
-  const trimStartSec = Number(state.trimStartSec)
-  const trimEndSec = Number(state.trimEndSec)
   const startedAtServerMs = Number(state.startedAtServerMs)
-  if (!Number.isFinite(trimStartSec) || !Number.isFinite(trimEndSec) || trimEndSec <= trimStartSec || !Number.isFinite(startedAtServerMs)) {
+  const trimWindow = effectiveTrimWindow(state, videoEl)
+  if (!trimWindow || !Number.isFinite(startedAtServerMs)) {
     instance.mediaSnapshot.set(readMediaSnapshot(videoEl))
     maybeReportMediaState(instance, "invalid-trim")
     return
@@ -175,8 +221,8 @@ function syncVideoPlayback(instance) {
 
   const playbackKey = instance.currentPlaybackKey()
   const elapsedSec = Math.max(0, ((Date.now() + instance.offsetMs) - startedAtServerMs) / 1000)
-  const targetTime = trimStartSec + elapsedSec
-  if (targetTime >= trimEndSec) {
+  const targetTime = trimWindow.startSec + elapsedSec
+  if (targetTime >= trimWindow.endSec) {
     if (instance.completedPlaybackKey !== playbackKey) {
       stopPlayback(instance, "ended")
     }
@@ -184,8 +230,20 @@ function syncVideoPlayback(instance) {
   }
 
   instance.completedPlaybackKey = null
-  videoEl.style.transition = `opacity ${KISS_O_MATIC_STOP_FADE_MS}ms ease`
-  videoEl.style.opacity = "1"
+  const startFadeDurationMs = Number(state.startFadeDurationMs)
+  const durationMs = Number.isFinite(startFadeDurationMs) ? startFadeDurationMs : DEFAULT_KISS_O_MATIC_START_FADE_DURATION_MS
+  const remainingMs = Math.max(0, Math.round((trimWindow.endSec - targetTime) * 1000))
+  const fadeLeadMs = currentEndFadeLeadMs(state)
+  const shouldFadeOut = remainingMs <= fadeLeadMs
+  if (shouldFadeOut) {
+    const endFadeDurationMs = Number(state.endFadeDurationMs)
+    const fadeDurationMs = Number.isFinite(endFadeDurationMs) ? endFadeDurationMs : DEFAULT_KISS_O_MATIC_END_FADE_DURATION_MS
+    videoEl.style.transition = `opacity ${Math.max(0, fadeDurationMs)}ms ease`
+    videoEl.style.opacity = "0"
+  } else {
+    videoEl.style.transition = `opacity ${Math.max(0, durationMs)}ms ease`
+    videoEl.style.opacity = "1"
+  }
   if (canSeekVideo(videoEl) && Math.abs(videoEl.currentTime - targetTime) > 0.35) {
     safelySetCurrentTime(videoEl, targetTime)
   }
@@ -216,6 +274,7 @@ Template.KissOMaticPage.onCreated(function onCreated() {
   this.mediaPollIntervalId = null
   this.mediaEventHandlers = []
   this.completedPlaybackKey = null
+  this.fadeOutTimerId = null
   this.mediaSnapshot = new ReactiveVar(readMediaSnapshot(null))
   this.lastMediaEvent = new ReactiveVar("none")
   this.lastPlayError = new ReactiveVar("")
@@ -227,6 +286,9 @@ Template.KissOMaticPage.onCreated(function onCreated() {
       startedAtServerMs: Number(state?.startedAtServerMs) || 0,
       trimStartSec: Number(state?.trimStartSec) || 0,
       trimEndSec: Number(state?.trimEndSec) || 0,
+      trimStartOffsetSec: Number(state?.trimStartOffsetSec) || 0,
+      trimEndOffsetSec: Number(state?.trimEndOffsetSec) || 0,
+      endFadeLeadMs: Number(state?.endFadeLeadMs) || 0,
     })
   }
 
@@ -309,7 +371,7 @@ Template.KissOMaticPage.onRendered(function onRendered() {
 
   const videoEl = this.find("#kissOMaticWallVideo")
   if (videoEl) {
-    videoEl.style.opacity = "1"
+    videoEl.style.opacity = "0"
     videoEl.style.transition = `opacity ${KISS_O_MATIC_STOP_FADE_MS}ms ease`
     const mediaEvents = [
       "loadstart",
@@ -360,6 +422,7 @@ Template.KissOMaticPage.onRendered(function onRendered() {
 Template.KissOMaticPage.onDestroyed(function onDestroyed() {
   window.removeEventListener("resize", this.handleResize)
   Meteor.clearTimeout(this.resizeTimeout)
+  Meteor.clearTimeout(this.fadeOutTimerId)
   if (this.mediaPollIntervalId) {
     Meteor.clearInterval(this.mediaPollIntervalId)
   }
@@ -409,12 +472,11 @@ Template.KissOMaticPage.helpers({
   },
   trimRange() {
     const state = KissOMaticStates.findOne({ _id: DEFAULT_KISS_O_MATIC_STATE_ID })
-    const trimStartSec = Number(state?.trimStartSec)
-    const trimEndSec = Number(state?.trimEndSec)
-    if (!Number.isFinite(trimStartSec) || !Number.isFinite(trimEndSec)) {
+    const trimWindow = effectiveTrimWindow(state, null)
+    if (!trimWindow) {
       return "none"
     }
-    return `${trimStartSec.toFixed(2)}-${trimEndSec.toFixed(2)}`
+    return `${trimWindow.startSec.toFixed(2)}-${trimWindow.endSec.toFixed(2)}`
   },
   showDebug() {
     return Walls.findOne({ _id: DEFAULT_WALL_ID })?.showDebug !== false
