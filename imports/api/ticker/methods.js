@@ -589,6 +589,8 @@ async function maybeAssignQueuedMessagesForEvent(wallId, queueStateOrWall, event
   if (queueState.drainUntilEmpty && getTickerQueueSnapshot(wallId).length === 0) {
     return updateWallQueueState(wallId, (currentQueueState) => ({
       ...currentQueueState,
+      dispatchMode: TICKER_DISPATCH_MODE_AUTO,
+      stageDispatchMode: STAGE_DISPATCH_MODE_AUTO,
       drainUntilEmpty: false,
     }))
   }
@@ -1335,9 +1337,13 @@ Meteor.methods({
     return withServer(async () => {
       await ensureWall(wallId)
       const normalizedDispatchMode = normalizeDispatchMode(dispatchMode)
+      const normalizedStageDispatchMode = normalizedDispatchMode === TICKER_DISPATCH_MODE_BUCKET_HOLD
+        ? STAGE_DISPATCH_MODE_BUCKET_HOLD
+        : STAGE_DISPATCH_MODE_AUTO
       const queueState = await updateWallQueueState(wallId, (currentQueueState) => ({
         ...currentQueueState,
         dispatchMode: normalizedDispatchMode,
+        stageDispatchMode: normalizedStageDispatchMode,
       }))
 
       if (normalizedDispatchMode === TICKER_DISPATCH_MODE_AUTO) {
@@ -1349,19 +1355,6 @@ Meteor.methods({
       }
 
       return { ok: true, dispatchMode: queueState.dispatchMode }
-    })
-  },
-
-  async "ticker.setStageDispatchMode"({ wallId = DEFAULT_TICKER_WALL_ID, stageDispatchMode } = {}) {
-    return withServer(async () => {
-      await ensureWall(wallId)
-      const normalizedStageDispatchMode = normalizeStageDispatchMode(stageDispatchMode)
-      const queueState = await updateWallQueueState(wallId, (currentQueueState) => ({
-        ...currentQueueState,
-        stageDispatchMode: normalizedStageDispatchMode,
-      }))
-
-      return { ok: true, stageDispatchMode: queueState.stageDispatchMode }
     })
   },
 

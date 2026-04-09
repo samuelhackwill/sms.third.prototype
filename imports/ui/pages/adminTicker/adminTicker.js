@@ -22,8 +22,6 @@ const PROVISIONING_SLOT_COUNT = PROVISIONING_ROWS * PROVISIONING_COLS
 const TICKER_CLIENT_STALE_AFTER_MS = 30 * 1000
 const TICKER_DISPATCH_MODE_AUTO = "auto"
 const TICKER_DISPATCH_MODE_BUCKET_HOLD = "bucket_hold"
-const STAGE_DISPATCH_MODE_AUTO = "auto"
-const STAGE_DISPATCH_MODE_BUCKET_HOLD = "bucket_hold"
 
 function isActiveClient(client) {
   const lastSeenAtMs = new Date(client?.lastSeenAt).getTime()
@@ -209,7 +207,7 @@ Template.AdminTickerPage.helpers({
   emptyBucketButtonLabel() {
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
     const queuedCount = Number(wall?.queueState?.queuedCount) || 0
-    return queuedCount > 0 ? `Empty Bucket (${queuedCount})` : "Empty Bucket"
+    return queuedCount > 0 ? `Ticker Empty Bucket (${queuedCount})` : "Ticker Empty Bucket"
   },
   emptyBucketDisabledAttr() {
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
@@ -227,16 +225,6 @@ Template.AdminTickerPage.helpers({
   stageEmptyBucketDisabledAttr() {
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
     return Number(wall?.queueState?.queuedCount) > 0 ? null : "disabled"
-  },
-  isStageBucketModeEnabled() {
-    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
-    return wall?.queueState?.stageDispatchMode === STAGE_DISPATCH_MODE_BUCKET_HOLD
-  },
-  stageBucketModeButtonLabel() {
-    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
-    return wall?.queueState?.stageDispatchMode === STAGE_DISPATCH_MODE_BUCKET_HOLD
-      ? "Disable Stage Bucket"
-      : "Enable Stage Bucket"
   },
   tickerRows() {
     const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
@@ -470,18 +458,6 @@ Template.AdminTickerPage.events({
     consumeNext().catch((error) => {
       instance.stageBucketDrainTimer = null
       console.error("[adminTicker] failed to drain stage bucket", error)
-    })
-  },
-  "click .js-toggle-stage-bucket-mode"(event) {
-    event.preventDefault()
-    const wall = TickerWalls.findOne({ _id: DEFAULT_TICKER_WALL_ID })
-    const nextStageDispatchMode = wall?.queueState?.stageDispatchMode === STAGE_DISPATCH_MODE_BUCKET_HOLD
-      ? STAGE_DISPATCH_MODE_AUTO
-      : STAGE_DISPATCH_MODE_BUCKET_HOLD
-
-    Meteor.callAsync("ticker.setStageDispatchMode", {
-      wallId: DEFAULT_TICKER_WALL_ID,
-      stageDispatchMode: nextStageDispatchMode,
     })
   },
   "click .js-panic-stop"(event) {
