@@ -68,9 +68,9 @@ function withServer(fn) {
 }
 
 function normalizeRendererMode(rendererMode) {
-  return rendererMode === TICKER_RENDERER_MODE_TEXT
-    ? TICKER_RENDERER_MODE_TEXT
-    : TICKER_RENDERER_MODE_BITMAP
+  return rendererMode === TICKER_RENDERER_MODE_BITMAP
+    ? TICKER_RENDERER_MODE_BITMAP
+    : TICKER_RENDERER_MODE_TEXT
 }
 
 function normalizeSpecialMode(specialMode) {
@@ -306,7 +306,7 @@ async function ensureWall(wallId = DEFAULT_TICKER_WALL_ID) {
       patch.showDebug = true
     }
     if (!existing.rendererMode) {
-      patch.rendererMode = TICKER_RENDERER_MODE_BITMAP
+      patch.rendererMode = TICKER_RENDERER_MODE_TEXT
     }
     if (!existing.specialMode) {
       patch.specialMode = TICKER_SPECIAL_MODE_NONE
@@ -359,7 +359,7 @@ async function ensureWall(wallId = DEFAULT_TICKER_WALL_ID) {
     totalWallWidth: 0,
     minClientHeight: 0,
     speedPxPerSec: DEFAULT_TICKER_SPEED_PX_PER_SEC,
-    rendererMode: TICKER_RENDERER_MODE_BITMAP,
+    rendererMode: TICKER_RENDERER_MODE_TEXT,
     specialMode: TICKER_SPECIAL_MODE_NONE,
     barthesCursor: 0,
     displayMode: TICKER_DISPLAY_MODE_CHORUS,
@@ -1266,6 +1266,7 @@ Meteor.methods({
       await panicStopWall(wallId, {
         speedPxPerSec: DEFAULT_TICKER_SPEED_PX_PER_SEC,
           specialMode: TICKER_SPECIAL_MODE_NONE,
+          rendererMode: TICKER_RENDERER_MODE_TEXT,
           barthesCursor: 0,
           updatedAt: new Date(),
         })
@@ -1447,7 +1448,7 @@ Meteor.methods({
             })),
             queueState: createDefaultMachineState(),
             highlightClientId: null,
-            rendererMode: TICKER_RENDERER_MODE_BITMAP,
+            rendererMode: TICKER_RENDERER_MODE_TEXT,
             specialMode: TICKER_SPECIAL_MODE_NONE,
             barthesCursor: 0,
             displayMode: TICKER_DISPLAY_MODE_CHORUS,
