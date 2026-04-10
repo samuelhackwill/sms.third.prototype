@@ -18,12 +18,12 @@ const DISCO_STOP_FADE_MS = 500
 const DISCO_START_FADE_MS = 500
 const DISCO_ROW_STAGGER_MS = 120
 const DISCO_PALETTE = [
-  "#eeeeee",
-  "#d5d5d5",
-  "#bbbbbb",
-  "#999999",
-  "#757575",
-  "#4f4f4f",
+  "#616161",
+  "#4d4d4d",
+  "#3c3c3c",
+  "#1e1e1e",
+  "#111111",
+  "#000000",
 ]
 
 function currentDiscoMode() {
