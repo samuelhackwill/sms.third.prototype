@@ -8,6 +8,7 @@ const ADMIN_WALL_TABS = [
   { label: "Curation", routeName: "curation", path: "/curation" },
   { label: "Ticker", routeName: "adminTicker", path: "/admin/ticker" },
   { label: "Video", routeName: "adminVideo", path: "/admin/video" },
+  { label: "Push", routeName: "adminPush", path: "/admin/push" },
   { label: "Kiss-O-Matic", routeName: "adminKissOMatic", path: "/admin/kiss-o-matic" },
   { label: "Disco", routeName: "adminDisco", path: "/admin/disco" },
   { label: "Television", routeName: "adminTelevision", path: "/admin/television" },

@@ -2,7 +2,7 @@
   <main class="mx-auto min-h-screen max-w-5xl bg-slate-950 px-6 py-8 text-slate-100">
     {{> AdminWallNav}}
     <h1 class="text-2xl font-semibold text-slate-50">Admin Disco</h1>
-    <p class="mt-2 text-sm text-slate-400">Wall-wide color animations on the phone grid.</p>
+    <p class="mt-2 text-sm text-slate-400">Wall-wide grayscale animations on the phone grid.</p>
 
     <section class="mt-6 rounded border border-slate-800 bg-slate-900/80 p-4">
       <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Routing</h2>
@@ -10,6 +10,8 @@
         <button type="button" class="rounded border border-cyan-700 bg-cyan-900 px-3 py-2 text-sm font-semibold text-cyan-100 hover:bg-cyan-800" data-action="move-all-clients-to-disco">Move All Clients To /disco</button>
         <button type="button" class="rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 hover:bg-slate-700" data-action="refresh-clients">Force Refresh Clients</button>
         <button type="button" class="rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 hover:bg-slate-700" data-action="toggle-debug">{{debugToggleLabel}}</button>
+        <button type="button" class="rounded border border-emerald-800 bg-emerald-950 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-900" data-action="start-animation">Start Animation</button>
+        <button type="button" class="rounded border border-red-800 bg-red-950 px-3 py-2 text-sm font-semibold text-red-100 hover:bg-red-900" data-action="stop-animation">Stop Animation</button>
         <button type="button" class="rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 hover:bg-slate-700" data-action="restart">Restart Sequence</button>
       </div>
     </section>

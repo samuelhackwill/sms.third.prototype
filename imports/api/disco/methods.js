@@ -35,6 +35,12 @@ async function ensureDiscoFields(wallId = DEFAULT_WALL_ID) {
   if (!Number.isFinite(Number(wall.discoStartedAtServerMs))) {
     patch.discoStartedAtServerMs = Date.now()
   }
+  if (typeof wall.discoFadeToBlack !== "boolean") {
+    patch.discoFadeToBlack = false
+  }
+  if (wall.discoPausedAtServerMs !== undefined && !Number.isFinite(Number(wall.discoPausedAtServerMs))) {
+    patch.discoPausedAtServerMs = null
+  }
 
   if (Object.keys(patch).length > 0) {
     patch.updatedAt = new Date()
@@ -53,6 +59,7 @@ Meteor.methods({
       mode: normalizeMode(wall.discoMode),
       columnIntervalMs: Number(wall.discoColumnIntervalMs) || DEFAULT_DISCO_COLUMN_INTERVAL_MS,
       startedAtServerMs: Number(wall.discoStartedAtServerMs) || Date.now(),
+      fadeToBlack: wall.discoFadeToBlack === true,
     }
   },
 
@@ -82,6 +89,39 @@ Meteor.methods({
       mode: normalizeMode(wall?.discoMode),
       columnIntervalMs: Number(wall?.discoColumnIntervalMs) || DEFAULT_DISCO_COLUMN_INTERVAL_MS,
       startedAtServerMs: Number(wall?.discoStartedAtServerMs) || Date.now(),
+      fadeToBlack: wall?.discoFadeToBlack === true,
+    }
+  },
+
+  async "disco.setFadeToBlack"({ wallId = DEFAULT_WALL_ID, fadeToBlack } = {}) {
+    const wall = await ensureDiscoFields(wallId)
+    const shouldFadeToBlack = fadeToBlack === true
+    const patch = {
+      discoFadeToBlack: shouldFadeToBlack,
+      updatedAt: new Date(),
+    }
+
+    if (shouldFadeToBlack) {
+      patch.discoPausedAtServerMs = Date.now()
+    } else {
+      const pausedAtServerMs = Number(wall.discoPausedAtServerMs)
+      if (Number.isFinite(pausedAtServerMs)) {
+        const startedAtServerMs = Number(wall.discoStartedAtServerMs) || Date.now()
+        patch.discoStartedAtServerMs = startedAtServerMs + Math.max(0, Date.now() - pausedAtServerMs)
+      }
+      patch.discoPausedAtServerMs = null
+    }
+
+    await Walls.updateAsync(
+      { _id: wallId },
+      {
+        $set: patch,
+      },
+    )
+
+    return {
+      ok: true,
+      fadeToBlack: shouldFadeToBlack,
     }
   },
 
@@ -92,6 +132,8 @@ Meteor.methods({
       { _id: wallId },
       {
         $set: {
+          discoFadeToBlack: false,
+          discoPausedAtServerMs: null,
           discoStartedAtServerMs: startedAtServerMs,
           updatedAt: new Date(),
         },

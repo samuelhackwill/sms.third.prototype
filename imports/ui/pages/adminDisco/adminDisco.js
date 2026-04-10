@@ -4,7 +4,7 @@ import { Template } from "meteor/templating"
 import { streamer } from "/imports/both/streamer"
 import { DEFAULT_WALL_ID, WallClients, Walls } from "/imports/api/wall/collections"
 import "/imports/ui/components/adminWallNav/adminWallNav.js"
-import { DISCO_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/disco/discoEvents"
+import { DISCO_ROUTE_CONTROL_EVENT, DISCO_VISUAL_CONTROL_EVENT } from "/imports/ui/pages/disco/discoEvents"
 import { KISS_O_MATIC_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/kissOMatic/kissOMaticEvents"
 import { TICKER_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/ticker/tickerEvents"
 import { TELEVISION_ROUTE_CONTROL_EVENT } from "/imports/ui/pages/television/televisionEvents"
@@ -104,9 +104,18 @@ Template.AdminDiscoPage.events({
   },
   "click [data-action='restart']"(event) {
     event.preventDefault()
+    streamer.emit(DISCO_VISUAL_CONTROL_EVENT, { action: "resume" })
     Meteor.callAsync("disco.restart", { wallId: DEFAULT_WALL_ID }).catch((error) => {
       console.error("[admin/disco] failed to restart disco", error)
     })
+  },
+  "click [data-action='stop-animation']"(event) {
+    event.preventDefault()
+    streamer.emit(DISCO_VISUAL_CONTROL_EVENT, { action: "stop" })
+  },
+  "click [data-action='start-animation']"(event) {
+    event.preventDefault()
+    streamer.emit(DISCO_VISUAL_CONTROL_EVENT, { action: "resume" })
   },
   "submit [data-action='settings']"(event) {
     event.preventDefault()

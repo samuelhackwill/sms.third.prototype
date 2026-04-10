@@ -7,19 +7,23 @@ import { DEFAULT_WALL_ID, WallClients, Walls } from "/imports/api/wall/collectio
 import "/imports/api/wall/publications"
 import { streamer } from "/imports/both/streamer"
 import { getOrCreateClientId, getOrCreateDeviceKey, toShortCode } from "/imports/ui/lib/wallClientIdentity"
-import { DISCO_ROUTE_CONTROL_EVENT } from "./discoEvents"
+import { DISCO_ROUTE_CONTROL_EVENT, DISCO_VISUAL_CONTROL_EVENT } from "./discoEvents"
 import "./disco.html"
 
 const WALL_REFRESH_EVENT = "ticker.refresh"
 const WALL_HEARTBEAT_MS = 5 * 1000
 const DEFAULT_DISCO_COLUMN_INTERVAL_MS = 500
+const DISCO_BLACK = "#000000"
+const DISCO_STOP_FADE_MS = 500
+const DISCO_START_FADE_MS = 500
+const DISCO_ROW_STAGGER_MS = 120
 const DISCO_PALETTE = [
-  "#ff4d6d",
-  "#ffd166",
-  "#06d6a0",
-  "#118ab2",
-  "#f72585",
-  "#7209b7",
+  "#eeeeee",
+  "#d5d5d5",
+  "#bbbbbb",
+  "#999999",
+  "#757575",
+  "#4f4f4f",
 ]
 
 function currentDiscoMode() {
@@ -37,12 +41,21 @@ function currentStartedAtServerMs() {
 }
 
 function activeColorFor(instance) {
+  if (instance.animationStopped.get() === true) {
+    return {
+      color: DISCO_BLACK,
+      step: instance.columnStep.get(),
+    }
+  }
+
   const client = WallClients.findOne({ _id: instance.clientId, wallId: DEFAULT_WALL_ID })
   const colIndex = Number.isInteger(client?.colIndex) ? client.colIndex : 0
+  const rowIndex = Number.isInteger(client?.rowIndex) ? client.rowIndex : 0
   const intervalMs = currentIntervalMs()
   const startedAtServerMs = currentStartedAtServerMs()
   const nowServerMs = Date.now() + instance.offsetMs
-  const step = Math.max(0, Math.floor((nowServerMs - startedAtServerMs) / intervalMs))
+  const rowDelayMs = Math.max(0, rowIndex) * DISCO_ROW_STAGGER_MS
+  const step = Math.max(0, Math.floor((nowServerMs - startedAtServerMs - rowDelayMs) / intervalMs))
   const colorIndex = ((step - colIndex) % DISCO_PALETTE.length + DISCO_PALETTE.length) % DISCO_PALETTE.length
   return {
     color: DISCO_PALETTE[colorIndex],
@@ -57,10 +70,54 @@ function applyDiscoFrame(instance) {
   }
 
   const { color, step } = activeColorFor(instance)
-  root.style.transition = `background-color ${Math.max(80, Math.floor(currentIntervalMs() * 0.8))}ms ease`
+  const transitionMs = instance.animationStopped.get() === true
+    ? DISCO_STOP_FADE_MS
+    : Date.now() < instance.resumeFadeUntilMs
+      ? DISCO_START_FADE_MS
+      : Math.max(80, Math.floor(currentIntervalMs() * 0.8))
+  root.style.transition = `background-color ${transitionMs}ms ease`
   root.style.backgroundColor = color
   instance.activeColor.set(color)
   instance.columnStep.set(step)
+}
+
+function stopDiscoAnimation(instance) {
+  if (instance.frameIntervalId) {
+    Meteor.clearInterval(instance.frameIntervalId)
+    instance.frameIntervalId = null
+  }
+
+  const root = instance.find("#discoRoot")
+  if (!root) {
+    instance.animationStopped.set(true)
+    applyDiscoFrame(instance)
+    return
+  }
+
+  const { color } = activeColorFor(instance)
+  root.style.transition = "none"
+  root.style.backgroundColor = color
+  instance.activeColor.set(color)
+
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      instance.animationStopped.set(true)
+      applyDiscoFrame(instance)
+    })
+  })
+}
+
+function startDiscoAnimation(instance) {
+  instance.animationStopped.set(false)
+  instance.resumeFadeUntilMs = Date.now() + DISCO_START_FADE_MS
+
+  if (!instance.frameIntervalId) {
+    instance.frameIntervalId = Meteor.setInterval(() => {
+      applyDiscoFrame(instance)
+    }, 100)
+  }
+
+  applyDiscoFrame(instance)
 }
 
 Template.DiscoPage.onCreated(function onCreated() {
@@ -74,8 +131,11 @@ Template.DiscoPage.onCreated(function onCreated() {
   this.frameIntervalId = null
   this.refreshHandler = null
   this.routeControlHandler = null
+  this.visualControlHandler = null
   this.activeColor = new ReactiveVar("#000000")
   this.columnStep = new ReactiveVar(0)
+  this.animationStopped = new ReactiveVar(false)
+  this.resumeFadeUntilMs = 0
 
   this.autorun(() => {
     this.subscribe("wall.current", DEFAULT_WALL_ID)
@@ -130,6 +190,16 @@ Template.DiscoPage.onRendered(function onRendered() {
     FlowRouter.go(`/${target}`)
   }
 
+  this.visualControlHandler = (payload) => {
+    if (payload?.action === "stop") {
+      stopDiscoAnimation(this)
+    } else if (payload?.action === "resume") {
+      startDiscoAnimation(this)
+    } else {
+      return
+    }
+  }
+
   Meteor.callAsync("ticker.join", {
     wallId: DEFAULT_WALL_ID,
     clientId: this.clientId,
@@ -150,13 +220,12 @@ Template.DiscoPage.onRendered(function onRendered() {
     })
   }, WALL_HEARTBEAT_MS)
 
-  this.frameIntervalId = Meteor.setInterval(() => {
-    applyDiscoFrame(this)
-  }, 100)
+  startDiscoAnimation(this)
 
   window.addEventListener("resize", this.handleResize)
   streamer.on(WALL_REFRESH_EVENT, this.refreshHandler)
   streamer.on(DISCO_ROUTE_CONTROL_EVENT, this.routeControlHandler)
+  streamer.on(DISCO_VISUAL_CONTROL_EVENT, this.visualControlHandler)
 
   this.autorun(() => {
     currentIntervalMs()
@@ -184,6 +253,9 @@ Template.DiscoPage.onDestroyed(function onDestroyed() {
   }
   if (this.routeControlHandler) {
     streamer.removeListener(DISCO_ROUTE_CONTROL_EVENT, this.routeControlHandler)
+  }
+  if (this.visualControlHandler) {
+    streamer.removeListener(DISCO_VISUAL_CONTROL_EVENT, this.visualControlHandler)
   }
 })
 
