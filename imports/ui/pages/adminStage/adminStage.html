@@ -1,10 +1,10 @@
 <template name="adminStage">
-  <main class="mx-auto min-h-screen max-w-4xl bg-slate-950 px-4 py-6 font-sans text-slate-100 sm:px-6 sm:py-8">
+  <main class="mx-auto min-h-screen max-w-4xl bg-slate-950 px-6 py-8 font-sans text-slate-100">
     {{> AdminWallNav}}
     <h1 class="text-2xl font-semibold text-slate-50">Admin Stage Test</h1>
     <p class="mt-2 text-sm text-slate-400">Transport: <code class="rounded bg-slate-800 px-1 py-0.5 text-slate-200">streamer</code></p>
 
-    <fieldset class="mt-4 rounded-lg border border-slate-800 bg-slate-900/80 p-3 sm:p-4">
+    <fieldset class="mt-4 rounded-lg border border-slate-800 bg-slate-900/80 p-3">
       <legend class="px-1 text-sm font-medium text-slate-200">Placeholder source</legend>
       <div class="mt-2 flex flex-wrap gap-4 text-sm text-slate-200">
         <label class="inline-flex items-center gap-2">
@@ -26,9 +26,9 @@
       </div>
     </fieldset>
 
-    <fieldset class="mt-4 rounded-lg border border-slate-800 bg-slate-900/80 p-3 sm:p-4">
+    <fieldset class="mt-4 rounded-lg border border-slate-800 bg-slate-900/80 p-3">
       <legend class="px-1 text-sm font-medium text-slate-200">Stage background video</legend>
-      <div class="mt-2 flex flex-col gap-2 text-sm text-slate-200 sm:flex-row sm:flex-wrap sm:items-center [&>*]:w-full sm:[&>*]:w-auto">
+      <div class="mt-2 flex flex-wrap items-center gap-3 text-sm text-slate-200">
         <label class="inline-flex items-center gap-2">
           <input type="radio" name="stage-video" value="premiere" checked={{isSelectedVideo 'premiere'}} />
           <span>Premiere</span>
@@ -42,9 +42,9 @@
       </div>
     </fieldset>
 
-    <fieldset class="mt-4 rounded-lg border border-slate-800 bg-slate-900/80 p-3 sm:p-4">
+    <fieldset class="mt-4 rounded-lg border border-slate-800 bg-slate-900/80 p-3">
       <legend class="px-1 text-sm font-medium text-slate-200">Bullet Chat</legend>
-      <div class="mt-2.5 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center [&>*]:w-full sm:[&>*]:w-auto">
+      <div class="mt-2 flex flex-wrap gap-2.5">
         <button class="rounded-lg border border-slate-700 bg-slate-800 px-3.5 py-2.5 text-sm text-slate-100 hover:bg-slate-700" type="button" data-action="send-1">Send 1</button>
         <button class="rounded-lg border border-slate-700 bg-slate-800 px-3.5 py-2.5 text-sm text-slate-100 hover:bg-slate-700" type="button" data-action="send-5">Send 5</button>
         <button class="rounded-lg border border-slate-700 bg-slate-800 px-3.5 py-2.5 text-sm text-slate-100 hover:bg-slate-700" type="button" data-action="send-10">Send 10</button>
@@ -52,9 +52,9 @@
       </div>
     </fieldset>
 
-    <fieldset class="mt-4 rounded-lg border border-slate-800 bg-slate-900/80 p-3 sm:p-4">
+    <fieldset class="mt-4 rounded-lg border border-slate-800 bg-slate-900/80 p-3">
       <legend class="px-1 text-sm font-medium text-slate-200">Featured Messages</legend>
-      <div class="mb-3 flex flex-col gap-4 lg:flex-row lg:flex-wrap lg:items-center">
+      <div class="mb-3 flex flex-wrap items-center gap-4">
         <label class="flex min-w-64 flex-1 items-center gap-3 text-sm text-slate-300">
           <span>Reveal speed</span>
           <input
@@ -78,8 +78,8 @@
             <span>Word by word</span>
           </label>
         </div>
-        <button class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3.5 py-2 text-sm text-slate-100 hover:bg-slate-700 lg:w-auto" type="button" data-action="advance-curation-word">Show next word</button>
-        <button class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3.5 py-2 text-sm text-slate-100 hover:bg-slate-700 lg:w-auto" type="button" data-action="hide-curation-message">Hide message</button>
+        <button class="rounded-lg border border-slate-700 bg-slate-800 px-3.5 py-2 text-sm text-slate-100 hover:bg-slate-700" type="button" data-action="advance-curation-word">Show next word</button>
+        <button class="rounded-lg border border-slate-700 bg-slate-800 px-3.5 py-2 text-sm text-slate-100 hover:bg-slate-700" type="button" data-action="hide-curation-message">Hide message</button>
       </div>
       {{#if hasFeaturedMessages}}
         <div class="mt-2 divide-y divide-slate-800 rounded-lg border border-slate-800 bg-slate-950">

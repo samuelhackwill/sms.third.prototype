@@ -1,19 +1,18 @@
 <template name="AdminTickerPage">
-  <main class="mx-auto min-h-screen max-w-7xl bg-slate-950 px-4 py-6 text-slate-100 sm:px-6 sm:py-8">
+  <main class="mx-auto min-h-screen max-w-7xl bg-slate-950 px-6 py-8 text-slate-100">
     {{> AdminWallNav}}
     <h1 class="text-2xl font-semibold text-slate-50">Admin Ticker</h1>
     <p class="mt-2 text-sm text-slate-400">Drag cards to reorder screens. Hold card to highlight client.</p>
 
-    <section class="mt-6 rounded border border-slate-800 bg-slate-900/80 p-3 sm:p-4">
-      <div class="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+    <section class="mt-6 rounded border border-slate-800 bg-slate-900/80 p-4">
+      <div class="mb-3 flex items-center justify-between">
         <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Provisioning Grid</h2>
         <span class="text-xs text-slate-500">6 rows x 5 phones</span>
       </div>
 
       <div class="grid gap-2">
         {{#each provisioningRows}}
-          <div class="-mx-3 overflow-x-auto px-3 sm:mx-0 sm:px-0">
-            <div class="grid min-w-[26rem] grid-cols-5 gap-2 sm:min-w-0">
+          <div class="grid grid-cols-5 gap-2">
             {{#each this}}
               <div class="min-h-20 rounded border border-slate-800 bg-slate-950 p-2 text-xs">
                 <div class="font-semibold text-slate-500">#{{slotNumber}}</div>
@@ -25,13 +24,12 @@
                 {{/if}}
               </div>
             {{/each}}
-            </div>
           </div>
         {{/each}}
       </div>
     </section>
 
-    <section class="mt-4 rounded border border-slate-800 bg-slate-900/80 p-3 sm:p-4">
+    <section class="mt-4 rounded border border-slate-800 bg-slate-900/80 p-4">
       <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Controls</h2>
       <div class="mt-4 grid gap-4 lg:grid-cols-2">
         <div class="rounded border border-slate-800 bg-slate-950 p-3">
@@ -44,9 +42,9 @@
               </label>
             {{/each}}
           </div>
-          <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center [&>*]:w-full sm:[&>*]:w-auto">
+          <div class="mt-3 flex flex-wrap items-center gap-2">
             <label for="tickerSpeedInput" class="text-sm text-slate-300">Speed px/s</label>
-            <input id="tickerSpeedInput" class="w-full rounded border border-slate-700 bg-slate-900 px-2 py-2 text-sm text-slate-100 sm:w-24 sm:py-1" type="number" min="1" value="{{wall.speedPxPerSec}}" />
+            <input id="tickerSpeedInput" class="w-24 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-sm text-slate-100" type="number" min="1" value="{{wall.speedPxPerSec}}" />
             <button type="button" class="js-set-speed rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm font-medium text-slate-100 hover:border-slate-600 hover:bg-slate-700">Set Speed</button>
             <button type="button" class="js-send-random-text rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm font-medium text-slate-100 hover:border-slate-600 hover:bg-slate-700">Send Next Fake Text</button>
             <button type="button" class="js-toggle-bucket-mode rounded border border-amber-900 bg-amber-950 px-3 py-1.5 text-sm font-semibold text-amber-100 hover:border-amber-700 hover:bg-amber-900 {{#if isBucketModeEnabled}}animate-pulse{{/if}}">{{bucketModeButtonLabel}}</button>
@@ -58,7 +56,7 @@
 
         <div class="rounded border border-slate-800 bg-slate-950 p-3">
           <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Screens</div>
-          <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center [&>*]:w-full sm:[&>*]:w-auto">
+          <div class="mt-3 flex flex-wrap items-center gap-2">
             <button type="button" class="js-refresh-clients rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm font-medium text-slate-100 hover:border-slate-600 hover:bg-slate-700">Force Refresh Clients</button>
             <button type="button" class="js-move-all-clients-to-ticker rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm font-medium text-slate-100 hover:border-slate-600 hover:bg-slate-700">Move All Clients To /ticker</button>
             <button type="button" class="js-toggle-provisioning rounded border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm font-medium text-slate-100 hover:border-slate-600 hover:bg-slate-700">{{provisioningButtonLabel}}</button>
@@ -69,7 +67,7 @@
 
       <div class="mt-4 rounded border border-red-950 bg-red-950/40 p-3">
         <div class="text-xs font-semibold uppercase tracking-wide text-red-300">Danger Zone</div>
-        <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center [&>*]:w-full sm:[&>*]:w-auto">
+        <div class="mt-3 flex flex-wrap items-center gap-2">
           <button type="button" class="js-reset-ticker rounded border border-red-800 bg-red-950 px-3 py-1.5 text-sm font-semibold text-red-100 hover:border-red-700 hover:bg-red-900">Reset Ticker State</button>
           <button type="button" class="js-kill-clients rounded border border-red-800 bg-red-950 px-3 py-1.5 text-sm font-semibold text-red-100 hover:border-red-700 hover:bg-red-900">Kill Clients</button>
           <button type="button" class="js-panic-stop rounded border border-red-500 bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700">PANIC STOP</button>
@@ -109,7 +107,7 @@
       </div>
     </section>
 
-    <section class="mt-4 rounded border border-slate-800 bg-slate-900/80 p-3 sm:p-4">
+    <section class="mt-4 rounded border border-slate-800 bg-slate-900/80 p-4">
       <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Status</h2>
       <div class="mt-3 grid gap-2 text-sm">
         <div><span class="font-semibold">activeClients:</span> {{activeClientCount}}</div>
@@ -126,7 +124,7 @@
       </div>
     </section>
 
-    <section class="mt-4 rounded border border-slate-800 bg-slate-900/80 p-3 sm:p-4">
+    <section class="mt-4 rounded border border-slate-800 bg-slate-900/80 p-4">
       <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Row FSM</h2>
       <div class="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-3">
         {{#each tickerRows}}
@@ -141,8 +139,8 @@
       </div>
     </section>
 
-    <section class="mt-4 rounded border border-slate-800 bg-slate-900/80 p-3 sm:p-4">
-      <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+    <section class="mt-4 rounded border border-slate-800 bg-slate-900/80 p-4">
+      <div class="flex items-center justify-between gap-3">
         <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Featured Messages</h2>
         <span class="text-xs text-slate-500">Click a message to send it to the ticker</span>
       </div>

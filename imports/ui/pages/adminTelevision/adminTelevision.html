@@ -1,10 +1,10 @@
 <template name="AdminTelevisionPage">
-  <main class="mx-auto min-h-screen max-w-5xl bg-slate-950 px-4 py-6 text-slate-100 sm:px-6 sm:py-8">
+  <main class="mx-auto min-h-screen max-w-5xl bg-slate-950 px-6 py-8 text-slate-100">
     {{> AdminWallNav}}
     <h1 class="text-2xl font-semibold text-slate-50">Admin Television</h1>
     <p class="mt-2 text-sm text-slate-400">Control wall-wide video playback on the ticker wall screens.</p>
 
-    <section class="mt-6 rounded border border-slate-800 bg-slate-900/80 p-3 sm:p-4">
+    <section class="mt-6 rounded border border-slate-800 bg-slate-900/80 p-4">
       <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Playback</h2>
       <div class="mt-4 grid gap-4 lg:grid-cols-[1fr_auto]">
         <input
@@ -14,7 +14,7 @@
           placeholder="https://example.com/vertical-video.mp4"
           value="{{sourceUrlValue}}"
         />
-        <div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center [&>*]:w-full sm:[&>*]:w-auto">
+        <div class="flex flex-wrap gap-2">
           <button type="button" class="js-load-url rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm font-medium text-slate-100 hover:border-slate-600 hover:bg-slate-700">Load URL</button>
           <button type="button" class="js-play-loaded rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm font-medium text-slate-100 hover:border-slate-600 hover:bg-slate-700">Play Loaded</button>
           <button type="button" class="js-refresh-clients rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm font-medium text-slate-100 hover:border-slate-600 hover:bg-slate-700">Force Refresh Clients</button>
@@ -28,7 +28,7 @@
         <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Nginx Video Sources</div>
         <div class="mt-2 text-xs text-slate-500">Root: <span class="text-slate-300">{{mediaRootDir}}</span></div>
         <div class="mt-1 text-xs text-slate-500">Base URL: <span class="text-slate-300">{{mediaBaseUrl}}</span></div>
-        <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center [&>*]:w-full sm:[&>*]:w-auto">
+        <div class="mt-3 flex flex-wrap gap-2">
           {{#each localSources}}
             <button
               type="button"
@@ -42,22 +42,21 @@
       </div>
     </section>
 
-    <section class="mt-4 rounded border border-slate-800 bg-slate-900/80 p-3 sm:p-4">
+    <section class="mt-4 rounded border border-slate-800 bg-slate-900/80 p-4">
       <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Routing</h2>
-      <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center [&>*]:w-full sm:[&>*]:w-auto">
+      <div class="mt-3 flex flex-wrap gap-2">
         <button type="button" class="rounded border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 hover:bg-slate-700" data-action="move-all-clients-to-television">Move All Clients To /television</button>
       </div>
     </section>
 
-    <section class="mt-4 rounded border border-slate-800 bg-slate-900/80 p-3 sm:p-4">
-      <div class="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+    <section class="mt-4 rounded border border-slate-800 bg-slate-900/80 p-4">
+      <div class="mb-3 flex items-center justify-between">
         <h2 class="text-sm font-semibold uppercase tracking-wide text-slate-300">Readiness Grid</h2>
         <span class="text-xs text-slate-500">Green = readyState 4</span>
       </div>
       <div class="grid gap-2">
         {{#each readinessRows}}
-          <div class="-mx-3 overflow-x-auto px-3 sm:mx-0 sm:px-0">
-            <div class="grid min-w-[26rem] grid-cols-5 gap-2 sm:min-w-0">
+          <div class="grid grid-cols-5 gap-2">
             {{#each this}}
               <article class="min-h-24 rounded border p-2 text-xs {{statusClass}}">
                 <div class="font-semibold">#{{slotNumber}} {{shortCode}}</div>
@@ -67,7 +66,6 @@
                 <div class="truncate">{{playbackState}}</div>
               </article>
             {{/each}}
-            </div>
           </div>
         {{/each}}
       </div>
