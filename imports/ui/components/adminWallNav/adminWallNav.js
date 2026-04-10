@@ -11,6 +11,7 @@ const ADMIN_WALL_TABS = [
   { label: "Kiss-O-Matic", routeName: "adminKissOMatic", path: "/admin/kiss-o-matic" },
   { label: "Disco", routeName: "adminDisco", path: "/admin/disco" },
   { label: "Television", routeName: "adminTelevision", path: "/admin/television" },
+  { label: "Push", routeName: "adminPush", path: "/admin/push" },
 ]
 
 function currentRouteName() {
