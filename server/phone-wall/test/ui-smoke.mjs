@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
-import { firefox } from "playwright";
+import { firefox, chromium, webkit } from "playwright";
 import { createController } from "../app.mjs";
 import { SimulatedClient } from "../simulated-client.mjs";
 
@@ -50,7 +50,9 @@ try {
       expectedRevision: initial.revision,
     },
   });
-  browser = await firefox.launch({
+  const browserType = { firefox, chromium, webkit }[process.env.PHONE_WALL_BROWSER ?? 'firefox'];
+  assert.ok(browserType, 'Unknown PHONE_WALL_BROWSER');
+  browser = await browserType.launch({
     headless: true,
     ...(process.env.PHONE_WALL_BROWSER_EXECUTABLE
       ? { executablePath: process.env.PHONE_WALL_BROWSER_EXECUTABLE }
@@ -64,6 +66,9 @@ try {
   page.on("pageerror", (error) => {
     errors.push(error.message);
     console.error("Browser error:", error.message);
+  });
+  page.on('console', message => {
+    if (message.type() === 'error') console.error('Browser console:', message.text());
   });
   await page.route("**/*", (route) => {
     if (
@@ -109,32 +114,39 @@ try {
   await page.getByRole('tab',{name:'Advanced',exact:true}).click();
   assert.equal(await page.locator('#web-previews').isChecked(), false);
   assert.equal(await page.locator('#wall article.selected').count(), 0);
-  const matrixFrame = await (await page.locator('#wall iframe').first().elementHandle()).contentFrame();
-  const previewRatio = await page.locator('#wall iframe').first().evaluate(frame => frame.clientWidth / frame.clientHeight);
+  assert.equal(await page.locator('#wall iframe').count(), 0, 'Test text must render without embedded WebViews');
+  const previewRatio = await page.locator('#wall canvas').first().evaluate(canvas => canvas.clientWidth / canvas.clientHeight);
   assert.ok(Math.abs(previewRatio - 375 / 667) < 0.01, 'Preview should preserve phone proportions');
-  await matrixFrame.waitForFunction(() => {
-    const canvas = document.querySelector('canvas');
+  const waitForMatrixText = () => page.waitForFunction(() => {
+    const canvas = document.querySelector('#wall canvas');
     if (!canvas) return false;
     const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
     for (let i = 0; i < pixels.length; i += 4) if (pixels[i] > 150 && pixels[i + 1] < 70 && pixels[i + 2] < 70) return true;
     return false;
   });
-  await matrixFrame.evaluate(() => { window.matrixPollMarker = 'same renderer'; });
+  await waitForMatrixText();
+  if (process.env.PHONE_WALL_MATRIX_SCREENSHOT_PATH) {
+    await page.locator('#wall article').first().screenshot({ path: process.env.PHONE_WALL_MATRIX_SCREENSHOT_PATH });
+  }
+  await page.locator('#wall canvas').first().evaluate(canvas => { canvas.matrixPollMarker = 'same renderer'; });
   await page.waitForResponse(response => response.url().endsWith('/phone-wall/api') && response.request().method() === 'GET');
-  assert.equal(await matrixFrame.evaluate(() => window.matrixPollMarker), 'same renderer', 'Telemetry polling must preserve the running renderer');
+  assert.equal(await page.locator('#wall canvas').first().evaluate(canvas => canvas.matrixPollMarker), 'same renderer', 'Telemetry polling must preserve the running renderer');
   await page.getByRole('button',{name:'Blackout',exact:true}).click();
-  await page.waitForFunction(() => document.querySelectorAll('#wall iframe').length === 0);
+  await page.waitForFunction(() => {
+    const p = document.querySelector('#wall canvas').getContext('2d').getImageData(100,100,1,1).data;
+    return p[0] + p[1] + p[2] === 0;
+  });
   assert.equal(await page.locator('#wall canvas').first().evaluate(canvas => {
     const p = canvas.getContext('2d').getImageData(100,100,1,1).data;
     return p[0] + p[1] + p[2];
   }), 0);
   await page.getByRole('button',{name:'Resume',exact:true}).click();
-  await page.locator('#wall iframe').first().waitFor();
+  await waitForMatrixText();
   await page.getByRole('button',{name:'Preview Controls Virtually',exact:true}).click();
   assert.match(await page.locator('#matrix-status').textContent(), /LOCAL DRAFT/);
   assert.equal(await page.locator('#wall iframe').count(), 0);
   await page.getByRole('button',{name:'Show Live Wall',exact:true}).click();
-  await page.locator('#wall iframe').first().waitFor();
+  await waitForMatrixText();
   assert.match(await page.locator('#matrix-status').textContent(), /LIVE CONTROLLER STATE/);
   const preview=await browser.newPage({viewport:{width:375,height:667}});
   await preview.route('**/*',route=>route.request().url().startsWith(base+'/')?route.continue():route.abort());
@@ -161,6 +173,26 @@ try {
   assert.ok(fit.top>0&&fit.top<0.05,JSON.stringify(fit));
   assert.ok(fit.bottom>0.95&&fit.bottom<1,JSON.stringify(fit));
   assert.equal(fit.after,fit.measured,'Text metrics must stay cached between frames');
+  const parity = await preview.evaluate(async () => {
+    const { drawArtwork } = await import('/console/scene-preview.js');
+    window.drawTestText(3);
+    const reference = document.querySelector('canvas'), canvas = document.createElement('canvas');
+    canvas.width = reference.width; canvas.height = reference.height;
+    const context = canvas.getContext('2d'), definition = window.PHONE_WALL, geometry = definition.viewport;
+    drawArtwork(context, definition, geometry, 0, 3000, 0);
+    const actual = context.getImageData(0,0,canvas.width,canvas.height).data;
+    const expected = reference.getContext('2d').getImageData(0,0,canvas.width,canvas.height).data;
+    let different = 0;
+    for (let i = 0; i < actual.length; i++) if (actual[i] !== expected[i]) different++;
+    const measured = window.textMeasureCount;
+    for (let frame = 0; frame < 60; frame++) drawArtwork(context, definition, geometry, 0, 3000 + frame * 16, 0);
+    const after = window.textMeasureCount;
+    const finished = drawArtwork(context, definition, geometry, 0, 1e9, 0);
+    return { different, measured, after, finished };
+  });
+  assert.equal(parity.different, 0, 'Direct matrix preview must match the phone web renderer pixel for pixel');
+  assert.equal(parity.after, parity.measured, 'Direct preview must cache text metrics between frames');
+  assert.match(parity.finished, /Test finished/);
   await preview.evaluate(()=>window.drawTestText(3));
   if(process.env.PHONE_WALL_SCREENSHOT_PATH)await preview.screenshot({path:process.env.PHONE_WALL_SCREENSHOT_PATH});
   await preview.close();

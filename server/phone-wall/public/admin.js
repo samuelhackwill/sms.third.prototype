@@ -1,4 +1,4 @@
-import { drawArtwork } from "./scene-preview.js";
+import { drawArtwork, hasTestTextPreview } from "./scene-preview.js";
 const $ = (id) => document.getElementById(id);
 function requestId(){if(typeof crypto.randomUUID==='function')return crypto.randomUUID();return Array.from(crypto.getRandomValues(new Uint8Array(16)),n=>n.toString(16).padStart(2,'0')).join('');}
 let virtualDraft = null;
@@ -254,18 +254,17 @@ function render() {
     if (
       !$('advanced-panel').hidden &&
       webElement &&
+      !hasTestTextPreview(previewDefinition) &&
       slot &&
       (virtualDraft || !isPairing(device?.display ?? {})) &&
       (virtualDraft || (device?.display?.mode ?? state.mode) === 'exhibition') &&
-      (previewDefinition.artworkId === 'operator-test-text' ||
-        ($("web-previews").checked && selected.has(slot.deviceId) && webPreviewCount++ < 4))
+      $("web-previews").checked && selected.has(slot.deviceId) && webPreviewCount++ < 4
     ) {
       const iframe = document.createElement("iframe");
       iframe.title = `Web artwork preview slot ${index}`;
       iframe.sandbox = "allow-scripts";
       iframe.style.cssText =
         `width:100%;aspect-ratio:${slot.geometry.width} / ${slot.geometry.height};border:0;background:black`;
-      if (previewDefinition.artworkId === 'operator-test-text') iframe.style.pointerEvents = 'none';
       const g = (virtualDraft ? null : art?.release.layout?.slots.find(s => s.deviceId === slot.deviceId)?.geometry) ?? slot.geometry,
         context = {
           ...previewDefinition,
@@ -298,8 +297,11 @@ function render() {
       card.append(p);
       labels.push(p);
     }
+    const previewNote = document.createElement('p');
+    previewNote.className = 'preview-note';
+    card.append(previewNote);
     $("wall").append(card);
-    canvases.push({ canvas, slot, index, labels, artwork: art });
+    canvases.push({ canvas, slot, index, labels, artwork: art, previewNote });
   }
 }
 let lastFrame = 0;
@@ -315,7 +317,7 @@ function draw(time) {
         ...state.layout.slots.map((s) => s.geometry.x + s.geometry.width),
       )
     : state.layout.columns * 375;
-  for (const { canvas, slot, index, artwork } of canvases) {
+  for (const { canvas, slot, index, artwork, previewNote } of canvases) {
     const c = canvas.getContext("2d"),
       patch =
         data.devices.find((d) => d._id === slot?.deviceId)?.display ??
@@ -331,6 +333,8 @@ function draw(time) {
       };
     c.fillStyle = "#000";
     c.fillRect(0, 0, 300, 400);
+    const definition = virtualDraft ?? artworkAt(patch, now)?.release.definition;
+    if (previewNote.textContent && (!hasTestTextPreview(definition) || (!virtualDraft && (mode !== 'exhibition' || isPairing(patch))))) previewNote.textContent = '';
     if (!virtualDraft && isPairing(patch)) {
       const assigned = patch.pairing.slotIndex != null;
       c.fillStyle = assigned ? '#0d6626' : '#cc0d0d';
@@ -356,7 +360,7 @@ function draw(time) {
       const layout = virtualDraft ? null : art?.release.layout;
       const actual =
         layout?.slots.find((s) => s.deviceId === slot?.deviceId)?.geometry ?? g;
-      drawArtwork(
+      const note = drawArtwork(
         c,
         manifest,
         actual,
@@ -364,7 +368,8 @@ function draw(time) {
         now,
         index,
       );
-      if (!canvas.hidden && manifest.elements.some(e => e.type === 'web')) {
+      if (note && previewNote.textContent !== note) previewNote.textContent = note;
+      if (!canvas.hidden && !hasTestTextPreview(manifest) && manifest.elements.some(e => e.type === 'web')) {
         c.fillStyle = '#000'; c.fillRect(0, 330, 300, 70);
         c.fillStyle = '#fff'; c.font = '16px sans-serif';
         c.fillText('Web artwork preview off', 10, 355);
