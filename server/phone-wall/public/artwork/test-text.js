@@ -4,7 +4,7 @@
   let text = parameters.text.replace(/[\r\n]+/g, ' ');
   const viewport = state.viewport || state.geometry;
   const canvas = document.createElement('canvas');
-  canvas.setAttribute('aria-label', 'Red serif test text');
+  canvas.setAttribute('aria-label', 'Scrolling serif text');
   canvas.style.cssText = 'display:block;width:100vw;height:100vh';
   document.body.style.cssText = 'margin:0;overflow:hidden;background:#000';
   document.body.appendChild(canvas);
