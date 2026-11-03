@@ -243,10 +243,21 @@
     <div class="wall-head">
       <h2>The Matrix</h2>
       <p>
-        Click phones to select them. Hover for diagnostics.
+        Battery, power and heat at a glance. Click a phone for details.
       </p>
       <p id="matrix-status" role="status"></p>
     </div>
+    <section id="phone-details" aria-labelledby="phone-details-heading" hidden>
+      <h3 id="phone-details-heading"></h3>
+      <p id="phone-details-age"></p>
+      <p id="phone-details-health"></p>
+      <p id="phone-details-preview"></p>
+      <div id="phone-details-readings"></div>
+      <p>Heat is the iPhone's thermal category, not a temperature measurement. Low FPS means display callbacks below target; it is not a CPU reading.</p>
+      <p>Clicking a tile only opens details. Selection below applies when Advanced → Target is set to Selected phones.</p>
+      <button id="phone-select" type="button" aria-pressed="false">Select for Advanced actions</button>
+      <button id="phone-details-close" type="button">Close details</button>
+    </section>
     <div id="wall" aria-label="Virtual phone matrix"></div>
     <label
       ><input type="checkbox" id="web-previews" />Preview selected web artwork (up to four)</label

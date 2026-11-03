@@ -2,6 +2,7 @@ import { drawArtwork, hasTestTextPreview } from "./scene-preview.js";
 const $ = (id) => document.getElementById(id);
 function requestId(){if(typeof crypto.randomUUID==='function')return crypto.randomUUID();return Array.from(crypto.getRandomValues(new Uint8Array(16)),n=>n.toString(16).padStart(2,'0')).join('');}
 let virtualDraft = null;
+let inspectedDeviceId = null;
 let token = "",
   data = null,
   offset = 0,
@@ -109,14 +110,76 @@ function isPairing(patch) {
   return patch.pairing?.active && patch.pairing.expiresAt > Date.now() + offset;
 }
 
+function powerStatus(device) {
+  const t = device?.telemetry ?? {};
+  const battery = Number.isFinite(t.battery) && t.battery >= 0 && t.battery <= 1 ? `${Math.round(t.battery * 100)}%` : '—';
+  const source = typeof t.charging === 'boolean' ? t.charging ? 'Plugged' : 'Unplugged' : 'No data';
+  const stale = !!device && (!device.connected || Date.now() + offset - new Date(device.lastSeenAt).getTime() > 30000);
+  return { battery, source, stale, state: source === 'Plugged' ? 'plugged' : source === 'Unplugged' ? 'unplugged' : 'unknown' };
+}
+
+function updatePower(element, device) {
+  element.hidden = !device;
+  const power = powerStatus(device);
+  element.dataset.power = power.state;
+  element.querySelector('.battery-level').textContent = power.battery;
+  element.querySelector('.power-source').textContent = power.source;
+  element.querySelector('.power-age').hidden = !power.stale;
+}
+
+function healthStatus(device) {
+  const t = device?.telemetry ?? {}, power = powerStatus(device);
+  const thermal = [0, 1, 2, 3].includes(t.thermalState) ? t.thermalState : null;
+  const heat = thermal == null ? 'Heat ?' : ['Heat OK', 'Warm', 'Hot', 'Critical'][thermal];
+  const warnings = [];
+  if (device && !device.connected) warnings.push('Offline');
+  else if (power.stale) warnings.push('Stale data');
+  if (device?.lastError || device?.artworkStatus?.status === 'error') warnings.push('App error');
+  if (typeof t.battery === 'number' && t.battery >= 0 && t.battery <= 0.2 && t.charging === false) warnings.push('Low battery');
+  if (t.foreground === false) warnings.push('App in background');
+  if (t.targetFps > 0 && Number.isFinite(t.displayLinkFps) && t.displayLinkFps >= 0 && t.displayLinkFps < t.targetFps * 0.75) warnings.push('Display callbacks below target');
+  return { heat, thermal, warnings };
+}
+
+function updateHealth(element, device) {
+  element.hidden = !device;
+  const health = healthStatus(device);
+  element.dataset.heat = health.thermal == null ? 'unknown' : health.thermal;
+  element.querySelector('.thermal-label').textContent = health.heat;
+  const label = element.querySelector('.health-label');
+  const short = { 'App in background': 'App bg', 'Display callbacks below target': 'Low FPS', 'Low battery': 'Low batt' };
+  label.textContent = short[health.warnings[0]] ?? health.warnings[0] ?? '';
+  label.hidden = !health.warnings.length;
+}
+
+function renderPhoneDetails() {
+  const slot = data.state.layout.slots.find(s => s.deviceId === inspectedDeviceId);
+  const device = data.devices.find(d => d._id === slot?.deviceId);
+  $('phone-details').hidden = !device;
+  if (!device) return;
+  const power = powerStatus(device);
+  const health = healthStatus(device);
+  const lines = deviceLines(device, slot.slotIndex);
+  $('phone-details-heading').textContent = lines[0];
+  $('phone-details-readings').replaceChildren(...lines.slice(1).filter(Boolean).map(line => {
+    const p = document.createElement('p'); p.textContent = line; return p;
+  }));
+  $('phone-details-age').textContent = power.stale ? 'Last reported readings. This phone is offline or its telemetry is stale.' : 'Phone readings arrive about every 12 seconds.';
+  $('phone-details-health').textContent = `Thermal: ${health.heat}${power.stale ? ' (last reported)' : ''}. ${health.warnings.join(' · ') || 'No health warnings reported.'}`;
+  $('phone-details-preview').textContent = canvases.find(c => c.slot?.deviceId === device._id)?.previewNote.textContent ?? '';
+  $('phone-select').textContent = selected.has(device._id) ? 'Deselect for Advanced actions' : 'Select for Advanced actions';
+  $('phone-select').setAttribute('aria-pressed', String(selected.has(device._id)));
+}
+
 function deviceLines(device, index) {
   const t = device?.telemetry ?? {},
-    age = Date.now() - new Date(device?.lastSeenAt).getTime();
+    age = Date.now() + offset - new Date(device?.lastSeenAt).getTime();
   const art = artworkAt(device?.display ?? {});
+  const power = powerStatus(device);
   return [
     `R${Math.floor(index / data.state.layout.columns) + 1} C${index % data.state.layout.columns + 1} · Slot ${index}`,
     device ? device.connected ? 'ONLINE' : age < 60000 ? 'STALE' : 'OFFLINE' : 'EMPTY · no phone assigned',
-    device ? `${Math.round((t.battery ?? -1) * 100)}% · ${t.charging ? 'charging' : 'not charging'} · thermal ${t.thermalState ?? '?'}` : '',
+    device ? `Battery ${power.battery} · ${power.source}${power.source === 'Plugged' ? ' (charging or full)' : ''}${power.stale ? ' · last reported' : ''} · thermal ${t.thermalState ?? '?'}` : '',
     device ? `Expected: ${device.display?.mode ?? data.state.mode} · ${art?.release.definition.artworkId ?? device.display?.scene?.kind ?? 'scene'}` : '',
     device ? `App ${device.appVersion} · reported scene ${t.currentSceneId ?? '?'}` : '',
     device?.lastError ?? '',
@@ -128,6 +191,7 @@ function render() {
   const state = data.state,
     devices = data.devices;
   const pairing=data.pairing;
+  renderPhoneDetails();
   if(!testSpeedEdited)$('test-text-speed').value=state.testTextSpeed??240;
   if(!testMessageEdited)$('test-text-message').value=state.testText??defaultTestMessage;
   showTestSpeed();
@@ -185,6 +249,7 @@ function render() {
         d.display?.mode, d.display?.scene, isPairing(d.display ?? {}), d.display?.pairing?.slotIndex];
     }),
     selected: [...selected],
+    inspected: inspectedDeviceId,
     draft: virtualDraft,
     web: $("web-previews").checked,
   });
@@ -192,12 +257,13 @@ function render() {
     ? 'LOCAL DRAFT · Phones are unchanged. Choose Show Live Wall to return to controller state.'
     : 'LIVE CONTROLLER STATE · 3s refresh. Offline phones may differ.';
   // Keep running web renderers alive across telemetry polls.
-  for (const { slot, index, labels, previewNote } of canvases) {
+  for (const { slot, index, labels, powerElement, healthElement } of canvases) {
     const device = devices.find(d => d._id === slot?.deviceId);
     const lines = deviceLines(device, index);
     labels.forEach((label, i) => { label.textContent = i === 0 ? `R${Math.floor(index / state.layout.columns) + 1} C${index % state.layout.columns + 1}` : lines[i]; });
     const card = labels[0].parentElement;
-    card.title = [...lines, previewNote.textContent].filter(Boolean).join('\n');
+    updatePower(powerElement, device);
+    updateHealth(healthElement, device);
     card.setAttribute('aria-label', lines.filter(Boolean).join('. '));
     card.dataset.connection = device ? device.connected ? 'online' : 'offline' : 'empty';
   }
@@ -231,15 +297,16 @@ function render() {
     canvas.height = 400;
     canvas.style.aspectRatio = `${slot?.geometry.width ?? 375} / ${slot?.geometry.height ?? 667}`;
     if (selected.has(slot?.deviceId)) card.classList.add("selected");
-    card.tabIndex = 0;
-    card.setAttribute("role", "button");
-    card.setAttribute("aria-pressed", String(selected.has(slot?.deviceId)));
+    card.tabIndex = slot ? 0 : -1;
+    card.setAttribute("role", slot ? "button" : "img");
+    card.setAttribute('aria-expanded', String(!!slot && inspectedDeviceId === slot.deviceId));
+    card.setAttribute('aria-controls', 'phone-details');
+    if (slot?.deviceId === inspectedDeviceId) card.classList.add('inspected');
     const choose = () => {
       if (slot) {
-        selected.has(slot.deviceId)
-          ? selected.delete(slot.deviceId)
-          : selected.add(slot.deviceId);
+        inspectedDeviceId = slot.deviceId;
         render();
+        $('phone-details').scrollIntoView({ block: 'nearest' });
       }
     };
     card.onclick = choose;
@@ -294,7 +361,6 @@ function render() {
       card.append(iframe);
     }
     const lines = deviceLines(device, index), labels = [];
-    card.title = lines.filter(Boolean).join('\n');
     card.setAttribute('aria-label', lines.filter(Boolean).join('. '));
     card.dataset.connection = device ? device.connected ? 'online' : 'offline' : 'empty';
     for (const [lineIndex, line] of lines.entries()) {
@@ -303,11 +369,23 @@ function render() {
       card.append(p);
       labels.push(p);
     }
+    const powerElement = document.createElement('div');
+    powerElement.className = 'phone-power';
+    for (const [className, text] of [['battery-level', ''], ['power-source', ''], ['power-age', 'Last report']]) {
+      const span = document.createElement('span'); span.className = className; span.textContent = text; powerElement.append(span);
+    }
+    updatePower(powerElement, device);
+    card.append(powerElement);
+    const healthElement = document.createElement('div'); healthElement.className = 'phone-health';
+    for (const className of ['thermal-label', 'health-label']) {
+      const span = document.createElement('span'); span.className = className; healthElement.append(span);
+    }
+    updateHealth(healthElement, device); card.append(healthElement);
     const previewNote = document.createElement('p');
     previewNote.className = 'preview-note';
     card.append(previewNote);
     $("wall").append(card);
-    canvases.push({ canvas, slot, index, labels, artwork: art, previewNote });
+    canvases.push({ canvas, slot, index, labels, artwork: art, previewNote, powerElement, healthElement });
   }
 }
 let lastFrame = 0;
@@ -378,7 +456,7 @@ function draw(time) {
       );
       if (note && previewNote.textContent !== note) {
         previewNote.textContent = note;
-        canvas.parentElement.title = [...deviceLines(data.devices.find(d => d._id === slot?.deviceId), index), note].filter(Boolean).join('\n');
+        if (slot?.deviceId === inspectedDeviceId) $('phone-details-preview').textContent = note;
       }
       if (!canvas.hidden && !hasTestTextPreview(manifest) && manifest.elements.some(e => e.type === 'web')) {
         c.fillStyle = '#000'; c.fillRect(0, 330, 300, 70);
@@ -420,6 +498,12 @@ function draw(time) {
   }
 }
 requestAnimationFrame(draw);
+$('phone-select').onclick = () => {
+  if (!inspectedDeviceId) return;
+  selected.has(inspectedDeviceId) ? selected.delete(inspectedDeviceId) : selected.add(inspectedDeviceId);
+  render();
+};
+$('phone-details-close').onclick = () => { inspectedDeviceId = null; render(); };
 $("login").onsubmit = run(async () => {
   token = $("key").value;
   $("key").value = "";

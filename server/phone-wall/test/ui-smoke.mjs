@@ -6,6 +6,7 @@ import { randomBytes } from "node:crypto";
 import { firefox, chromium, webkit } from "playwright";
 import { createController } from "../app.mjs";
 import { SimulatedClient } from "../simulated-client.mjs";
+import { envelope } from '../../../protocol/core.mjs';
 
 const directory = await mkdtemp(join(tmpdir(), "phone-wall-ui-"));
 const key = randomBytes(32).toString("hex");
@@ -96,6 +97,42 @@ try {
   const matrixBounds = await page.locator('#matrix-panel').boundingBox();
   assert.ok(matrixBounds.x >= controlBounds.x + controlBounds.width, 'Matrix should sit to the right of the controls');
   assert.equal(await page.locator('#login').isVisible(),false);
+  let powerReport;
+  const reportPower = (battery, charging, extra = {}) => {
+    powerReport = { battery, charging, foreground: true, thermalState: 0, displayLinkFps: 60, targetFps: 60, ...extra };
+    phone.ws.send(JSON.stringify(envelope('client.heartbeat', powerReport)));
+  };
+  clearInterval(phone.heartbeat);
+  phone.heartbeat = setInterval(() => phone.ws.readyState === 1 && phone.ws.send(JSON.stringify(envelope('client.heartbeat', powerReport))), 12000);
+  reportPower(0.58, true);
+  await page.waitForFunction(() => document.querySelector('#wall .battery-level').textContent === '58%');
+  assert.equal(await page.locator('#wall .power-source').first().textContent(), 'Plugged');
+  assert.equal(await page.locator('#wall .phone-power').first().isVisible(), true);
+  reportPower(0.57, false);
+  await page.waitForFunction(() => document.querySelector('#wall .power-source').textContent === 'Unplugged');
+  await page.locator('#wall article').first().click();
+  assert.equal(await page.locator('#phone-details').isVisible(), true);
+  assert.match(await page.locator('#phone-details-readings').textContent(), /Battery 57% · Unplugged/);
+  assert.equal(await page.locator('#wall article.selected').count(), 0, 'Inspecting a phone must not select it for commands');
+  await page.locator('#phone-select').click();
+  assert.equal(await page.locator('#wall article.selected').count(), 1);
+  await page.locator('#phone-select').click();
+  assert.equal(await page.locator('#wall article.selected').count(), 0);
+  await page.locator('#phone-details-close').click();
+  assert.equal(await page.locator('#phone-details').isVisible(), false);
+  reportPower(-1, false);
+  await page.waitForFunction(() => document.querySelector('#wall .battery-level').textContent === '—');
+  reportPower(0.18, false, { thermalState: 2, displayLinkFps: 20 });
+  await page.waitForFunction(() => document.querySelector('#wall .thermal-label').textContent === 'Hot');
+  assert.equal(await page.locator('#wall .health-label').first().textContent(), 'Low batt');
+  await page.locator('#wall article').first().click();
+  assert.match(await page.locator('#phone-details-health').textContent(), /Low battery/);
+  assert.match(await page.locator('#phone-details-health').textContent(), /Display callbacks below target/);
+  reportPower(0.95, true, { thermalState: 3, foreground: false });
+  await page.waitForFunction(() => document.querySelector('#wall .thermal-label').textContent === 'Critical');
+  assert.match(await page.locator('#phone-details-health').textContent(), /App in background/);
+  await page.locator('#phone-details-close').click();
+  reportPower(0.95, true);
   await page.getByRole('button',{name:'Start Pairing Mode',exact:true}).click();
   await page.waitForFunction(()=>document.querySelector('#pairing-status').textContent.includes('PAIRING ACTIVE'));
   await page.waitForFunction(() => {
@@ -289,12 +326,16 @@ try {
   });
   assert.equal(staged.status(), 200);
   await page.locator("#wall article").first().click();
+  await page.locator('#phone-select').click();
   await page.getByRole('button',{name:'Start Exhibition',exact:true}).click();
   await page.locator("#web-previews").check();
   await page
     .frameLocator('iframe[title="Web artwork preview slot 0"]')
     .getByText("LOCAL ART EXECUTED", { exact: true })
     .waitFor();
+  phone.stop();
+  await page.waitForFunction(() => document.querySelector('#wall article').dataset.connection === 'offline');
+  assert.equal(await page.locator('#wall .power-age').first().isVisible(), true, 'Offline battery readings must be marked as last reported');
   await page.goto(base + `/experiment/${asset.hash}`);
   await page.getByText("LOCAL ART EXECUTED", { exact: true }).waitFor();
   assert.deepEqual(errors, []);
