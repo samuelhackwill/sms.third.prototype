@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+  <meta charset="utf-8" /><meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  /><title>Phone Wall · Studio</title
+  ><link rel="stylesheet" href="/console/style.css" />
+  <main>
+    <header>
+      <p class="eyebrow">LOCAL INSTALLATION / CONTROL ROOM</p>
+      <h1>Phone Wall<span>Studio</span></h1>
+      <p id="status" role="status">Connect to the local controller.</p>
+    </header>
+    <form id="login">
+      <label
+        >Operator key<input
+          id="key"
+          type="password"
+          required
+          autocomplete="off" /></label
+      ><button>Connect</button>
+    </form>
+    <nav aria-label="Exhibition">
+      <button data-mode="exhibition">Start Exhibition</button
+      ><button data-mode="night">Night Mode</button
+      ><button data-command="blackout">Blackout</button
+      ><button data-command="resume">Resume</button
+      ><button data-command="reloadState">Reload State</button
+      ><button data-command="restartScene">Restart Scene</button
+      ><button data-command="clearCache">Clear Cache</button
+      ><button id="identify">Identify</button>
+    </nav>
+    <section class="wall-head">
+      <h2>The Matrix</h2>
+      <p>
+        Live virtual preview. Click slots to select phones. Empty slots are
+        simulated.
+      </p>
+      <label
+        >Target<select id="scope">
+          <option value="all">Entire matrix</option>
+          <option value="selected">Selected phones</option>
+        </select></label
+      >
+    </section>
+    <div id="wall" aria-label="Virtual phone matrix"></div>
+    <label
+      ><input type="checkbox" id="web-previews" />Run actual web artwork on
+      selected virtual phones (maximum four concurrent WebViews)</label
+    >
+    <div id="pending"></div>
+    <section id="artwork-studio">
+      <h2>Staged Artwork Releases</h2>
+      <p>
+        Edit the declarative draft, preview it locally, then prepare the same
+        immutable release on one phone, a group, and the entire wall. Phones
+        retain the old scene until all targets are ready.
+      </p>
+      <textarea
+        id="artwork-draft"
+        rows="18"
+        aria-label="Declarative scene JSON"
+        spellcheck="false"
+      ></textarea>
+      <div class="actions">
+        <button id="draft-from-controls">Use Scene Controls</button
+        ><button id="draft-preview">Preview Draft Virtually</button
+        ><button id="release-create">Create Immutable Release</button>
+      </div>
+      <label
+        >Release / Rollback Version<select id="artwork-releases"></select
+      ></label>
+      <div class="actions">
+        <button id="release-target">Prepare + Publish Target</button
+        ><button id="release-wall">Promote Same Release to Entire Wall</button
+        ><button id="release-rollback">
+          Rollback Target to Selected Release</button
+        ><button id="draft-live">Show Live Wall</button>
+      </div>
+      <p id="release-status" role="status"></p>
+      <div id="deployments"></div>
+    </section>
+    <section class="workbench">
+      <article>
+        <h2>Scene</h2>
+        <form id="scene">
+          <label
+            >Renderer<select name="kind">
+              <option>test</option>
+              <option>ticker</option>
+              <option>text</option>
+              <option>solid</option>
+              <option>image</option>
+              <option>video</option>
+              <option>web</option>
+            </select></label
+          ><label
+            >Text<input
+              name="text"
+              value="PHONE WALL"
+              maxlength="2000" /></label
+          ><label
+            >Speed (logical px/s)<input
+              name="speed"
+              type="number"
+              value="100"
+              min="0"
+              max="10000" /></label
+          ><label
+            >Font size<input
+              name="fontSize"
+              type="number"
+              value="48"
+              min="8"
+              max="300" /></label
+          ><label
+            >Color<input name="color" type="color" value="#ffffff" /></label
+          ><label
+            >Media / experiment hash<input name="hash" pattern="[a-f0-9]{64}"
+          /></label>
+          <div>
+            <button>Build Release from Controls</button
+            ><button type="button" id="preview">
+              Preview Controls Virtually
+            </button>
+          </div>
+        </form>
+        <form id="upload">
+          <label
+            >Upload image or MP4<input
+              type="file"
+              name="file"
+              accept="image/png,image/jpeg,video/mp4"
+              required /></label
+          ><button>Upload</button>
+        </form>
+      </article>
+      <article>
+        <h2>Pair / Position</h2>
+        <p>
+          Codes appear below the matrix. Existing codes can update a position.
+        </p>
+        <form id="pair">
+          <label>Pairing code<input name="code" required /></label
+          ><label
+            >Slot (zero-based)<input
+              name="slotIndex"
+              type="number"
+              value="0"
+              min="0"
+              required
+          /></label>
+          <div class="geometry">
+            <label
+              >X<input
+                name="x"
+                type="number"
+                value="0"
+                min="0"
+                required /></label
+            ><label
+              >Y<input
+                name="y"
+                type="number"
+                value="0"
+                min="0"
+                required /></label
+            ><label
+              >Width<input
+                name="width"
+                type="number"
+                value="375"
+                min="1"
+                required /></label
+            ><label
+              >Height<input
+                name="height"
+                type="number"
+                value="667"
+                min="1"
+                required
+            /></label>
+          </div>
+          <button>Approve / Update Slot</button>
+        </form>
+      </article>
+    </section>
+    <section>
+      <h2>Atomic Configuration</h2>
+      <p>
+        Edit layouts, groups, schedules and artwork parameters together. Stale
+        edits are rejected. Rollback creates a new revision.
+      </p>
+      <textarea
+        id="config"
+        rows="16"
+        spellcheck="false"
+        aria-label="Complete configuration JSON"
+      ></textarea>
+      <div class="actions">
+        <button id="save-config">Apply Atomically</button
+        ><button id="load-config">Load Current</button
+        ><select id="history" aria-label="Configuration revision"></select
+        ><button id="rollback">Rollback</button>
+      </div>
+    </section>
+    <section>
+      <h2>Experimental PixiJS</h2>
+      <p>
+        Trusted artwork code only. Hosted on this Mac, without CDN access.
+        Upload a version, then select the web renderer and preview it on the
+        target phones.
+      </p>
+      <textarea
+        id="code"
+        rows="12"
+        spellcheck="false"
+        aria-label="Experimental JavaScript"
+      ></textarea
+      ><button id="upload-code">Upload Version</button>
+    </section>
+    <footer>Local network · No WAN dependency · iOS 15 native clients</footer>
+  </main>
+  <script type="module" src="/console/admin.js"></script>
+</html>

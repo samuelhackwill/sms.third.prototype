@@ -1,0 +1,1 @@
+{"v":1,"type":"client.hello","messageId":"fixture-hello-1","payload":{"deviceId":"fixture-device-1","bootSessionId":"fixture-boot-1","token":"fixture-only-not-a-real-secret-0000000000","appVersion":"1.0","capabilities":{"model":"iPhone8,1","osVersion":"15.8","width":375,"height":667,"pixelWidth":750,"pixelHeight":1334,"scale":2,"codecs":["h264"]}}}

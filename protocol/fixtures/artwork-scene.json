@@ -1,0 +1,35 @@
+{
+  "sceneSchemaVersion": 1,
+  "artworkId": "museum-text",
+  "artworkVersion": "1",
+  "canvas": { "width": 1875, "height": 4002 },
+  "background": "#102b28",
+  "transition": { "type": "fade", "durationMs": 400 },
+  "parameters": { "caption": "Editable without an IPA" },
+  "elements": [
+    {
+      "id": "words",
+      "type": "ticker",
+      "frame": { "x": 0, "y": 80, "width": 1875, "height": 100 },
+      "text": "Phone Wall / live artwork",
+      "fontSize": 48,
+      "speed": 120,
+      "color": "#ffffff"
+    },
+    {
+      "id": "bar",
+      "type": "rect",
+      "frame": { "x": 0, "y": 220, "width": 80, "height": 40 },
+      "color": "#ec6a3b",
+      "animation": {
+        "property": "x",
+        "from": 0,
+        "to": 1795,
+        "durationMs": 12000,
+        "delayMs": 0,
+        "repeat": true,
+        "easing": "easeInOut"
+      }
+    }
+  ]
+}

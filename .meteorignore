@@ -1,0 +1,2 @@
+# Standalone controller has its own runtime and dependencies.
+server/phone-wall/**

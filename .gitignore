@@ -27,3 +27,11 @@ settings.json
 # Python cache
 __pycache__/
 *.py[cod]
+
+# Native local signing and build state
+ios/**/xcuserdata/
+*.xcuserstate
+*.ipa
+*.xcarchive/
+*.mobileprovision
+*.p12

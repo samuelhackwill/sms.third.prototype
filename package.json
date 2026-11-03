@@ -2,7 +2,10 @@
   "name": "sms-third-prototype",
   "private": true,
   "scripts": {
-    "start": "METEOR_DATA_DIR=\"$PWD/.data\" meteor",
+    "start": "node server/phone-wall/index.mjs",
+    "start:legacy": "METEOR_DATA_DIR=\"$PWD/.data\" meteor",
+    "test": "npm test --prefix server/phone-wall",
+    "simulate": "node tools/simulator/index.mjs",
     "tailwind:build": "tailwindcss -i ./imports/ui/styles/tailwind.input.css -o ./client/tailwind.generated.css --minify",
     "tailwind:watch": "tailwindcss -i ./imports/ui/styles/tailwind.input.css -o ./client/tailwind.generated.css --watch"
   },
@@ -19,7 +22,8 @@
     "meteor-node-stubs": "^1.2.27",
     "pixi.js": "^7.4.3",
     "qrcode": "^1.5.4",
-    "sqlite3": "^5.1.7"
+    "sqlite3": "^5.1.7",
+    "ws": "^8.22.1"
   },
   "meteor": {
     "mainModule": {

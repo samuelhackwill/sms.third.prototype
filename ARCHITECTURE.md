@@ -1,0 +1,35 @@
+# Phone Wall — Fastify / SQLite
+
+The authoritative installation controller is now `server/phone-wall/`: Node.js 22.13+ with Fastify, `ws`, built-in SQLite and Bonjour. It has its own package/lockfile and no Meteor, MongoDB or DDP dependency. `npm start` starts this service. UIKit clients retain `URLSessionWebSocketTask`; their wire format remains JSON v1.
+
+## State and reliability
+
+SQLite uses WAL, FULL synchronous writes, busy timeout and immediate transactions. Tables store devices and credential hashes, immutable configuration revisions, the current-revision pointer, operation receipts, temporary previews, media manifests and bounded-by-age diagnostic events. Schedule, groups, slot geometry and per-device desired-state overrides live in the versioned configuration. Every configuration change commits the complete validated document and current pointer atomically. Expected revision checks prevent stale edits. Rollback creates a new monotonically increasing revision while restoring the old artwork/timeline. Back up the database with SQLite backup facilities, not a live copy of only the main WAL database file.
+
+Device identity is random and stored in Application Support. Initial association uses an operator-approved pairing code. IP and arrival order never determine a slot. Existing credential hashes can be imported from the old Mongo collections. A persistent installation ID distinguishes a genuinely new controller database from an older snapshot revision; native state validation permits that authority change without a permanent stale-revision loop.
+
+Every connection receives welcome + complete current snapshot; clients also explicitly request it. There is no missed-command replay or server-side socket history dependency. Heartbeats and clock exchanges run in foreground, capped backoff retries socket failures, and NWPathMonitor prompts retries. Server shutdown closes upgraded sockets in Fastify's preClose phase, before waiting for HTTP shutdown. Expired targeted previews fall back to current base state even after a reconnect/restart.
+
+The timeline start timestamp is persisted. Native ticker and virtual wall derive positions from shared epoch time and logical geometry. Restarting Node or reconnecting a phone does not restart that scene. Clock estimation favors low RTT; actual cross-phone skew still requires measurement. Image/video files are fetched by HTTP and verified locally. Video is muted and locally looped; frame-perfect synchronized video is not promised.
+
+## Artistic iteration
+
+The local dashboard is plain HTML/CSS/JS served by Fastify at `/admin/phone-wall`. It renders 30 virtual screens by default, health labels, selection/groups, declarative scene editing, media upload, installation configuration and release history. Runtime 2.0 adds immutable artwork releases and per-target deployment status. Native text/rect/ticker animation is previewed in the virtual canvas; selected web scenes run real code in up to four isolated iframe previews. Image/video codec fidelity remains a hardware check.
+
+Artwork targets can be one phone, explicit IDs, a named group or the whole paired wall. A release freezes definition, layout, asset hashes and runtime compatibility. Deployments wait for every target to prepare before persisting one activation timestamp. Failure/timeout during preparation preserves previous assignments; late/reconnected phones receive the same release/timeline. Rollback stages an earlier immutable release. Legacy direct scene/timed-preview APIs remain compatibility tools; the operator's artistic workflow uses staged releases. See RUNTIME.md for failure and partition policy.
+
+For experiments, upload trusted JavaScript and declare its resources in a web element. The native runtime caches an entire local HTML/Pixi/script/resource bundle, restricts navigation to that directory and exposes only a narrow readiness/health bridge. No CDN, API credentials or WAN is involved. Failed WebViews are recreated with bounded retries; terminal failure retains/restores last-good artwork. Current/previous assets are pinned in Application Support, and disconnection no longer clears the display. Cold offline launch can restore native or cached web scenes. New native renderer APIs still require an IPA; supported parameters and new web behavior do not.
+
+## Incremental migration decision log
+
+1. Reused protocol helpers, native renderers/cache/identity, staff/Configurator workflow and simulated device concepts.
+2. Replaced native installation backend and admin UI with independent Fastify/SQLite modules. Removed the superseded Meteor-only native backend/dashboard after replacement fleet, migration and process-restart tests passed.
+3. Retained all legacy Meteor collections, messages, ticker queues, Pixi artistic routes, curation, video, television and APNs experiments. `npm run start:legacy` runs them separately; `.meteorignore` excludes the standalone service. They remain the reference for unmigrated artwork, not dependencies of the new controller.
+4. Added explicit private-export import tooling; no automatic destructive database migration and no deletion of old Mongo content.
+5. Kept legacy dependencies until each legacy feature has replacement tests. The new controller's isolated dependency tree audits independently.
+6. Automatic Mac startup uses the updated launchd runner and SQLite directory; MongoDB is no longer a startup dependency. Signing, supervision and actual power-on behavior are unchanged.
+7. Runtime 2.0 replaces the prototype scene-switch path with schema-versioned declarative elements, immutable releases, prepare/activate/displayed acknowledgments, durable last-good storage and a separate WebKit recovery host. One initial IPA update is necessary; ordinary artistic iteration then stays on the LAN.
+
+## Limits
+
+Single controller process and one wall `main` are intentional. Operator access uses one private key, not an identity/roles platform. Keep the service on a dedicated trusted LAN or secure private remote tunnel. HTTP/WS credentials are not encrypted; use trusted TLS on shared networks. Bonjour is discovery, not server authentication. If multiple installations advertise on the same LAN, isolate networks or disable mDNS and use the explicit fallback address. iOS hardware recovery, Single App Mode, thermal behavior, actual power outages and long endurance still require physical qualification.
