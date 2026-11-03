@@ -63,9 +63,10 @@
     <section class="wall-head">
       <h2>The Matrix</h2>
       <p>
-        Live virtual preview. Click slots to select phones. Empty slots are
-        simulated.
+        Expected phone output from the controller. Test text appears automatically.
+        Click slots to select phones. Empty slots have no assigned output.
       </p>
+      <p id="matrix-status" role="status"></p>
       <label
         >Target<select id="scope">
           <option value="all">Entire matrix</option>
@@ -76,7 +77,7 @@
     <div id="wall" aria-label="Virtual phone matrix"></div>
     <label
       ><input type="checkbox" id="web-previews" />Run actual web artwork on
-      selected virtual phones (maximum four concurrent WebViews)</label
+      selected virtual phones (maximum four; test text always runs automatically)</label
     >
     <div id="pending"></div>
     <section id="artwork-studio">

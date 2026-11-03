@@ -87,6 +87,12 @@ try {
   assert.equal(await page.locator('#login').isVisible(),false);
   await page.getByRole('button',{name:'Start Pairing Mode',exact:true}).click();
   await page.waitForFunction(()=>document.querySelector('#pairing-status').textContent.includes('PAIRING ACTIVE'));
+  await page.getByRole('tab',{name:'Advanced',exact:true}).click();
+  await page.waitForFunction(() => {
+    const p = document.querySelector('#wall canvas').getContext('2d').getImageData(5,5,1,1).data;
+    return p[0] > 150 && p[1] < 30 && p[2] < 30;
+  });
+  await page.getByRole('tab',{name:'Control',exact:true}).click();
   await page.getByRole('button',{name:'Stop Pairing',exact:true}).click();
   await page.waitForFunction(()=>document.querySelector('#pairing-status').textContent.includes('Pairing stopped'));
   await page.locator('#test-text-speed').focus();
@@ -100,6 +106,36 @@ try {
   assert.equal(phone.activeArtwork.release.definition.artworkId,'operator-test-text');
   assert.equal(phone.activeArtwork.release.definition.parameters.speed,120);
   assert.equal(phone.activeArtwork.release.definition.parameters.text,emojiMessage);
+  await page.getByRole('tab',{name:'Advanced',exact:true}).click();
+  assert.equal(await page.locator('#web-previews').isChecked(), false);
+  assert.equal(await page.locator('#wall article.selected').count(), 0);
+  const matrixFrame = await (await page.locator('#wall iframe').first().elementHandle()).contentFrame();
+  const previewRatio = await page.locator('#wall iframe').first().evaluate(frame => frame.clientWidth / frame.clientHeight);
+  assert.ok(Math.abs(previewRatio - 375 / 667) < 0.01, 'Preview should preserve phone proportions');
+  await matrixFrame.waitForFunction(() => {
+    const canvas = document.querySelector('canvas');
+    if (!canvas) return false;
+    const pixels = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+    for (let i = 0; i < pixels.length; i += 4) if (pixels[i] > 150 && pixels[i + 1] < 70 && pixels[i + 2] < 70) return true;
+    return false;
+  });
+  await matrixFrame.evaluate(() => { window.matrixPollMarker = 'same renderer'; });
+  await page.waitForResponse(response => response.url().endsWith('/phone-wall/api') && response.request().method() === 'GET');
+  assert.equal(await matrixFrame.evaluate(() => window.matrixPollMarker), 'same renderer', 'Telemetry polling must preserve the running renderer');
+  await page.getByRole('button',{name:'Blackout',exact:true}).click();
+  await page.waitForFunction(() => document.querySelectorAll('#wall iframe').length === 0);
+  assert.equal(await page.locator('#wall canvas').first().evaluate(canvas => {
+    const p = canvas.getContext('2d').getImageData(100,100,1,1).data;
+    return p[0] + p[1] + p[2];
+  }), 0);
+  await page.getByRole('button',{name:'Resume',exact:true}).click();
+  await page.locator('#wall iframe').first().waitFor();
+  await page.getByRole('button',{name:'Preview Controls Virtually',exact:true}).click();
+  assert.match(await page.locator('#matrix-status').textContent(), /LOCAL DRAFT/);
+  assert.equal(await page.locator('#wall iframe').count(), 0);
+  await page.getByRole('button',{name:'Show Live Wall',exact:true}).click();
+  await page.locator('#wall iframe').first().waitFor();
+  assert.match(await page.locator('#matrix-status').textContent(), /LIVE CONTROLLER STATE/);
   const preview=await browser.newPage({viewport:{width:375,height:667}});
   await preview.route('**/*',route=>route.request().url().startsWith(base+'/')?route.continue():route.abort());
   await preview.addInitScript(()=>{

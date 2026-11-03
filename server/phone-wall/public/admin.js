@@ -27,6 +27,7 @@ function selectTab(name) {
     $(`${tab}-tab`).tabIndex=selected?0:-1;
     $(`${tab}-panel`).hidden=!selected;
   }
+  if (data) render();
 }
 for(const tab of ['control','advanced']) {
   $(`${tab}-tab`).onclick=()=>selectTab(tab);
@@ -41,6 +42,7 @@ function status(message) {
   $("status").textContent = message;
 }
 async function api(input) {
+  const sent = Date.now();
   const response = await fetch("/phone-wall/api", {
     method: input ? "POST" : "GET",
     headers: {
@@ -53,6 +55,12 @@ async function api(input) {
   if (!response.ok) throw new Error(value.error);
   if (!input) {
     data = value;
+    if (data.serverTimeMs) {
+      const received = Date.now();
+      samples.push({ rtt: received - sent, offset: data.serverTimeMs - (sent + received) / 2 });
+      if (samples.length > 20) samples.shift();
+      offset = samples.reduce((a, b) => a.rtt < b.rtt ? a : b).offset;
+    }
     $('login').hidden=true;
     render();
   } else await api();
@@ -89,6 +97,32 @@ function scene() {
     startAtServerMs: Date.now() + offset + 1500,
     ...(f.hash.value ? { hash: f.hash.value } : {}),
   };
+}
+// Use the same scheduled handover and per-device assignment as the phone.
+function artworkAt(patch, now = Date.now() + offset) {
+  if (patch.scene?.id === 'identify' && patch.previewUntil > now) return null;
+  const pending = patch.artwork?.pending;
+  return pending?.phase === 'scheduled' && now >= pending.startAtServerMs
+    ? pending : patch.artwork?.active;
+}
+function isPairing(patch) {
+  return patch.pairing?.active && patch.pairing.expiresAt > Date.now() + offset;
+}
+
+function deviceLines(device, index) {
+  const t = device?.telemetry ?? {},
+    age = Date.now() - new Date(device?.lastSeenAt).getTime();
+  const art = artworkAt(device?.display ?? {});
+  return [
+    `R${Math.floor(index / data.state.layout.columns) + 1} C${index % data.state.layout.columns + 1} · Slot ${index}`,
+    device ? device.connected ? 'ONLINE' : age < 60000 ? 'STALE' : 'OFFLINE' : 'EMPTY · no phone assigned',
+    device ? `${Math.round((t.battery ?? -1) * 100)}% · ${t.charging ? 'charging' : 'not charging'} · thermal ${t.thermalState ?? '?'}` : '',
+    device ? `Expected: ${device.display?.mode ?? data.state.mode} · ${art?.release.definition.artworkId ?? device.display?.scene?.kind ?? 'scene'}` : '',
+    device ? `App ${device.appVersion} · reported scene ${t.currentSceneId ?? '?'}` : '',
+    device?.lastError ?? '',
+    typeof t.displayLinkFps === 'number' && t.displayLinkFps >= 0 ? `Display callbacks: ~${Math.round(t.displayLinkFps)} fps${t.targetFps ? ` / target ${t.targetFps}` : ''}` : '',
+    device?.artworkStatus ? `Artwork: ${device.artworkStatus.status} ${device.artworkStatus.code ?? ''}` : '',
+  ];
 }
 function render() {
   const state = data.state,
@@ -145,15 +179,36 @@ function render() {
   const wallKey = JSON.stringify({
     revision: state.revision,
     slots: state.layout.slots,
-    artwork: devices.map((d) => [
-      d._id,
-      d.display?.artwork?.active?.deploymentId,
-    ]),
+    artwork: devices.map((d) => {
+      const art = artworkAt(d.display ?? {});
+      return [d._id, art?.deploymentId, art?.releaseId, art?.startAtServerMs,
+        d.display?.mode, d.display?.scene, isPairing(d.display ?? {}), d.display?.pairing?.slotIndex];
+    }),
     selected: [...selected],
     draft: virtualDraft,
     web: $("web-previews").checked,
+    visible: !$('advanced-panel').hidden,
   });
-  if ($("web-previews").checked && wallSignature === wallKey) return;
+  $('matrix-status').textContent = virtualDraft
+    ? 'LOCAL DRAFT · Phones are unchanged. Choose Show Live Wall to return to controller state.'
+    : 'LIVE CONTROLLER STATE · Expected output, not a screen capture. Offline phones may differ. Updated every 3 seconds.';
+  // Keep running web renderers alive across telemetry polls.
+  for (const { slot, index, labels } of canvases) {
+    const lines = deviceLines(devices.find(d => d._id === slot?.deviceId), index);
+    labels.forEach((label, i) => { label.textContent = lines[i]; });
+  }
+  $("pending").replaceChildren();
+  for (const d of devices.filter((d) => !d.paired)) {
+    const b = document.createElement("button");
+    b.textContent = `Pair ${d.pairingCode} · ${d.connected?'ONLINE':'OFFLINE'} · ${d.capabilities?.model ?? d._id}`;
+    b.onclick = () => {
+      $("pair").code.value = d.pairingCode;
+      $("pair").width.value = d.capabilities?.width ?? 375;
+      $("pair").height.value = d.capabilities?.height ?? 667;
+    };
+    $("pending").append(b);
+  }
+  if (wallSignature === wallKey) return;
   wallSignature = wallKey;
   $("wall").style.setProperty("--columns", state.layout.columns);
   $("wall").replaceChildren();
@@ -170,6 +225,7 @@ function render() {
       canvas = document.createElement("canvas");
     canvas.width = 300;
     canvas.height = 400;
+    canvas.style.aspectRatio = `${slot?.geometry.width ?? 375} / ${slot?.geometry.height ?? 667}`;
     if (selected.has(slot?.deviceId)) card.classList.add("selected");
     card.tabIndex = 0;
     card.setAttribute("role", "button");
@@ -190,25 +246,27 @@ function render() {
       }
     };
     card.append(canvas);
-    const art = device?.display?.artwork?.active;
+    const art = artworkAt(device?.display ?? {});
     const previewDefinition = virtualDraft ?? art?.release.definition;
     const webElement = previewDefinition?.elements.find(
       (e) => e.type === "web",
     );
     if (
-      $("web-previews").checked &&
+      !$('advanced-panel').hidden &&
       webElement &&
       slot &&
-      selected.has(slot.deviceId) &&
+      (virtualDraft || !isPairing(device?.display ?? {})) &&
       (virtualDraft || (device?.display?.mode ?? state.mode) === 'exhibition') &&
-      webPreviewCount++ < 4
+      (previewDefinition.artworkId === 'operator-test-text' ||
+        ($("web-previews").checked && selected.has(slot.deviceId) && webPreviewCount++ < 4))
     ) {
       const iframe = document.createElement("iframe");
       iframe.title = `Web artwork preview slot ${index}`;
       iframe.sandbox = "allow-scripts";
       iframe.style.cssText =
-        "width:100%;height:190px;border:0;background:black";
-      const g = slot.geometry,
+        `width:100%;aspect-ratio:${slot.geometry.width} / ${slot.geometry.height};border:0;background:black`;
+      if (previewDefinition.artworkId === 'operator-test-text') iframe.style.pointerEvents = 'none';
+      const g = (virtualDraft ? null : art?.release.layout?.slots.find(s => s.deviceId === slot.deviceId)?.geometry) ?? slot.geometry,
         context = {
           ...previewDefinition,
           definition: previewDefinition,
@@ -233,47 +291,15 @@ function render() {
       canvas.hidden = true;
       card.append(iframe);
     }
-    const t = device?.telemetry ?? {},
-      age = Date.now() - new Date(device?.lastSeenAt).getTime();
-    const lines = [
-      `R${Math.floor(index / state.layout.columns) + 1} C${(index % state.layout.columns) + 1} · Slot ${index}`,
-      device
-        ? device.connected
-          ? "ONLINE"
-          : age < 60000
-            ? "STALE"
-            : "OFFLINE"
-        : "VIRTUAL / EMPTY",
-      device
-        ? `${Math.round((t.battery ?? -1) * 100)}% · ${t.charging ? "charging" : "not charging"} · thermal ${t.thermalState ?? "?"}`
-        : "Click a pairing code to assign",
-      device
-        ? `App ${device.appVersion} · scene ${t.currentSceneId ?? "?"}`
-        : "",
-      device?.lastError ?? "",
-      typeof t.displayLinkFps==='number'&&t.displayLinkFps>=0?`Display callbacks: ~${Math.round(t.displayLinkFps)} fps${t.targetFps?` / target ${t.targetFps}`:''}`:'',
-      device?.artworkStatus
-        ? `Artwork: ${device.artworkStatus.status} ${device.artworkStatus.code ?? ""}`
-        : "",
-    ];
+    const lines = deviceLines(device, index), labels = [];
     for (const line of lines) {
       const p = document.createElement("p");
       p.textContent = line;
       card.append(p);
+      labels.push(p);
     }
     $("wall").append(card);
-    canvases.push({ canvas, slot, index });
-  }
-  $("pending").replaceChildren();
-  for (const d of devices.filter((d) => !d.paired)) {
-    const b = document.createElement("button");
-    b.textContent = `Pair ${d.pairingCode} · ${d.connected?'ONLINE':'OFFLINE'} · ${d.capabilities?.model ?? d._id}`;
-    b.onclick = () => {
-      $("pair").code.value = d.pairingCode;
-      $("pair").width.value = d.capabilities?.width ?? 375;
-      $("pair").height.value = d.capabilities?.height ?? 667;
-    };
-    $("pending").append(b);
+    canvases.push({ canvas, slot, index, labels, artwork: art });
   }
 }
 let lastFrame = 0;
@@ -289,7 +315,7 @@ function draw(time) {
         ...state.layout.slots.map((s) => s.geometry.x + s.geometry.width),
       )
     : state.layout.columns * 375;
-  for (const { canvas, slot, index } of canvases) {
+  for (const { canvas, slot, index, artwork } of canvases) {
     const c = canvas.getContext("2d"),
       patch =
         data.devices.find((d) => d._id === slot?.deviceId)?.display ??
@@ -305,15 +331,29 @@ function draw(time) {
       };
     c.fillStyle = "#000";
     c.fillRect(0, 0, 300, 400);
+    if (!virtualDraft && isPairing(patch)) {
+      const assigned = patch.pairing.slotIndex != null;
+      c.fillStyle = assigned ? '#0d6626' : '#cc0d0d';
+      c.fillRect(0, 0, 300, 400);
+      c.fillStyle = '#fff'; c.font = '24px sans-serif';
+      c.fillText(assigned ? 'ASSIGNED' : 'PAIRING', 20, 170);
+      c.font = '18px sans-serif';
+      c.fillText(assigned ? `Slot ${patch.pairing.slotIndex}` : 'Tap phone to assign', 20, 210);
+      continue;
+    }
     if (mode !== "exhibition" && !virtualDraft) continue;
-    const art =
-      patch.artwork?.pending?.phase === "scheduled" &&
-      now >= patch.artwork.pending.startAtServerMs
-        ? patch.artwork.pending
-        : patch.artwork?.active;
+    const art = artworkAt(patch, now);
+    if (art?.deploymentId !== artwork?.deploymentId || art?.startAtServerMs !== artwork?.startAtServerMs) {
+      render(); return;
+    }
+    if (!slot && !virtualDraft) {
+      c.fillStyle = '#7b9d92'; c.font = '20px monospace';
+      c.fillText('No phone assigned', 20, 50);
+      continue;
+    }
     if (virtualDraft || art) {
       const manifest = virtualDraft ?? art.release.definition;
-      const layout = art?.release.layout;
+      const layout = virtualDraft ? null : art?.release.layout;
       const actual =
         layout?.slots.find((s) => s.deviceId === slot?.deviceId)?.geometry ?? g;
       drawArtwork(
@@ -324,6 +364,12 @@ function draw(time) {
         now,
         index,
       );
+      if (!canvas.hidden && manifest.elements.some(e => e.type === 'web')) {
+        c.fillStyle = '#000'; c.fillRect(0, 330, 300, 70);
+        c.fillStyle = '#fff'; c.font = '16px sans-serif';
+        c.fillText('Web artwork preview off', 10, 355);
+        c.fillText('Select phone + enable below', 10, 380);
+      }
       continue;
     }
     c.save();
@@ -468,10 +514,12 @@ $("draft-preview").onclick = run(() => {
   virtualDraft = JSON.parse($("artwork-draft").value);
   draftStarted = Date.now() + offset;
   $("release-status").textContent = "Local draft preview. No phones changed.";
+  if (data) render();
 });
 $("draft-live").onclick = () => {
   virtualDraft = null;
   $("release-status").textContent = "Showing live releases.";
+  if (data) render();
 };
 $("web-previews").onchange = () => {
   if (data) render();
@@ -506,6 +554,7 @@ $("preview").onclick = run(() => {
   draftStarted = Date.now() + offset;
   $("artwork-draft").value = JSON.stringify(virtualDraft, null, 2);
   $("release-status").textContent = "Virtual draft preview. Phones unchanged.";
+  if (data) render();
 });
 $("identify").onclick = run(() => api({ action: "identify", ...target() }));
 $('pairing-start').onclick=run(()=>api({action:'pairing.start'}));
@@ -516,6 +565,7 @@ $('send-test-text').onclick=run(async()=>{
   try {
     const result=await api({action:'test.text',speed:Number($('test-text-speed').value),text:$('test-text-message').value});
     testDeployment=result.deployment.id;testOffline=result.offline;
+    virtualDraft=null;
   } catch(error) {$('test-text-status').textContent=error.message;throw error;}
   finally {sendingTest=false;if(data)render();}
 });
@@ -586,18 +636,8 @@ const launchKey=new URLSearchParams(location.hash.slice(1)).get('operatorKey');
 if(launchKey!==null){history.replaceState(null,'',location.pathname+location.search);if(/^[a-f0-9]{64}$/.test(launchKey)){token=launchKey;api().catch(error=>status(error.message));}}
 setInterval(async () => {
   if (!token) return;
-  const sent = Date.now();
   try {
     await api();
-    const received = Date.now();
-    if (data.serverTimeMs) {
-      samples.push({
-        rtt: received - sent,
-        offset: data.serverTimeMs - (sent + received) / 2,
-      });
-      if (samples.length > 20) samples.shift();
-      offset = samples.reduce((a, b) => (a.rtt < b.rtt ? a : b)).offset;
-    }
   } catch (error) {
     status(`Controller unavailable: ${error.message}. Retrying…`);
   }

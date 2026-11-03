@@ -131,10 +131,11 @@ nav,
 }
 canvas {
   width: 100%;
-  height: 190px;
+  height: auto;
   background: #000;
   display: block;
 }
+#matrix-status { font: 12px/1.5 Menlo, monospace; color: var(--muted); }
 #wall p {
   font:
     11px/1.5 Menlo,

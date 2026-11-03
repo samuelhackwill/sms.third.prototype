@@ -143,6 +143,7 @@ export async function createController({
                 scene: display.scene,
                 mode: display.mode,
                 previewUntil: display.previewUntil,
+                pairing: pairing.status(d._id),
                 artwork: releases.snapshot(d._id),
               }
             : null,
