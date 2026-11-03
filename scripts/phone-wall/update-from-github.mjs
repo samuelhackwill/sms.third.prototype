@@ -39,6 +39,14 @@ async function download(url,limit) {
   for await(const chunk of response.body){size+=chunk.length;if(size>limit)throw new Error('Update download exceeds size limit');chunks.push(chunk);}
   return Buffer.concat(chunks);
 }
+async function connectedPhones(port,token) {
+  try {
+    const response=await fetch(`http://127.0.0.1:${port}/phone-wall/api`,{
+      headers:{Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(1000)});
+    if(!response.ok)return null;
+    return (await response.json()).devices.filter(device=>device.connected).length;
+  }catch{return null;}
+}
 async function stopService() {
   if(spawnSync('/bin/launchctl',['print','system/'+label],{stdio:'ignore'}).status===0)run('/bin/launchctl',['bootout','system/'+label]);
 }
@@ -92,6 +100,8 @@ async function update() {
     run(node,['--input-type=module','-e',`const {createController}=await import(${JSON.stringify(join(service,'app.mjs'))});const {app}=await createController({dataDir:${JSON.stringify(smokeData)},adminToken:'update-smoke-private-key-0000000000000000'});try{for(const url of ['/health','/admin/phone-wall']){const r=await app.inject({url});if(r.statusCode!==200)throw new Error('Update validation failed');}}finally{await app.close();}`]);
     await writeFile(join(candidate,'build-info.json'),JSON.stringify({version:format.version,gitCommit:commit,nodeVersion:process.version,updatedAt:new Date().toISOString()},null,2));
     const config=JSON.parse(await readFile(join(root,'config.json'),'utf8'));
+    const operatorKey=(await readFile(config.adminTokenFile,'utf8')).trim();
+    const connectedBefore=await connectedPhones(config.port,operatorKey);
     await activateUpdate({directory:root,candidate,stop:stopService,start:startService,
       backup:async()=>{
         const backup=join(root,'update-backup');await mkdir(backup,{recursive:true,mode:0o700});
@@ -106,6 +116,14 @@ async function update() {
         }
         return false;
       }});
+    if(connectedBefore!==null) {
+      let connectedAfter=await connectedPhones(config.port,operatorKey);
+      for(let i=0;i<20&&connectedAfter!==null&&connectedAfter<connectedBefore;i++) {
+        await new Promise(resolve=>setTimeout(resolve,1000));
+        connectedAfter=await connectedPhones(config.port,operatorKey);
+      }
+      console.log(`Phone connections after update: ${connectedAfter??'unavailable'} / ${connectedBefore} before update.`);
+    }
     try {await applyDashboardIcon({iconFile:join(root,'app/scripts/phone-wall/assets/dashboard.icns')});}
     catch(error){throw new Error(`Server updated, but the dashboard icon could not be applied. Run Update Phone Wall again. ${error.message}`);}
     console.log(`Updated to ${format.version} (${commit.slice(0,8)}). Open Phone Wall Dashboard.`);

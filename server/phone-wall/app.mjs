@@ -16,6 +16,7 @@ import { testTextDefinition } from './test-text.mjs';
 import { LiveTicker } from './live-ticker.mjs';
 import { KissingWall } from './kissing-wall.mjs';
 import { releaseHash } from './scenes.mjs';
+import { requestInstallationReset } from './reset.mjs';
 import {
   envelope,
   decode,
@@ -39,6 +40,7 @@ export async function createController({
   adminToken,
   logger = false,
   kissingOptions = {},
+  requestReset,
 } = {}) {
   if (typeof adminToken !== "string" || adminToken.length < 32)
     throw new Error(
@@ -146,6 +148,17 @@ export async function createController({
     reply.sendFile("index.html"),
   );
   app.get("/health", async () => ({ ok: true, protocol: 1 }));
+  app.post('/phone-wall/reset',{preHandler:authorize},async(req,reply)=>{
+    if(!requestReset)return reply.code(503).send({error:'installation-reset-unavailable'});
+    await requestInstallationReset(dataDir);
+    const online=sessions.size;
+    const commandId=randomBytes(16).toString('hex');
+    for(const ws of sessions.values())send(ws,'command',{name:'clearCache',commandId});
+    reply.raw.once('finish',()=>setTimeout(()=>{
+      Promise.resolve().then(requestReset).catch(error=>app.log.error({error},'installation-reset-restart-failed'));
+    },2000));
+    return {ok:true,online};
+  });
   app.get("/phone-wall/scene-schema", async (req, reply) =>
     reply
       .type("application/schema+json")

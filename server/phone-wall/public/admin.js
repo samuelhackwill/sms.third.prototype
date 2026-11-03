@@ -693,6 +693,31 @@ $('live-start').onclick=run(async()=>{
   await api({action:'live.start'});
 });
 $('live-pause').onclick=run(()=>api({action:'live.pause'}));
+$('reset-installation').onclick=run(async()=>{
+  if(!confirm('Erase all Phone Wall pairings, wall settings, queued messages and downloaded media, then restart the controller?'))return;
+  const button=$('reset-installation'),before=data?.state?.installationId;
+  button.disabled=true;
+  $('reset-status').textContent='Resetting installation data…';
+  try {
+    const response=await fetch('/phone-wall/reset',{method:'POST',headers:{Authorization:`Bearer ${token}`}});
+    const result=await response.json();
+    if(!response.ok)throw new Error(result.error);
+    $('reset-status').textContent=`Controller restarting. ${result.online} connected phones received a media clear command.`;
+    for(let attempt=0;attempt<45;attempt++) {
+      await new Promise(resolve=>setTimeout(resolve,1000));
+      try {
+        await api();
+        if(before&&data.state.installationId!==before) {
+          selected.clear();virtualDraft=null;edited=false;
+          render();
+          $('reset-status').textContent='Installation reset complete. Pair the phones again.';
+          return;
+        }
+      }catch{}
+    }
+    $('reset-status').textContent='Reset requested. The controller has not returned yet; check its service log.';
+  }finally{button.disabled=false;}
+});
 function kissingSettings(){return {trim:$('kissing-trim').checked,trimStartOffsetSec:Number($('kissing-before').value),trimEndOffsetSec:Number($('kissing-after').value),revealDurationMs:Number($('kissing-in').value),fadeOutDurationMs:Number($('kissing-out').value)};}
 $('kissing-start').onclick=run(async()=>{await api({action:'kissing.start',settings:kissingSettings()});virtualDraft=null;});
 $('kissing-stop').onclick=run(()=>api({action:'kissing.stop'}));
