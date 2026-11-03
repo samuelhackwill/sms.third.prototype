@@ -12,6 +12,14 @@ const selected = new Set(),
   samples = [];
 let wallSignature = "";
 let testDeployment = null, testOffline = 0, sendingTest = false;
+let testSpeedEdited=false;
+let testMessageEdited=false;
+const defaultTestMessage=$('test-text-message').value;
+$('test-text-message').oninput=()=>{testMessageEdited=true;};
+function showTestSpeed() {
+  $('test-text-speed-value').textContent=`${$('test-text-speed').value} logical px/s`;
+}
+$('test-text-speed').oninput=()=>{testSpeedEdited=true;showTestSpeed();};
 function selectTab(name) {
   for(const tab of ['control','advanced']) {
     const selected=tab===name;
@@ -86,6 +94,9 @@ function render() {
   const state = data.state,
     devices = data.devices;
   const pairing=data.pairing;
+  if(!testSpeedEdited)$('test-text-speed').value=state.testTextSpeed??240;
+  if(!testMessageEdited)$('test-text-message').value=state.testText??defaultTestMessage;
+  showTestSpeed();
   const test=data.artwork.deployments.find(d=>d.id===testDeployment);
   const busy=test&&['preparing','scheduled'].includes(test.phase);
   $('send-test-text').disabled=sendingTest||!!pairing?.active||!!busy;
@@ -240,6 +251,7 @@ function render() {
         ? `App ${device.appVersion} · scene ${t.currentSceneId ?? "?"}`
         : "",
       device?.lastError ?? "",
+      typeof t.displayLinkFps==='number'&&t.displayLinkFps>=0?`Display callbacks: ~${Math.round(t.displayLinkFps)} fps${t.targetFps?` / target ${t.targetFps}`:''}`:'',
       device?.artworkStatus
         ? `Artwork: ${device.artworkStatus.status} ${device.artworkStatus.code ?? ""}`
         : "",
@@ -502,7 +514,7 @@ $('send-test-text').onclick=run(async()=>{
   sendingTest=true;testDeployment=null;$('send-test-text').disabled=true;
   $('test-text-status').textContent='Sending test…';
   try {
-    const result=await api({action:'test.text'});
+    const result=await api({action:'test.text',speed:Number($('test-text-speed').value),text:$('test-text-message').value});
     testDeployment=result.deployment.id;testOffline=result.offline;
   } catch(error) {$('test-text-status').textContent=error.message;throw error;}
   finally {sendingTest=false;if(data)render();}

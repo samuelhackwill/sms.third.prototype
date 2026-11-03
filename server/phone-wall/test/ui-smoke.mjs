@@ -89,9 +89,17 @@ try {
   await page.waitForFunction(()=>document.querySelector('#pairing-status').textContent.includes('PAIRING ACTIVE'));
   await page.getByRole('button',{name:'Stop Pairing',exact:true}).click();
   await page.waitForFunction(()=>document.querySelector('#pairing-status').textContent.includes('Pairing stopped'));
+  await page.locator('#test-text-speed').focus();
+  await page.keyboard.press('Home');
+  for(let step=0;step<10;step++)await page.keyboard.press('ArrowRight');
+  assert.equal(await page.locator('#test-text-speed-value').textContent(),'120 logical px/s');
+  const emojiMessage='Bla bla bla 🍆 ❤️ 👍🏽 👩🏽‍🔧 🇫🇷 👨‍👩‍👧‍👦';
+  await page.locator('#test-text-message').fill(emojiMessage);
   await page.getByRole('button',{name:'Send Test Text',exact:true}).click();
   await page.waitForFunction(()=>document.querySelector('#test-text-status').textContent.includes('Test sent to 1 phone'));
   assert.equal(phone.activeArtwork.release.definition.artworkId,'operator-test-text');
+  assert.equal(phone.activeArtwork.release.definition.parameters.speed,120);
+  assert.equal(phone.activeArtwork.release.definition.elements[0].text,emojiMessage);
   await page.getByRole('tab',{name:'Advanced',exact:true}).click();
   await page.locator("#scene [name=kind]").selectOption("solid");
   await page

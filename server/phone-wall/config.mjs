@@ -1,5 +1,6 @@
 import { defaultState, scheduledMode, validId } from "../../protocol/core.mjs";
 import { randomUUID } from "node:crypto";
+import { validateTestText } from './test-text.mjs';
 
 export function initialConfig() {
   const value = defaultState();
@@ -21,6 +22,8 @@ export function validateConfig(config) {
     throw new Error("invalid-mode");
   if (!finite(config.brightness, 0, 1) || !finite(config.nightBrightness, 0, 1))
     throw new Error("invalid-brightness");
+  if(config.testTextSpeed!==undefined&&!finite(config.testTextSpeed,20,1000))throw new Error('invalid-test-text-speed');
+  if(config.testText!==undefined)validateTestText(config.testText);
   const { rows, columns, slots, gap } = config.layout ?? {};
   if (
     ![rows, columns].every((n) => Number.isInteger(n) && n > 0 && n <= 30) ||

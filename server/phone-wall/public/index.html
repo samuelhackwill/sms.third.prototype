@@ -38,7 +38,13 @@
       <section class="operator-step">
         <p class="eyebrow">02 / TRY THE WALL</p>
         <h2>Send Test Text</h2>
-        <p>Send “Bla bla bla” across each paired row, from right to left. Rows start one after another.</p>
+        <p>Send text across each paired row, from right to left. Rows start one after another.</p>
+        <label for="test-text-message">Test message (emoji supported)</label>
+        <input id="test-text-message" type="text" maxlength="500" value="Bla bla bla 🍆 ❤️ 👩🏽‍🔧 🇫🇷" autocomplete="off" aria-describedby="test-text-message-help" />
+        <p id="test-text-message-help">Up to 120 characters. Emoji appearance depends on the phone's iOS version.</p>
+        <label for="test-text-speed">Text speed <output id="test-text-speed-value" for="test-text-speed">240 logical px/s</output></label>
+        <input id="test-text-speed" type="range" min="20" max="1000" step="10" value="240" aria-describedby="test-text-speed-help" />
+        <p id="test-text-speed-help">Slower ← → Faster. Choose a speed, then send a new test. Try 80–120 for slower motion.</p>
         <button id="send-test-text" type="button" disabled>Send Test Text</button>
         <p id="test-text-status" role="status">Pair your phones first, then send a test. No phone-app update needed.</p>
       </section>

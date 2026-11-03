@@ -15,6 +15,8 @@ final class DeclarativeSceneView: UIView {
     private var observers: [NSKeyValueObservation] = []
     private var started = false
     private var mode = "exhibition"
+    private var textWidths: [String:Double] = [:]
+    private var viewportSize = CGSize(width:-1,height:-1)
     var onFailure: ((String)->Void)?
     var onDiagnostic: ((String)->Void)?
     init(manifest: ArtworkManifest, deviceId: String) throws {
@@ -29,12 +31,22 @@ final class DeclarativeSceneView: UIView {
         var decodedPixels = 0
         for e in manifest.definition.elements {
             try Task.checkCancellation()
+            let geometry = slot.geometry
+            let staysInRow = e.animation?.property != "y" && e.animation?.property != "rotation" && (e.rotation ?? 0) == 0
+            if ["text","ticker"].contains(e.type), staysInRow,
+               e.frame.y+e.frame.height <= geometry.y || e.frame.y >= geometry.y+geometry.height { continue }
             let view: UIView
             let intersects = CGRect(x:e.frame.x,y:e.frame.y,width:e.frame.width,height:e.frame.height).intersects(CGRect(x:slot.geometry.x,y:slot.geometry.y,width:slot.geometry.width,height:slot.geometry.height))
             if !intersects && e.animation == nil && ["image","video","web"].contains(e.type) { let placeholder = UIView(); views[e.id] = placeholder; addSubview(placeholder); continue }
             switch e.type {
             case "text","ticker":
-                let label = UILabel(); label.text = (e.text ?? "").replacingOccurrences(of:"{deviceId}",with:slot.deviceId).replacingOccurrences(of:"{row}",with:String(slot.slotIndex/max(1,manifest.layout.columns)+1)).replacingOccurrences(of:"{column}",with:String(slot.slotIndex%max(1,manifest.layout.columns)+1)); label.font = .monospacedSystemFont(ofSize:e.fontSize ?? 48,weight:.regular); label.textColor = .artwork(e.color); label.numberOfLines = e.type == "ticker" ? 1 : 0; view = label
+                let label = UILabel(); label.text = (e.text ?? "").replacingOccurrences(of:"{deviceId}",with:slot.deviceId).replacingOccurrences(of:"{row}",with:String(slot.slotIndex/max(1,manifest.layout.columns)+1)).replacingOccurrences(of:"{column}",with:String(slot.slotIndex%max(1,manifest.layout.columns)+1))
+                label.font = .monospacedSystemFont(ofSize:e.fontSize ?? 48,weight:.regular)
+                label.textColor = .artwork(e.color)
+                label.numberOfLines = e.type == "ticker" || manifest.definition.artworkId == "operator-test-text" ? 1 : 0
+                label.lineBreakMode = label.numberOfLines == 1 ? .byClipping : .byWordWrapping
+                textWidths[e.id] = ceil((label.text! as NSString).size(withAttributes:[.font:label.font!]).width)
+                view = label
             case "rect": view = UIView(); view.backgroundColor = .artwork(e.color)
             case "image":
                 guard let asset = e.asset, let file = files[asset], let source = CGImageSourceCreateWithURL(file as CFURL,nil), let image = CGImageSourceCreateThumbnailAtIndex(source,0,[kCGImageSourceCreateThumbnailFromImageAlways:true,kCGImageSourceCreateThumbnailWithTransform:true,kCGImageSourceThumbnailMaxPixelSize:2048] as CFDictionary) else { throw ArtworkFailure.missingAsset }
@@ -62,6 +74,7 @@ final class DeclarativeSceneView: UIView {
                 webs.append(surface); view = surface
             default: throw ArtworkFailure.invalidManifest
             }
+            view.layer.anchorPoint = .zero
             views[e.id] = view; addSubview(view)
         }
         render(serverMs:0,startAt:0,offset:offset)
@@ -76,27 +89,40 @@ final class DeclarativeSceneView: UIView {
         throw ArtworkFailure.timeout
     }
     func render(serverMs: Double, startAt: Double, offset: Double) {
+        guard bounds.width > 0, bounds.height > 0 else { return }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
         let elapsed = max(0,serverMs-startAt),g = slot.geometry,sx = bounds.width/g.width,sy = bounds.height/g.height
+        let resized = bounds.size != viewportSize
+        if resized { viewportSize = bounds.size }
         for e in manifest.definition.elements {
             guard let view = views[e.id] else { continue }
             var x = e.frame.x,y = e.frame.y,opacity = e.opacity ?? 1,rotation = e.rotation ?? 0,width = e.frame.width
-            if e.type == "ticker", let label = view as? UILabel {
-                width = (label.text! as NSString).size(withAttributes:[.font:UIFont.monospacedSystemFont(ofSize:e.fontSize ?? 48,weight:.regular)]).width
+            if e.type == "ticker" {
+                width = textWidths[e.id] ?? e.frame.width
                 x = e.frame.x+e.frame.width-(elapsed/1000*(e.speed ?? 100)).truncatingRemainder(dividingBy:e.frame.width+width)
             }
             if let a = e.animation {
                 let value = a.value(at:elapsed)
                 switch a.property { case "x":x = value;case "y":y = value;case "opacity":opacity = value;case "rotation":rotation = value;default:break }
             }
-            view.transform = .identity
+            var position = CGPoint(x:(x-g.x)*sx,y:(y-g.y)*sy)
             if e.type == "web" {
                 let intersection = CGRect(x:x,y:y,width:width,height:e.frame.height).intersection(CGRect(x:g.x,y:g.y,width:g.width,height:g.height))
-                view.frame = intersection.isNull ? .zero : CGRect(x:(intersection.minX-g.x)*sx,y:(intersection.minY-g.y)*sy,width:intersection.width*sx,height:intersection.height*sy)
-            } else { view.frame = CGRect(x:(x-g.x)*sx,y:(y-g.y)*sy,width:width*sx,height:e.frame.height*sy) }
-            if let label = view as? UILabel { label.font = .monospacedSystemFont(ofSize:(e.fontSize ?? 48)*sy,weight:.regular) }
-            view.alpha = opacity; view.transform = CGAffineTransform(rotationAngle:rotation * .pi/180)
+                let frame = intersection.isNull ? CGRect.zero : CGRect(x:(intersection.minX-g.x)*sx,y:(intersection.minY-g.y)*sy,width:intersection.width*sx,height:intersection.height*sy)
+                if view.bounds.size != frame.size { view.bounds = CGRect(origin:.zero,size:frame.size) }
+                position = frame.origin
+            } else if resized {
+                // Fonts and text backing stores change only when the viewport changes.
+                view.bounds = CGRect(x:0,y:0,width:width*sx,height:e.frame.height*sy)
+                if let label = view as? UILabel { label.font = .monospacedSystemFont(ofSize:(e.fontSize ?? 48)*sy,weight:.regular) }
+            }
+            if view.layer.position != position { view.layer.position = position }
+            if view.layer.opacity != Float(opacity) { view.layer.opacity = Float(opacity) }
+            let transform = CGAffineTransform(rotationAngle:rotation * .pi/180)
+            if view.layer.affineTransform() != transform { view.layer.setAffineTransform(transform) }
         }
-        for (view,layer) in videos { layer.frame = view.bounds }
+        if resized { for (view,layer) in videos { layer.frame = view.bounds } }
         for web in webs { web.update(offset:offset,start:startAt,playing:started && mode == "exhibition") }
     }
     func activate(serverMs: Double,startAt: Double,offset: Double) {

@@ -29,6 +29,8 @@ Blackout/resume/restartScene modify persistent desired state and distribute snap
 
 Operator `POST /phone-wall/api` action `test.text` creates a schema-v1 native text release: one right-to-left x animation per occupied row, delayed 750 ms between rows. Only online paired phones enter its readiness barrier; the response reports online/offline counts and the deployment descriptor. Pairing must be stopped first. It sets exhibition mode and clears previews/overrides but preserves prior immutable releases for rollback. This is supported by existing runtime 2.x; no new phone protocol or renderer is required.
 
+`test.text` optionally accepts numeric `speed` (20–1000 logical pixels/second). It is converted into each row's animation duration; the 750 ms stagger remains unchanged. The sent speed is persisted as `state.testTextSpeed` and included in scene parameters. Omitting speed reuses the saved value or defaults to 240. Changes apply to the newly published test, not in place to an active immutable release. Current native CADisplayLink requests 30 fps; that is a target, not measured performance or a synchronization guarantee.
+
 - `GET /health`: liveness, no secrets.
 - `GET /phone-wall/api`: operator state, history and health, never credential hashes.
 - `POST /phone-wall/api`: pair, configure, rollback, scene, mode, layout, schedule, preview, identify, sync, command. Configure/rollback require expectedRevision. Atomic configure accepts the entire document. Groups are `name:[deviceIds]`; slots are explicit deviceId/slotIndex/geometry entries. Schedule uses IANA timezone/startMinute/endMinute; manual mode changes disable scheduling.

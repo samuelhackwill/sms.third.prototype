@@ -14,6 +14,9 @@ final class StableWallController: UIViewController {
     private var pairingAssigned = false
     private var beforePairingBrightness: CGFloat?
     private var pairingExpiry: DispatchWorkItem?
+    private var frameWindowStart: CFTimeInterval = 0
+    private var frameCount = 0
+    private var displayLinkFps = -1.0
     private func setPaired(_ paired: Bool) {
         setup.isHidden = paired
         if paired { view.endEditing(true) }
@@ -52,9 +55,9 @@ final class StableWallController: UIViewController {
         connection.onStatus = { [weak self] status in self?.label.text = status }
         connection.heartbeat = { [weak self] in
             guard let self = self else { return [:] }
-            return ["battery":UIDevice.current.batteryLevel,"charging":[UIDevice.BatteryState.charging,.full].contains(UIDevice.current.batteryState),"thermalState":ProcessInfo.processInfo.thermalState.rawValue,"foreground":UIApplication.shared.applicationState == .active,"lastRevision":self.state.revision,"currentSceneId":self.runtime.activeReleaseId ?? "legacy","uptime":ProcessInfo.processInfo.systemUptime-self.boot,"mediaState":self.runtime.status]
+            return ["battery":UIDevice.current.batteryLevel,"charging":[UIDevice.BatteryState.charging,.full].contains(UIDevice.current.batteryState),"thermalState":ProcessInfo.processInfo.thermalState.rawValue,"foreground":UIApplication.shared.applicationState == .active,"lastRevision":self.state.revision,"currentSceneId":self.runtime.activeReleaseId ?? "legacy","uptime":ProcessInfo.processInfo.systemUptime-self.boot,"mediaState":self.runtime.status,"displayLinkFps":self.displayLinkFps,"targetFps":60]
         }
-        displayLink = CADisplayLink(target:self,selector:#selector(tick)); displayLink?.preferredFramesPerSecond = 30; displayLink?.add(to:.main,forMode:.common)
+        displayLink = CADisplayLink(target:self,selector:#selector(tick(_:))); displayLink?.preferredFramesPerSecond = 60; displayLink?.add(to:.main,forMode:.common)
         configure()
         discovery.onEndpoint = { [weak self] endpoint in guard let self = self else { return }; self.connection.discoveredEndpoint = endpoint; if !self.connection.isConnected { self.connection.endpoint = endpoint; self.connection.connect() } }; discovery.start()
     }
@@ -124,5 +127,13 @@ final class StableWallController: UIViewController {
         if identifying || runtime.activeReleaseId == nil { legacy.state = payload; legacy.deviceId = connection.deviceId; legacy.serverMs = { [weak self] in Date().timeIntervalSince1970*1000+(self?.connection.offset ?? 0) } }
         connection.send("client.ack",["result":"configuration-received","revision":revision])
     }
-    @objc private func tick() { runtime.tick(); if identifying || runtime.activeReleaseId == nil { legacy.setNeedsDisplay() } }
+    @objc private func tick(_ link: CADisplayLink) {
+        if frameWindowStart == 0 { frameWindowStart = link.timestamp }
+        frameCount += 1
+        let interval = link.timestamp-frameWindowStart
+        if interval >= 2 { displayLinkFps = Double(frameCount-1)/interval; frameWindowStart = link.timestamp; frameCount = 1 }
+        let lead = max(0,min(0.1,link.targetTimestamp-CACurrentMediaTime()))*1000
+        runtime.tick(presentationLeadMs:lead)
+        if identifying || runtime.activeReleaseId == nil { legacy.setNeedsDisplay() }
+    }
 }

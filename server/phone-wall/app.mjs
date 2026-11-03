@@ -190,9 +190,11 @@ export async function createController({
       if(pairing.status().active)throw new Error('stop-pairing-before-sending-test-text');
       const ids=state.layout.slots.map(slot=>slot.deviceId).filter(id=>sessions.has(id));
       if(!ids.length)throw new Error('no-paired-phones-online');
-      const release=releases.create(testTextDefinition(state.layout));
+      const speed=input.speed??state.testTextSpeed??240;
+      const text=input.text??state.testText??'Bla bla bla';
+      const release=releases.create(testTextDefinition(state.layout,{speed,text}));
       const deployment=releases.deploy(release.id,ids,{delayMs:1500});
-      store.commit({...state,mode:'exhibition',schedule:null,overrides:{}},previous.revision);
+      store.commit({...state,testTextSpeed:speed,testText:text,mode:'exhibition',schedule:null,overrides:{}},previous.revision);
       store.db.prepare('DELETE FROM previews').run();
       broadcast();broadcastPairing();
       return {ok:true,deployment,online:ids.length,offline:state.layout.slots.length-ids.length};
@@ -563,6 +565,8 @@ export async function createController({
             uptime: Number(p.uptime) || 0,
             freeDisk: Number(p.freeDisk) || 0,
             mediaState: String(p.mediaState ?? "").slice(0, 40),
+            displayLinkFps:Number.isFinite(p.displayLinkFps)&&p.displayLinkFps>=0&&p.displayLinkFps<=120?p.displayLinkFps:-1,
+            targetFps:Number.isFinite(p.targetFps)&&p.targetFps>=1&&p.targetFps<=120?p.targetFps:null,
           };
           store.updateDevice(device._id, {
             telemetry,

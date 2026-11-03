@@ -13,6 +13,10 @@
 .operator-step h2 { font-size: clamp(32px,5vw,52px); margin: 12px 0; }
 .operator-step button { padding: 16px 24px; font-size: 20px; }
 .operator-step [role="status"] { color: var(--muted); }
+#test-text-speed { width: 100%; padding: 0; accent-color: var(--ink); }
+#test-text-message { width: 100%; }
+#test-text-speed-value { font-variant-numeric: tabular-nums; }
+#test-text-speed-help { color: var(--muted); font-size: 14px; }
 * {
   box-sizing: border-box;
 }

@@ -84,8 +84,8 @@ import UIKit
         do { try await view.prepare(files:files,library:library,offset:clockOffset()); return Prepared(deployment:deployment,view:view) }
         catch { view.stop(); throw error }
     }
-    func tick() {
-        let now = Date().timeIntervalSince1970*1000+clockOffset()
+    func tick(presentationLeadMs: Double = 0) {
+        let now = Date().timeIntervalSince1970*1000+clockOffset()+presentationLeadMs
         if let next = candidate, let start = next.deployment.startAtServerMs, now>=start { activate(next,persist:true,sendStatus:true) }
         guard mode == "exhibition", let active = active, let start = active.deployment.startAtServerMs else { return }
         active.view.render(serverMs:now,startAt:start,offset:clockOffset())
