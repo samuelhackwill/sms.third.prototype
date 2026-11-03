@@ -23,15 +23,15 @@ actor MediaManager {
     func pinKissing(_ hashes: Set<String>) { kissingPins = hashes }
     func videoFile(_ file: URL) throws -> URL {
         guard file.deletingLastPathComponent() == root, file.lastPathComponent.count == 64 else { throw MediaFailure.invalidManifest }
-        // AVFoundation needs the container extension; retain one checksummed blob, not a second copy.
+        // AVFoundation needs the container extension. A hard link keeps the cached bytes in one place.
         let links = root.appendingPathComponent("VideoLinks",isDirectory:true)
         try FileManager.default.createDirectory(at:links,withIntermediateDirectories:true)
         let alias = links.appendingPathComponent(file.lastPathComponent+".mp4")
-        let target = "../"+file.lastPathComponent
-        if (try? FileManager.default.destinationOfSymbolicLink(atPath:alias.path)) != target {
-            try? FileManager.default.removeItem(at:alias)
-            try FileManager.default.createSymbolicLink(atPath:alias.path,withDestinationPath:target)
-        }
+        try FileManager.default.setAttributes([.protectionKey:FileProtectionType.none],ofItemAtPath:file.path)
+        try? FileManager.default.removeItem(at:alias)
+        do { try FileManager.default.linkItem(at:file,to:alias) }
+        catch { try FileManager.default.copyItem(at:file,to:alias) }
+        try FileManager.default.setAttributes([.protectionKey:FileProtectionType.none],ofItemAtPath:alias.path)
         return alias
     }
     private func removeVideoAlias(_ hash: String) {

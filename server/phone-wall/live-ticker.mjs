@@ -37,10 +37,11 @@ export class LiveTicker {
     if(!this.db.prepare('PRAGMA table_info(ticker_messages)').all().some(column=>column.name==='source'))this.db.exec("ALTER TABLE ticker_messages ADD COLUMN source TEXT NOT NULL DEFAULT 'messages'");
     // Playback acknowledgments from a previous process cannot establish current readiness.
     this.db.prepare("UPDATE ticker_messages SET status='queued',run=NULL WHERE status IN ('preparing','playing')").run();
+    this.db.prepare("UPDATE ticker_settings SET enabled=1 WHERE mode='messages'").run();
   }
   get enabled(){return this.db.prepare('SELECT enabled FROM ticker_settings WHERE id=1').get().enabled===1;}
   get playbackMode(){return this.db.prepare('SELECT mode FROM ticker_settings WHERE id=1').get().mode;}
-  get messagesEnabled(){return this.enabled&&this.playbackMode==='messages';}
+  get messagesEnabled(){return true;}
   start(){this.requeue();this.db.prepare("UPDATE ticker_settings SET enabled=1,mode='messages' WHERE id=1").run();}
   startBarthes(){
     sentences();

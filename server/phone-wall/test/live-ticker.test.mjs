@@ -45,6 +45,17 @@ test('offline rows do not block other rows; pause/restart/timeouts preserve unfi
   const restarted=new LiveTicker(store);assert.equal(restarted.status().queued,2);assert.equal(restarted.enabled,true);
   restarted.tick(new Set(ids),false);assert.equal(restarted.runs().length,0);
 });
+test('reader polls without an operator start and a restart resumes message playback',async t=>{
+  const {ticker,store,ingest}=await fixture(t);
+  assert.equal(ticker.enabled,true);
+  assert.equal(ticker.messagesEnabled,true);
+  assert.equal(ingest([{rowId:1,id:'auto-message',text:'Automatic'}]).inserted,1);
+  ticker.pause();
+  assert.equal(ticker.messagesEnabled,true);
+  const restarted=new LiveTicker(store);
+  assert.equal(restarted.enabled,true);
+  assert.equal(restarted.status().queued,1);
+});
 test('reader cursor and deduplication commit atomically, including skipped database rows',async t=>{
   const {ticker,ingest}=await fixture(t);
   assert.equal(ingest([{rowId:1,id:'guid-one',text:'First 🍆'}]).inserted,1);
@@ -74,7 +85,7 @@ test('Roland Barthes mode queues archived sentences at fast speeds and preserves
   assert.equal(ticker.playbackMode,'barthes');
   assert.equal(ticker.status().queued,12);
   assert.match(store.db.prepare("SELECT text FROM ticker_messages WHERE source='barthes' ORDER BY seq LIMIT 1").get().text,/Comment est fait ce livre/);
-  assert.equal(ticker.messagesEnabled,false);
+  assert.equal(ticker.messagesEnabled,true);
   ticker.tick(new Set(ids),true,1000);
   const runs=ticker.runs();
   assert.equal(runs.length,2);

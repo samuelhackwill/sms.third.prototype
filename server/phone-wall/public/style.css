@@ -23,22 +23,15 @@
 #matrix-panel #wall article[data-connection="online"]::after { background: #4de0ce; }
 #matrix-panel #wall article[data-connection="offline"]::after { background: var(--accent); }
 #matrix-panel #wall article.inspected { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
-.phone-power { display: grid; gap: 2px; text-align: center; font: 8px/1.3 Menlo, monospace; padding: 3px 0 1px; }
-.battery-level { font-weight: bold; font-size: 10px; }
-.power-source { border-radius: 2px; background: #d9ddd3; padding: 2px 0; }
-[data-power="plugged"] .power-source { color: #205c36; background: #cce4ce; }
-[data-power="unplugged"] .power-source { color: #8a2d16; background: #f6d5c6; font-weight: bold; }
-.power-age { color: var(--muted); font-size: 7px; }
-.phone-health { display: grid; gap: 2px; font: 8px/1.3 Menlo, monospace; text-align: center; margin-top: 2px; }
-.thermal-label { padding: 2px 0; color: var(--muted); }
-[data-heat="1"] .thermal-label { background: #f6e7c6; color: #72531b; }
-[data-heat="2"] .thermal-label, [data-heat="3"] .thermal-label { background: #a93423; color: #fff; font-weight: bold; }
-.health-label { color: #a93423; font-weight: bold; }
 #matrix-panel #wall article[data-connection="empty"] { cursor: default; }
 #phone-details { margin: 16px 0; border-top: 1px solid var(--line); padding-top: 12px; }
 #phone-details h3 { font: bold 13px/1.5 Menlo, monospace; margin: 0 0 8px; }
 #phone-details p { font: 11px/1.5 Menlo, monospace; overflow-wrap: anywhere; }
 #phone-details button { font-size: 11px; margin: 4px 0; padding: 8px; }
+#error-log { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
+#error-log h3 { font: bold 13px/1.5 Menlo, monospace; }
+#error-log-entries { max-height: 260px; overflow-y: auto; }
+#error-log-entries p { font: 11px/1.5 Menlo, monospace; padding: 5px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
 #matrix-panel > label { display: flex; align-items: center; font-size: 11px; }
 .operator-step { padding: 24px 0 36px; border-bottom: 1px solid var(--line); }
 .operator-step h2 { font-size: clamp(32px,5vw,52px); margin: 12px 0; }

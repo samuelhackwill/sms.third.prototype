@@ -185,6 +185,9 @@ export class Store {
       .prepare("INSERT INTO events(device_id,at,data) VALUES(?,?,?)")
       .run(id, Date.now(), JSON.stringify(data));
   }
+  errors(limit=100) {
+    return this.db.prepare("SELECT device_id AS deviceId,at,data FROM events WHERE json_extract(data,'$.kind')='error' ORDER BY id DESC LIMIT ?").all(limit).map(row=>({record:JSON.parse(row.data),deviceId:row.deviceId,at:row.at}));
+  }
   prune() {
     this.db
       .prepare("DELETE FROM events WHERE at<?")

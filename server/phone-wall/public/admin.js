@@ -1,5 +1,4 @@
 import { drawArtwork, hasTestTextPreview } from "./scene-preview.js";
-import { powerReading } from './device-health.js';
 const $ = (id) => document.getElementById(id);
 function requestId(){if(typeof crypto.randomUUID==='function')return crypto.randomUUID();return Array.from(crypto.getRandomValues(new Uint8Array(16)),n=>n.toString(16).padStart(2,'0')).join('');}
 let virtualDraft = null;
@@ -114,81 +113,49 @@ function isPairing(patch) {
   return patch.pairing?.active && patch.pairing.expiresAt > Date.now() + offset;
 }
 
-function powerStatus(device) {
-  return powerReading(device,Date.now()+offset);
-}
-
-function updatePower(element, device) {
-  element.hidden = !device;
-  const power = powerStatus(device);
-  element.dataset.power = power.state;
-  element.querySelector('.battery-level').textContent = power.battery;
-  element.querySelector('.power-source').textContent = power.stale ? `${power.source} (last report)` : power.source;
-  element.querySelector('.power-age').hidden = !power.stale;
-}
-
-function healthStatus(device) {
-  const t = device?.telemetry ?? {}, power = powerStatus(device);
-  const thermal = [0, 1, 2, 3].includes(t.thermalState) ? t.thermalState : null;
-  const heat = thermal == null ? 'Heat ?' : ['Heat OK', 'Warm', 'Hot', 'Critical'][thermal];
-  const warnings = [];
-  if (device && !device.connected) warnings.push('Offline');
-  else if (power.stale) warnings.push('Stale data');
-  if (device?.lastError || device?.artworkStatus?.status === 'error') warnings.push('App error');
-  if (typeof t.battery === 'number' && t.battery >= 0 && t.battery <= 0.2 && t.charging === false) warnings.push('Low battery');
-  if (t.foreground === false) warnings.push('App in background');
-  if (t.targetFps > 0 && Number.isFinite(t.displayLinkFps) && t.displayLinkFps >= 0 && t.displayLinkFps < t.targetFps * 0.75) warnings.push('Display callbacks below target');
-  return { heat, thermal, warnings };
-}
-
-function updateHealth(element, device) {
-  element.hidden = !device;
-  const health = healthStatus(device);
-  element.dataset.heat = health.thermal == null ? 'unknown' : health.thermal;
-  element.querySelector('.thermal-label').textContent = health.heat;
-  const label = element.querySelector('.health-label');
-  const short = { 'App in background': 'App bg', 'Display callbacks below target': 'Low FPS', 'Low battery': 'Low batt' };
-  label.textContent = short[health.warnings[0]] ?? health.warnings[0] ?? '';
-  label.hidden = !health.warnings.length;
-}
-
 function renderPhoneDetails() {
   const slot = data.state.layout.slots.find(s => s.deviceId === inspectedDeviceId);
   const device = data.devices.find(d => d._id === slot?.deviceId);
   $('phone-details').hidden = !device;
   if (!device) return;
-  const power = powerStatus(device);
-  const health = healthStatus(device);
   const lines = deviceLines(device, slot.slotIndex);
   $('phone-details-heading').textContent = lines[0];
   $('phone-details-readings').replaceChildren(...lines.slice(1).filter(Boolean).map(line => {
     const p = document.createElement('p'); p.textContent = line; return p;
   }));
-  $('phone-details-age').textContent = power.stale ? 'Last reported readings. This phone is offline or its telemetry is stale.' : 'Phone readings arrive about every 12 seconds.';
-  $('phone-details-health').textContent = `Thermal: ${health.heat}${power.stale ? ' (last reported)' : ''}. ${health.warnings.join(' · ') || 'No health warnings reported.'}`;
   $('phone-details-preview').textContent = canvases.find(c => c.slot?.deviceId === device._id)?.previewNote.textContent ?? '';
   $('phone-select').textContent = selected.has(device._id) ? 'Deselect for Advanced actions' : 'Select for Advanced actions';
   $('phone-select').setAttribute('aria-pressed', String(selected.has(device._id)));
 }
 
 function deviceLines(device, index) {
-  const t = device?.telemetry ?? {},
-    age = Date.now() + offset - new Date(device?.lastSeenAt).getTime();
-  const art = artworkAt(device?.display ?? {});
-  const power = powerStatus(device);
+  const age = Date.now() + offset - new Date(device?.lastSeenAt).getTime();
   return [
     `R${Math.floor(index / data.state.layout.columns) + 1} C${index % data.state.layout.columns + 1} · Slot ${index}`,
     device ? device.connected ? 'ONLINE' : age < 60000 ? 'STALE' : 'OFFLINE' : 'EMPTY · no phone assigned',
-    device ? `Battery ${power.battery} · ${power.source}${power.source === 'Plugged' ? ' (charging or full)' : ''}${power.stale ? ' · last reported' : ''} · thermal ${t.thermalState ?? '?'}` : '',
-    device ? `Expected: ${device.display?.mode ?? data.state.mode} · ${device.display?.kissing?.enabled?'kissing-wall':art?.release.definition.artworkId ?? device.display?.scene?.kind ?? 'scene'}` : '',
-    device ? `App ${device.appVersion} · reported scene ${t.currentSceneId ?? '?'}` : '',
-    device?.lastError ?? '',
-    typeof t.displayLinkFps === 'number' && t.displayLinkFps >= 0 ? `Display callbacks: ~${Math.round(t.displayLinkFps)} fps${t.targetFps ? ` / target ${t.targetFps}` : ''}` : '',
-    device?.artworkStatus ? `Artwork: ${device.artworkStatus.status} ${device.artworkStatus.code ?? ''}` : '',
-    device?.display?.kissing?.enabled ? `Kissing Wall: ${device.kissingStatus?.status??'waiting'}${device.kissingStatus?.code?' · '+device.kissingStatus.code:''}` : '',
-    device?.connectionIssue ? `Last connection issue: ${device.connectionIssue.reason}${device.connectionIssue.messageType?' · '+device.connectionIssue.messageType:''}` : '',
-    device?.lastDisconnect ? `Last disconnect: ${device.lastDisconnect.reason} (code ${device.lastDisconnect.code})` : '',
+    device ? `App ${device.appVersion ?? '?'}` : '',
+    device?.lastError ? `Error ${device.lastError}` : '',
   ];
+}
+function renderErrors() {
+  const entries = (data.errors ?? []).map(entry => ({
+    at: entry.at, deviceId: entry.deviceId,
+    source: entry.record?.source ?? 'phone', code: entry.record?.code ?? entry.record?.result ?? 'error',
+    appVersion: entry.record?.appVersion,
+  }));
+  for (const device of data.devices) {
+    if (!device.lastError || entries.some(entry => entry.deviceId === device._id && entry.code === device.lastError)) continue;
+    entries.push({at: device.lastSeenAt, deviceId: device._id, source: 'current', code: device.lastError, appVersion: device.appVersion});
+  }
+  entries.sort((a,b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+  const slots = new Map(data.state.layout.slots.map(slot => [slot.deviceId, slot.slotIndex]));
+  $('error-log-entries').replaceChildren(...entries.slice(0,100).map(entry => {
+    const p = document.createElement('p');
+    const slot = slots.get(entry.deviceId);
+    p.textContent = `${entry.at ? new Date(entry.at).toLocaleString() : 'Unknown time'} · ${slot == null ? entry.deviceId.slice(0,8) : `Slot ${slot}`} · App ${entry.appVersion ?? '?'} · ${entry.source}: ${entry.code}`;
+    return p;
+  }));
+  if (!entries.length) $('error-log-entries').textContent = 'No phone errors recorded.';
 }
 function render() {
   const state = data.state,
@@ -205,11 +172,12 @@ function render() {
   $('kissing-status').textContent=kissing?.upgradeRequired?.length?`Install phone app 2.4 on ${kissing.upgradeRequired.length} connected phones to enable video.`:
     `${kissing?.enabled?(state.mode==='exhibition'&&!pairing?.active?'PLAYING INDEPENDENTLY · SOUND ON':'PAUSED (night / pairing)'):'STOPPED'} · ${kissing?.clips??0} clips cached on Mac${kissing?.busy?' · downloading a clip':''}${kissing?.lastError?' · '+kissing.lastError:''}`;
   renderPhoneDetails();
+  renderErrors();
+  $('debug-toggle').textContent=state.debugEnabled?'Disable phone debug display':'Enable phone debug display';
+  $('debug-status').textContent=state.debugEnabled?'Visible on phones with app 2.4.2 or newer.':'Hidden on phones.';
   const live=data.ticker;
   const messagesActive=live?.enabled&&live.mode==='messages',barthesActive=live?.enabled&&live.mode==='barthes';
-  $('live-start').disabled=!!messagesActive||!!pairing?.active||!!live?.upgradeRequired?.length;
-  $('live-pause').disabled=!messagesActive;
-  $('live-status').textContent=`${messagesActive?(state.mode!=='exhibition'||pairing?.active?'WAITING (night / pairing)':'LIVE'):'PAUSED'} · ${live?.mode==='messages'?live.queued:0} waiting · ${messagesActive?live.active.length:0} active rows · ${live?.mode==='messages'?live.completed:0} completed`;
+  $('live-status').textContent=`Always watching · ${messagesActive?(state.mode!=='exhibition'||pairing?.active?'WAITING (night / pairing)':'PLAYING'):live?.mode==='barthes'?'Barthes artwork active':'Other artwork active'} · ${live?.mode==='messages'?live.queued:0} waiting · ${messagesActive?live.active.length:0} active rows`;
   $('barthes-start').disabled=!!barthesActive||!!pairing?.active||!!live?.upgradeRequired?.length||!state.layout.slots.length;
   $('barthes-stop').disabled=!barthesActive;
   $('barthes-status').textContent=live?.upgradeRequired?.length?`Install phone app 2.3 on ${live.upgradeRequired.length} connected phones.`:
@@ -282,13 +250,11 @@ function render() {
     ? 'LOCAL DRAFT · Phones are unchanged. Choose Show Live Wall to return to controller state.'
     : 'LIVE CONTROLLER STATE · 3s refresh. Offline phones may differ.';
   // Keep running web renderers alive across telemetry polls.
-  for (const { slot, index, labels, powerElement, healthElement } of canvases) {
+  for (const { slot, index, labels } of canvases) {
     const device = devices.find(d => d._id === slot?.deviceId);
     const lines = deviceLines(device, index);
     labels.forEach((label, i) => { label.textContent = i === 0 ? `R${Math.floor(index / state.layout.columns) + 1} C${index % state.layout.columns + 1}` : lines[i]; });
     const card = labels[0].parentElement;
-    updatePower(powerElement, device);
-    updateHealth(healthElement, device);
     card.setAttribute('aria-label', lines.filter(Boolean).join('. '));
     card.dataset.connection = device ? device.connected ? 'online' : 'offline' : 'empty';
   }
@@ -397,23 +363,11 @@ function render() {
       card.append(p);
       labels.push(p);
     }
-    const powerElement = document.createElement('div');
-    powerElement.className = 'phone-power';
-    for (const [className, text] of [['battery-level', ''], ['power-source', ''], ['power-age', 'Last report']]) {
-      const span = document.createElement('span'); span.className = className; span.textContent = text; powerElement.append(span);
-    }
-    updatePower(powerElement, device);
-    card.append(powerElement);
-    const healthElement = document.createElement('div'); healthElement.className = 'phone-health';
-    for (const className of ['thermal-label', 'health-label']) {
-      const span = document.createElement('span'); span.className = className; healthElement.append(span);
-    }
-    updateHealth(healthElement, device); card.append(healthElement);
     const previewNote = document.createElement('p');
     previewNote.className = 'preview-note';
     card.append(previewNote);
     $("wall").append(card);
-    canvases.push({ canvas, slot, index, labels, artwork: art, previewNote, powerElement, healthElement });
+    canvases.push({ canvas, slot, index, labels, artwork: art, previewNote });
   }
 }
 let lastFrame = 0;
@@ -693,11 +647,6 @@ $("preview").onclick = run(() => {
 $("identify").onclick = run(() => api({ action: "identify", ...target() }));
 $('pairing-start').onclick=run(()=>api({action:'pairing.start'}));
 $('pairing-stop').onclick=run(()=>api({action:'pairing.stop'}));
-$('live-start').onclick=run(async()=>{
-  if(!confirm('Show new incoming iMessages from this Mac on the wall? Existing history is skipped on the first connection.'))return;
-  await api({action:'live.start'});
-});
-$('live-pause').onclick=run(()=>api({action:'live.pause'}));
 $('barthes-start').onclick=run(()=>api({action:'barthes.start'}));
 $('barthes-stop').onclick=run(()=>api({action:'barthes.stop'}));
 $('reset-installation').onclick=run(async()=>{
@@ -812,3 +761,5 @@ setInterval(async () => {
     status(`Controller unavailable: ${error.message}. Retrying…`);
   }
 }, 3000);
+
+$('debug-toggle').onclick=run(()=>api({action:'debug',enabled:!data.state.debugEnabled}));

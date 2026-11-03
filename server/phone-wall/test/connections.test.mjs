@@ -39,6 +39,12 @@ test('stale cached-artwork and unsupported feature messages report errors withou
   assert.equal(phone.ws.readyState,WebSocket.OPEN);assert.equal(server.sessions.size,1);
   assert.equal(server.store.device(phone.identity.deviceId).connectionIssue.reason,'unsupported-message');
   assert.ok(server.store.device(phone.identity.deviceId).telemetryAt);
+  const headers={authorization:'Bearer connection-regression-secret-000000000000000'};
+  const debug=await server.app.inject({url:'/phone-wall/api',method:'POST',headers,payload:{action:'debug',enabled:true}});
+  assert.equal(debug.statusCode,200);
+  const dashboard=(await server.app.inject({url:'/phone-wall/api',headers})).json();
+  assert.equal(dashboard.state.debugEnabled,true);
+  assert.ok(dashboard.errors.some(entry=>entry.deviceId===phone.identity.deviceId&&entry.record.code==='unsupported-message'));
 });
 
 test('two boot sessions sharing a device ID cannot evict each other or mix power readings',async t=>{

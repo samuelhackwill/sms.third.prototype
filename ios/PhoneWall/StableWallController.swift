@@ -2,7 +2,7 @@ import UIKit
 
 final class StableWallController: UIViewController {
     private let connection = ConnectionManager(), state = StateStore(), diagnostics = Diagnostics(), media = MediaManager()
-    private let host = UIView(), legacy = WallView(), blackout = UIView(), setup = UIStackView(), label = UILabel(), address = UITextField()
+    private let host = UIView(), legacy = WallView(), blackout = UIView(), setup = UIStackView(), label = UILabel(), address = UITextField(), debugOverlay = UILabel()
     private lazy var library = ArtworkLibrary(media:media)
     private lazy var runtime = ArtworkRuntime(host:host,library:library)
     private lazy var kissing = KissingWallView(media:media)
@@ -18,6 +18,23 @@ final class StableWallController: UIViewController {
     private var frameWindowStart: CFTimeInterval = 0
     private var frameCount = 0
     private var displayLinkFps = -1.0
+    private var lastDebugError: String?
+    private func showDebugError(_ code: String) {
+        lastDebugError = String(code.prefix(100))
+        refreshDebugOverlay()
+    }
+    private func refreshDebugOverlay() {
+        let enabled = state.state["debugEnabled"] as? Bool ?? false
+        debugOverlay.isHidden = !enabled
+        guard enabled else { return }
+        let info = Bundle.main.infoDictionary ?? [:]
+        let version = info["CFBundleShortVersionString"] as? String ?? "?"
+        let build = info["CFBundleVersion"] as? String ?? "?"
+        let connected = connection.isConnected
+        debugOverlay.textColor = connected && lastDebugError == nil ? .green : .systemRed
+        debugOverlay.text = "PhoneWall \(version) (\(build)) · \(connected ? "CONNECTED" : "OFFLINE")\n\(connection.endpoint?.host ?? "no controller")\(lastDebugError.map { "\nLast error: " + $0 } ?? "")"
+        view.bringSubviewToFront(debugOverlay)
+    }
     private func setPaired(_ paired: Bool) {
         setup.isHidden = paired
         if paired { view.endEditing(true) }
@@ -38,13 +55,25 @@ final class StableWallController: UIViewController {
         pairingScreen.titleLabel?.numberOfLines = 0; pairingScreen.titleLabel?.textAlignment = .center
         pairingScreen.titleLabel?.font = .boldSystemFont(ofSize:30); pairingScreen.setTitleColor(.white,for:.normal)
         pairingScreen.isHidden = true; pairingScreen.addTarget(self,action:#selector(pairingTapped),for:.touchUpInside); view.addSubview(pairingScreen)
+        debugOverlay.numberOfLines = 0; debugOverlay.font = .monospacedSystemFont(ofSize:15,weight:.bold)
+        debugOverlay.backgroundColor = UIColor.black.withAlphaComponent(0.85); debugOverlay.isHidden = true
+        debugOverlay.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(debugOverlay)
+        NSLayoutConstraint.activate([debugOverlay.topAnchor.constraint(equalTo:view.safeAreaLayoutGuide.topAnchor,constant:8),debugOverlay.leadingAnchor.constraint(equalTo:view.leadingAnchor,constant:8),debugOverlay.trailingAnchor.constraint(equalTo:view.trailingAnchor,constant:-8)])
         setup.isHidden = !state.state.isEmpty
         runtime.clockOffset = { [weak self] in guard let self = self else { return 0 }; return self.connection.hasClockSample ? self.connection.offset : self.runtime.restoredOffset }
-        runtime.report = { [weak self] payload in self?.connection.send("artwork.status",payload) }
+        runtime.report = { [weak self] payload in
+            guard let self = self else { return }
+            if payload["status"] as? String == "error" { self.showDebugError(payload["code"] as? String ?? "artwork-error") }
+            self.connection.send("artwork.status",payload)
+        }
         runtime.onTickerMessage = { [weak self] type,payload in self?.connection.send(type,payload) }
-        kissing.report = { [weak self] payload in self?.connection.send("kissing.status",payload) }
-        runtime.onDiagnostic = { [weak self] code in self?.diagnostics.record(code); self?.connection.send("client.error",["code":code]) }
-        runtime.onActivated = { [weak self] in guard let self = self else { return }; self.setup.isHidden = true; self.legacy.isHidden = !self.identifying; self.view.bringSubviewToFront(self.pairingScreen) }
+        kissing.report = { [weak self] payload in
+            guard let self = self else { return }
+            if ["error","prefetch-error"].contains(payload["status"] as? String ?? "") { self.showDebugError(payload["code"] as? String ?? "kissing-error") }
+            self.connection.send("kissing.status",payload)
+        }
+        runtime.onDiagnostic = { [weak self] code in self?.diagnostics.record(code); self?.showDebugError(code); self?.connection.send("client.error",["code":code]) }
+        runtime.onActivated = { [weak self] in guard let self = self else { return }; self.setup.isHidden = true; self.legacy.isHidden = !self.identifying; self.view.bringSubviewToFront(self.pairingScreen); self.refreshDebugOverlay() }
         let initialMode = state.state["mode"] as? String ?? "exhibition"
         runtime.setMode(initialMode); blackout.isHidden = initialMode == "exhibition"
         kissing.setMode(initialMode)
@@ -56,10 +85,15 @@ final class StableWallController: UIViewController {
         connection.onDisconnect = { [weak self] in
             guard let self = self else { return }
             self.diagnostics.record("connection-lost-retaining-artwork")
+            self.showDebugError("connection-lost")
             self.runtime.receiveTicker(["enabled":false,"runs":[]])
             if self.pairingSessionId != nil { self.pairingScreen.isEnabled = false; self.pairingScreen.setTitle("OFFLINE\nWaiting for controller…",for:.normal) }
         }
-        connection.onStatus = { [weak self] status in self?.label.text = status }
+        connection.onStatus = { [weak self] status in
+            self?.label.text = status
+            if status.hasPrefix("Controller unavailable") { self?.showDebugError("controller-unavailable") }
+            else { self?.refreshDebugOverlay() }
+        }
         connection.heartbeat = { [weak self] in
             guard let self = self else { return [:] }
             let batteryState = UIDevice.current.batteryState
@@ -73,6 +107,7 @@ final class StableWallController: UIViewController {
         if ProcessInfo.processInfo.arguments.contains("-phoneWallDisableDiscovery") { return }
         #endif
         discovery.onEndpoint = { [weak self] endpoint in self?.connection.discovered(endpoint) }; discovery.start()
+        refreshDebugOverlay()
     }
     @objc private func powerChanged() { connection.publishHeartbeat() }
     @objc private func configure() {
@@ -119,8 +154,9 @@ final class StableWallController: UIViewController {
             label.text = "Connected to \(connection.endpoint?.host ?? "controller")\nPairing code: \(payload["pairingCode"] ?? "?")"
             address.text = connection.endpoint?.absoluteString ?? address.text
             if let paired = payload["paired"] as? Bool { setPaired(paired) }
+            refreshDebugOverlay()
         }
-        if type == "server.error" { diagnostics.record(payload["code"] as? String ?? "server-error") }
+        if type == "server.error" { let code=payload["code"] as? String ?? "server-error"; diagnostics.record(code); showDebugError(code) }
         if type == "pairing.state" { showPairing(payload); return }
         if type == "ticker.snapshot" { runtime.receiveTicker(payload); return }
         if type == "command", let name = payload["name"] as? String, let id = payload["commandId"] as? String {
@@ -133,6 +169,7 @@ final class StableWallController: UIViewController {
             completed.append(id); UserDefaults.standard.set(Array(completed.suffix(100)),forKey:"completedCommands"); connection.send("client.ack",["commandId":id,"result":"applied"])
         }
         guard type == "state.snapshot", state.apply(payload,revision:revision) else { return }
+        refreshDebugOverlay()
         setPaired(true)
         let mode = payload["mode"] as? String ?? "blackout"
         let previewUntil = payload["previewUntil"] as? Double ?? 0

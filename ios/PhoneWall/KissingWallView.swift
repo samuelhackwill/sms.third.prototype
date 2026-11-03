@@ -155,7 +155,8 @@ struct KissingConfiguration: Codable {
             }
             catch {
                 if Task.isCancelled { return }
-                failures.insert(clip.hash); report?(["status":"error","code":"kissing-asset-load-\((error as NSError).code)","hash":clip.hash]); continue
+                let detail=error as NSError
+                failures.insert(clip.hash); report?(["status":"error","code":"kissing-asset-load-\(detail.domain)-\(detail.code)","hash":clip.hash]); continue
             }
             if Task.isCancelled { return }
             let item = AVPlayerItem(asset:asset)

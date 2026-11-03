@@ -18,8 +18,8 @@ test('read-only Messages reader skips history/sent/reactions, decodes bodies, re
   let server=await createController({dataDir:join(directory,'wall'),adminToken:key});await server.app.listen({host:'127.0.0.1',port:0});
   t.after(async()=>{await server.app.close();source.close();await rm(directory,{recursive:true,force:true});});
   const reader=new MessagesReader({dbPath:path,sourceId:'reader-fixture-0001',url:`http://127.0.0.1:${server.app.server.address().port}`,token:key,decode:async blobs=>blobs.map(()=> 'Attributed 👩🏽‍🔧')});
-  await reader.poll();assert.equal(server.ticker.source(reader.sourceId).database_id,null);
-  server.ticker.start();await reader.poll();assert.equal(server.ticker.status().queued,0);
+  await reader.poll();assert.ok(server.ticker.source(reader.sourceId).database_id);
+  assert.equal(server.ticker.status().queued,0);
   add.run('new','Incoming 🍆',date,0,null,0);add.run('sent','Do not display sent',date,1,null,0);
   add.run('reaction','Do not display reactions',date,0,null,2000);add.run('attachment',null,date,0,null,0);
   add.run('attributed',null,date,0,Buffer.from('fixture'),0);

@@ -51,11 +51,10 @@
       <section class="operator-step">
         <p class="eyebrow">03 / INCOMING MESSAGES</p>
         <h2>Live iMessages</h2>
-        <p>New incoming messages enter a FIFO queue and scroll on the next available row. Sent messages, reactions and attachments without text are ignored. The first connection skips existing history.</p>
-        <div class="actions"><button id="live-start" disabled>Start Live Messages</button><button id="live-pause" disabled>Pause Live Messages</button></div>
+        <p>Incoming messages are watched automatically and scroll on the next available row. Sent messages, reactions and attachments without text are ignored. The first connection skips existing history.</p>
         <p id="live-status" role="status"></p>
         <p id="reader-status" role="status"></p>
-        <details><summary>One-time Messages permission</summary><p>Open Phone Wall Dashboard on this Mac to install/restart its logged-in-user reader. In System Settings → Privacy &amp; Security → Full Disk Access, allow <code>/Library/Application Support/PhoneWall/app/runtime/bin/node</code>. Then reopen Phone Wall Dashboard. The database is read-only and is not opened until you start Live Messages.</p></details>
+        <details><summary>One-time Messages permission</summary><p>Open Phone Wall Dashboard on this Mac to install/restart its logged-in-user reader. In System Settings → Privacy &amp; Security → Full Disk Access, allow <code>/Library/Application Support/PhoneWall/app/runtime/bin/node</code>. Then reopen Phone Wall Dashboard. The database is read-only and polling starts automatically.</p></details>
       </section>
       <section class="operator-step">
         <p class="eyebrow">04 / TEXT ARCHIVE</p>
@@ -78,6 +77,13 @@
         <div class="actions"><button id="kissing-start" disabled>Start Kissing Wall</button><button id="kissing-stop" disabled>Stop Kissing Wall</button><button id="kissing-apply" disabled>Apply Video Settings</button></div>
         <p id="kissing-status" role="status"></p>
         <p>Requires phone app 2.4 once. Settings apply to the next clip without reinstalling. Set each phone's speaker volume using its volume buttons.</p>
+      </section>
+      <section class="operator-step">
+        <p class="eyebrow">06 / DIAGNOSTICS</p>
+        <h2>Phone Debug Display</h2>
+        <p>Show the app version, connection state and last error code on each phone.</p>
+        <button id="debug-toggle" type="button">Enable phone debug display</button>
+        <p id="debug-status" role="status"></p>
       </section>
     </section>
     <section id="advanced-panel" role="tabpanel" aria-labelledby="advanced-tab" hidden>
@@ -280,22 +286,23 @@
     <div class="wall-head">
       <h2>The Matrix</h2>
       <p>
-        Battery, power and heat at a glance. Click a phone for details.
+        Connection state and app version. Click a phone for details.
       </p>
       <p id="matrix-status" role="status"></p>
     </div>
     <section id="phone-details" aria-labelledby="phone-details-heading" hidden>
       <h3 id="phone-details-heading"></h3>
-      <p id="phone-details-age"></p>
-      <p id="phone-details-health"></p>
       <p id="phone-details-preview"></p>
       <div id="phone-details-readings"></div>
-      <p>Heat is the iPhone's thermal category, not a temperature measurement. Low FPS means display callbacks below target; it is not a CPU reading.</p>
       <p>Clicking a tile only opens details. Selection below applies when Advanced → Target is set to Selected phones.</p>
       <button id="phone-select" type="button" aria-pressed="false">Select for Advanced actions</button>
       <button id="phone-details-close" type="button">Close details</button>
     </section>
     <div id="wall" aria-label="Virtual phone matrix"></div>
+    <section id="error-log" aria-labelledby="error-log-heading">
+      <h3 id="error-log-heading">Phone error log</h3>
+      <div id="error-log-entries" role="log" aria-live="off"></div>
+    </section>
     <label
       ><input type="checkbox" id="web-previews" />Preview selected web artwork (up to four)</label
     >
