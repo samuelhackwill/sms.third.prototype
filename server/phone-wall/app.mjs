@@ -71,6 +71,7 @@ export async function createController({
   });
   const sessions = new Map();
   let closing=false;
+  const cacheRecovery=new Set();
   const kissing=new KissingWall(store,mediaDir,{...kissingOptions,onChange:()=>broadcast()});
   await kissing.initialize();
   const liveAttempts=new Map();
@@ -114,12 +115,13 @@ export async function createController({
         const art=releases.snapshot(id);
         if(art.pending)continue;
         const attempt=liveAttempts.get(id);
-        if(attempt?.layoutRevision===state.layoutRevision&&(attempt.failed||['failed','cancelled'].includes(releases.deployment(attempt.id).phase))&&Date.now()-attempt.at<10000)continue;
+        const retryMs=Math.min(120000,10000*2**Math.max(0,(attempt?.failures??1)-1));
+        if(attempt?.layoutRevision===state.layoutRevision&&(attempt.failed||['failed','cancelled'].includes(releases.deployment(attempt.id).phase))&&Date.now()-attempt.at<retryMs)continue;
         if(art.active?.release.definition.artworkId==='live-ticker'&&art.active.release.definition.artworkVersion===definition.artworkVersion)continue;
         try{
           const release=releases.create(definition),deployment=releases.deploy(release.id,[id],{delayMs:1000});
-          liveAttempts.set(id,{id:deployment.id,layoutRevision:state.layoutRevision,at:Date.now()});snapshot(id);
-        }catch{liveAttempts.set(id,{failed:true,layoutRevision:state.layoutRevision,at:Date.now()});store.updateDevice(id,{lastError:'live-ticker-prepare-failed'});phoneError(id,'ticker','live-ticker-prepare-failed');}
+          liveAttempts.set(id,{id:deployment.id,layoutRevision:state.layoutRevision,at:Date.now(),failures:attempt?.failures??0});snapshot(id);
+        }catch{liveAttempts.set(id,{failed:true,layoutRevision:state.layoutRevision,at:Date.now(),failures:(attempt?.failures??0)+1});store.updateDevice(id,{lastError:'live-ticker-prepare-failed'});phoneError(id,'ticker','live-ticker-prepare-failed');}
       }
     }
     const ready=new Set([...sessions.keys()].filter(id=>{
@@ -276,7 +278,7 @@ export async function createController({
     if(input.action==='live.start'){
       if(pairing.status().active)throw new Error('stop-pairing-before-live-messages');
       if(state.layout.slots.some(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.liveTicker!==1))throw new Error('phone-app-2.3-required-for-live-messages');
-      kissing.configure({enabled:false});liveAttempts.clear();ticker.start();store.commit({...state,mode:'exhibition',schedule:null,overrides:{}},previous.revision);broadcast();tickerTick();return {ok:true};
+      kissing.configure({enabled:false});liveAttempts.clear();cacheRecovery.clear();ticker.start();store.commit({...state,mode:'exhibition',schedule:null,overrides:{}},previous.revision);broadcast();tickerTick();return {ok:true};
     }
     if(input.action==='live.pause')return {ok:true};
     if(input.action==='debug'){
@@ -288,7 +290,7 @@ export async function createController({
       if(pairing.status().active)throw new Error('stop-pairing-before-barthes-mode');
       if(!state.layout.slots.length)throw new Error('pair-phones-before-barthes-mode');
       if(state.layout.slots.some(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.liveTicker!==1))throw new Error('phone-app-2.3-required-for-barthes-mode');
-      kissing.configure({enabled:false});liveAttempts.clear();ticker.startBarthes();
+      kissing.configure({enabled:false});liveAttempts.clear();cacheRecovery.clear();ticker.startBarthes();
       store.commit({...state,mode:'exhibition',schedule:null,overrides:{}},previous.revision);
       store.db.prepare('DELETE FROM previews').run();broadcast();tickerTick();return {ok:true};
     }
@@ -639,10 +641,10 @@ export async function createController({
           windowAt = Date.now();
           count = 0;
         }
-        if (++count > 120) throw new Error("rate-limit");
         const m = decode(raw.toString()),
           p = m.payload;
         decoded=true;messageType=m.type;
+        if (++count > 120) throw new Error("rate-limit");
         if (!device) {
           if (
             m.type !== "client.hello" ||
@@ -719,7 +721,22 @@ export async function createController({
           });
         } else if (m.type === "artwork.status") {
           releases.acknowledge(device._id, p);
-          if (p.status === "error") {phoneError(device._id,'artwork',String(p.code??'artwork-error'),{deploymentId:String(p.deploymentId??'').slice(0,100)});broadcast();}
+          if (p.status === "error") {
+            phoneError(device._id,'artwork',String(p.code??'artwork-error'),{deploymentId:String(p.deploymentId??'').slice(0,100)});
+            const attempt=liveAttempts.get(device._id);
+            if(attempt?.id===p.deploymentId){
+              liveAttempts.set(device._id,{...attempt,at:Date.now(),failures:(attempt.failures??0)+1});
+              if(p.code==='artwork-asset-or-storage-unavailable'&&!cacheRecovery.has(device._id)){
+                cacheRecovery.add(device._id);
+                const commandId=randomBytes(16).toString('hex');
+                send(ws,'command',{name:'clearCache',commandId},store.current().revision,commandId);
+              }
+            }
+            broadcast();
+          } else if(p.status==='displayed'&&liveAttempts.get(device._id)?.id===p.deploymentId){
+            cacheRecovery.delete(device._id);
+            liveAttempts.delete(device._id);
+          }
         } else if (["client.ack", "client.error"].includes(m.type)) {
           const entry = {
             result: String(p.code ?? p.result ?? "").slice(0, 200),
