@@ -4,7 +4,7 @@ export function validateTestText(text) {
   if(typeof text!=='string'||!text.trim()||text.length>500||[...segmenter.segment(text)].length>120)throw new Error('test-text-must-contain-1-to-120-characters-max-500-code-units');
   return text;
 }
-export function testTextDefinition(layout,{speed=240,text='Bla bla bla',asset}={}) {
+export function testTextDefinition(layout,{speed=240,text='Bla bla bla',color='#ff0000',asset}={}) {
   if(!Number.isFinite(speed)||speed<20||speed>1000)throw new Error('test-text-speed-must-be-between-20-and-1000');
   validateTestText(text);
   const rows=new Map();
@@ -22,6 +22,6 @@ export function testTextDefinition(layout,{speed=240,text='Bla bla bla',asset}={
   });
   const canvas={width:Math.max(...layout.slots.map(s=>s.geometry.x+s.geometry.width)),height:Math.max(...layout.slots.map(s=>s.geometry.y+s.geometry.height))};
   return {sceneSchemaVersion:1,artworkId:'operator-test-text',artworkVersion:randomUUID(),
-    canvas,background:'#000000',parameters:{speed,text,color:'#ff0000',fontFamily:'Georgia, "Times New Roman", serif',rows:bands},
+    canvas,background:'#000000',parameters:{speed,text,color,fontFamily:'Georgia, "Times New Roman", serif',rows:bands},
     transition:{type:'cut',durationMs:0},elements:[{id:'test-text',type:'web',asset,frame:{x:0,y:0,...canvas}}]};
 }

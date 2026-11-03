@@ -101,7 +101,7 @@ export async function createController({
   function tickerTick(){
     const state=store.current(),allowed=state.mode==='exhibition'&&!pairing.status().active;
     if(ticker.enabled&&allowed&&state.layout.slots.length){
-      const definition=testTextDefinition(state.layout,{asset:testTextHash});
+      const definition=testTextDefinition(state.layout,{asset:testTextHash,color:ticker.playbackMode==='barthes'?'#00ff00':'#ff0000'});
       definition.artworkId='live-ticker';definition.parameters={...definition.parameters,live:true};
       definition.artworkVersion=releaseHash({parameters:definition.parameters,elements:definition.elements,canvas:definition.canvas,layout:state.layout});
       for(const id of state.layout.slots.map(slot=>slot.deviceId)){
@@ -207,7 +207,7 @@ export async function createController({
     const id=req.params.sourceId;if(!validId(id))throw new Error('invalid-reader-id');
     if(!ticker.source(id))ticker.reader(id);
     else store.db.prepare('UPDATE ticker_sources SET last_seen=? WHERE id=?').run(Date.now(),id);
-    return {enabled:ticker.enabled,cursor:ticker.source(id)};
+    return {enabled:ticker.messagesEnabled,cursor:ticker.source(id)};
   });
   app.post('/phone-wall/reader/:sourceId',{preHandler:authorize},async(req)=>{
     const id=req.params.sourceId;if(!validId(id))throw new Error('invalid-reader-id');
@@ -215,7 +215,7 @@ export async function createController({
       const code=req.body.code;if(typeof code!=='string'||!/^[-a-z]{1,80}$/.test(code))throw new Error('invalid-reader-status');
       ticker.reader(id,code,code==='paused'?null:code);return {ok:true};
     }
-    if(req.body?.action!=='batch'||!ticker.enabled)throw new Error('reader-disabled');
+    if(req.body?.action!=='batch'||!ticker.messagesEnabled)throw new Error('reader-disabled');
     return ticker.ingest({...req.body,sourceId:id});
   });
   function targets(input) {
@@ -271,7 +271,18 @@ export async function createController({
       if(state.layout.slots.some(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.liveTicker!==1))throw new Error('phone-app-2.3-required-for-live-messages');
       kissing.configure({enabled:false});liveAttempts.clear();ticker.start();store.commit({...state,mode:'exhibition',schedule:null,overrides:{}},previous.revision);broadcast();tickerTick();return {ok:true};
     }
-    if(input.action==='live.pause'){pauseTicker();return {ok:true};}
+    if(input.action==='live.pause'){if(ticker.playbackMode==='messages')pauseTicker();return {ok:true};}
+    if(input.action==='barthes.start'){
+      if(pairing.status().active)throw new Error('stop-pairing-before-barthes-mode');
+      if(!state.layout.slots.length)throw new Error('pair-phones-before-barthes-mode');
+      if(state.layout.slots.some(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.liveTicker!==1))throw new Error('phone-app-2.3-required-for-barthes-mode');
+      kissing.configure({enabled:false});liveAttempts.clear();ticker.startBarthes();
+      store.commit({...state,mode:'exhibition',schedule:null,overrides:{}},previous.revision);
+      store.db.prepare('DELETE FROM previews').run();broadcast();tickerTick();return {ok:true};
+    }
+    if(input.action==='barthes.stop'){
+      ticker.stopBarthes();liveAttempts.clear();tickerBroadcast();return {ok:true};
+    }
     if(['test.text','release.deploy','rollback','scene','preview','identify'].includes(input.action))pauseTicker();
     if(kissing.settings.enabled&&['test.text','release.deploy','rollback','scene','preview'].includes(input.action)){kissing.configure({enabled:false});broadcast();}
     if(input.action==='pairing.start'||input.action==='pairing.stop') {

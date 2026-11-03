@@ -2,6 +2,8 @@
 
 Use this guide after an installer has paired and tested all screens.
 
+**Roland Barthes Mode:** In Control, press Start Roland Barthes Mode after pairing phones. The controller loops through the bundled sentence archive in order, fills available rows automatically, and assigns a different speed from 1,000–6,000 logical pixels per second to each sentence. Text is green on black. Stop Roland Barthes Mode to end playback. Starting Live iMessages or another artwork pauses it; incoming iMessages remain queued for Live iMessages.
+
 ## Connection recovery and installation reset
 
 Updating the controller restarts its WebSocket listener and Bonjour registration. On the first start of each installed build, it clears saved connection diagnostics and heartbeat readings, then phones reconnect with fresh telemetry. Pairings, wall settings, media and the live-message queue remain in place. The updater reports the number of connected phones before and after the update; a lower count calls for checking the dashboard and service log.

@@ -8,10 +8,10 @@ import { activateUpdate,compatibleSource } from '../../../scripts/phone-wall/upd
 test('source updater rejects unmarked, incompatible or linked source before activation',async()=>{
   const root=await mkdtemp(join(tmpdir(),'phone-wall-source-'));
   try {
-    for(const path of ['server/phone-wall','protocol','scripts/phone-wall'])await mkdir(join(root,path),{recursive:true});
+    for(const path of ['server/phone-wall/public/artwork','protocol','scripts/phone-wall'])await mkdir(join(root,path),{recursive:true});
     await assert.rejects(compatibleSource(root,{nodeMajor:24}),/not updater-ready/);
     await writeFile(join(root,'server/phone-wall/update-format.json'),JSON.stringify({format:1,version:'2.2.0',minimumNodeMajor:24}));
-    for(const path of ['server/phone-wall/package-lock.json','server/phone-wall/index.mjs','server/phone-wall/installation.mjs','server/phone-wall/discovery.mjs','scripts/phone-wall/update-from-github.mjs'])await writeFile(join(root,path),'test');
+    for(const path of ['server/phone-wall/package-lock.json','server/phone-wall/index.mjs','server/phone-wall/installation.mjs','server/phone-wall/discovery.mjs','scripts/phone-wall/update-from-github.mjs','server/phone-wall/public/artwork/barthes-sentences.ndjson'])await writeFile(join(root,path),'test');
     assert.equal((await compatibleSource(root,{nodeMajor:24})).version,'2.2.0');
     await assert.rejects(compatibleSource(root,{nodeMajor:23}),/Incompatible/);
     await symlink('/etc/passwd',join(root,'protocol/linked'));

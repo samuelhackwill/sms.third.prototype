@@ -27,7 +27,7 @@ export async function compatibleSource(source,{nodeMajor=Number(process.versions
   try {format=JSON.parse(await readFile(join(source,'server/phone-wall/update-format.json'),'utf8'));}
   catch {throw new Error('Published GitHub source is not updater-ready. Commit and push the current source first. The installation was not changed.');}
   if(format.format!==1||!/^\d+\.\d+\.\d+$/.test(format.version)||!Number.isInteger(format.minimumNodeMajor)||format.minimumNodeMajor<1||format.minimumNodeMajor>nodeMajor)throw new Error('Incompatible update; use a reviewed installer instead');
-  for(const path of ['server/phone-wall/package-lock.json','server/phone-wall/index.mjs','server/phone-wall/installation.mjs','server/phone-wall/discovery.mjs','scripts/phone-wall/update-from-github.mjs']) {
+  for(const path of ['server/phone-wall/package-lock.json','server/phone-wall/index.mjs','server/phone-wall/installation.mjs','server/phone-wall/discovery.mjs','scripts/phone-wall/update-from-github.mjs','server/phone-wall/public/artwork/barthes-sentences.ndjson']) {
     if(!(await lstat(join(source,path))).isFile())throw new Error('Incomplete source update');
   }
   return format;

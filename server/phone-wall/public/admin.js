@@ -206,9 +206,14 @@ function render() {
     `${kissing?.enabled?(state.mode==='exhibition'&&!pairing?.active?'PLAYING INDEPENDENTLY · SOUND ON':'PAUSED (night / pairing)'):'STOPPED'} · ${kissing?.clips??0} clips cached on Mac${kissing?.busy?' · downloading a clip':''}${kissing?.lastError?' · '+kissing.lastError:''}`;
   renderPhoneDetails();
   const live=data.ticker;
-  $('live-start').disabled=!!live?.enabled||!!pairing?.active||!!live?.upgradeRequired?.length;
-  $('live-pause').disabled=!live?.enabled;
-  $('live-status').textContent=`${live?.enabled?(state.mode!=='exhibition'||pairing?.active?'WAITING (night / pairing)':'LIVE'):'PAUSED'} · ${live?.queued??0} waiting · ${live?.active.length??0} active rows · ${live?.completed??0} completed`;
+  const messagesActive=live?.enabled&&live.mode==='messages',barthesActive=live?.enabled&&live.mode==='barthes';
+  $('live-start').disabled=!!messagesActive||!!pairing?.active||!!live?.upgradeRequired?.length;
+  $('live-pause').disabled=!messagesActive;
+  $('live-status').textContent=`${messagesActive?(state.mode!=='exhibition'||pairing?.active?'WAITING (night / pairing)':'LIVE'):'PAUSED'} · ${live?.mode==='messages'?live.queued:0} waiting · ${messagesActive?live.active.length:0} active rows · ${live?.mode==='messages'?live.completed:0} completed`;
+  $('barthes-start').disabled=!!barthesActive||!!pairing?.active||!!live?.upgradeRequired?.length||!state.layout.slots.length;
+  $('barthes-stop').disabled=!barthesActive;
+  $('barthes-status').textContent=live?.upgradeRequired?.length?`Install phone app 2.3 on ${live.upgradeRequired.length} connected phones.`:
+    barthesActive?`${state.mode==='exhibition'?'PLAYING':'WAITING'} · ${live.queued} queued · ${live.active.length} active rows · ${live.completed} completed`:'Stopped';
   const readers=live?.readers??[];
   $('reader-status').textContent=live?.upgradeRequired?.length?`Install phone app 2.3 for live playback (${live.upgradeRequired.length} phones need updating).`:readers.length?readers.map(reader=>`${reader.status==='needs-full-disk-access'?'Reader needs Full Disk Access (see permission instructions)':Date.now()-reader.last_seen>45000?'Reader offline':reader.status==='reading'?'Reader connected; watching new iMessages':`Reader: ${reader.status}`}`).join(' · '):'Reader not connected. Open Phone Wall Dashboard on the Mac mini.';
   if(!testSpeedEdited)$('test-text-speed').value=state.testTextSpeed??240;
@@ -693,6 +698,8 @@ $('live-start').onclick=run(async()=>{
   await api({action:'live.start'});
 });
 $('live-pause').onclick=run(()=>api({action:'live.pause'}));
+$('barthes-start').onclick=run(()=>api({action:'barthes.start'}));
+$('barthes-stop').onclick=run(()=>api({action:'barthes.stop'}));
 $('reset-installation').onclick=run(async()=>{
   if(!confirm('Erase all Phone Wall pairings, wall settings, queued messages and downloaded media, then restart the controller?'))return;
   const button=$('reset-installation'),before=data?.state?.installationId;

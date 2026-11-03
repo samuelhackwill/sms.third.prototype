@@ -67,3 +67,27 @@ test('queue capacity rejects the whole batch and does not advance the reader cur
   assert.throws(()=>ingest([{rowId:1,id:'beyond-capacity',text:'Keep this in source'}]),/ticker-queue-capacity/);
   assert.equal(ticker.source('reader-fixture-0001').row_id,0);assert.equal(ticker.status().queued,10000);
 });
+test('Roland Barthes mode queues archived sentences at fast speeds and preserves incoming messages',async t=>{
+  const {ticker,store,ids,ingest}=await fixture(t);
+  ingest([{rowId:1,id:'saved-message',text:'Keep this message'}]);
+  ticker.startBarthes();
+  assert.equal(ticker.playbackMode,'barthes');
+  assert.equal(ticker.status().queued,12);
+  assert.match(store.db.prepare("SELECT text FROM ticker_messages WHERE source='barthes' ORDER BY seq LIMIT 1").get().text,/Comment est fait ce livre/);
+  assert.equal(ticker.messagesEnabled,false);
+  ticker.tick(new Set(ids),true,1000);
+  const runs=ticker.runs();
+  assert.equal(runs.length,2);
+  assert.ok(runs.every(run=>run.speed>=1000&&run.speed<=6000));
+  assert.equal(ticker.status().queued,12);
+  assert.equal(store.db.prepare('SELECT barthes_cursor FROM ticker_settings WHERE id=1').get().barthes_cursor,14);
+  const restarted=new LiveTicker(store);
+  assert.equal(restarted.playbackMode,'barthes');
+  assert.equal(restarted.status().queued,14);
+  restarted.stopBarthes();
+  assert.equal(restarted.enabled,false);
+  assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source='barthes'").get().n,0);
+  restarted.start();
+  assert.equal(restarted.status().queued,1);
+  assert.equal(restarted.messagesEnabled,true);
+});

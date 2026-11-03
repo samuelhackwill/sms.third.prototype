@@ -58,7 +58,14 @@
         <details><summary>One-time Messages permission</summary><p>Open Phone Wall Dashboard on this Mac to install/restart its logged-in-user reader. In System Settings → Privacy &amp; Security → Full Disk Access, allow <code>/Library/Application Support/PhoneWall/app/runtime/bin/node</code>. Then reopen Phone Wall Dashboard. The database is read-only and is not opened until you start Live Messages.</p></details>
       </section>
       <section class="operator-step">
-        <p class="eyebrow">04 / VIDEO</p>
+        <p class="eyebrow">04 / TEXT ARCHIVE</p>
+        <h2>Roland Barthes Mode</h2>
+        <p>Sentences from the local archive scroll across available rows in green, in book order, at a different fast speed for each sentence. The sequence loops automatically.</p>
+        <div class="actions"><button id="barthes-start" disabled>Start Roland Barthes Mode</button><button id="barthes-stop" disabled>Stop Roland Barthes Mode</button></div>
+        <p id="barthes-status" role="status"></p>
+      </section>
+      <section class="operator-step">
+        <p class="eyebrow">05 / VIDEO</p>
         <h2>Kissing Wall</h2>
         <p>Each phone plays random kissing clips independently, with sound. The Mac downloads clips once and shares them locally. Cached clips keep playing during outages.</p>
         <label><input id="kissing-trim" type="checkbox" />Play only the kiss (with padding)</label>
