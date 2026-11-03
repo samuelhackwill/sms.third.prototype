@@ -52,6 +52,10 @@ export async function createController({
   store.db
     .prepare("INSERT OR IGNORE INTO assets VALUES(?,?,?)")
     .run(pixiHash, "text/javascript", pixi.length);
+  const testTextScript=await readFile(join(root,'public/artwork/test-text.js'));
+  const testTextHash=createHash('sha256').update(testTextScript).digest('hex');
+  await writeFile(join(mediaDir,testTextHash),testTextScript,{mode:0o600});
+  store.db.prepare('INSERT OR IGNORE INTO assets VALUES(?,?,?)').run(testTextHash,'text/javascript',testTextScript.length);
   const releases = new Releases(store, pixiHash);
   const app = Fastify({
     logger,
@@ -192,7 +196,7 @@ export async function createController({
       if(!ids.length)throw new Error('no-paired-phones-online');
       const speed=input.speed??state.testTextSpeed??240;
       const text=input.text??state.testText??'Bla bla bla';
-      const release=releases.create(testTextDefinition(state.layout,{speed,text}));
+      const release=releases.create(testTextDefinition(state.layout,{speed,text,asset:testTextHash}));
       const deployment=releases.deploy(release.id,ids,{delayMs:1500});
       store.commit({...state,testTextSpeed:speed,testText:text,mode:'exhibition',schedule:null,overrides:{}},previous.revision);
       store.db.prepare('DELETE FROM previews').run();

@@ -99,7 +99,35 @@ try {
   await page.waitForFunction(()=>document.querySelector('#test-text-status').textContent.includes('Test sent to 1 phone'));
   assert.equal(phone.activeArtwork.release.definition.artworkId,'operator-test-text');
   assert.equal(phone.activeArtwork.release.definition.parameters.speed,120);
-  assert.equal(phone.activeArtwork.release.definition.elements[0].text,emojiMessage);
+  assert.equal(phone.activeArtwork.release.definition.parameters.text,emojiMessage);
+  const preview=await browser.newPage({viewport:{width:375,height:667}});
+  await preview.route('**/*',route=>route.request().url().startsWith(base+'/')?route.continue():route.abort());
+  await preview.addInitScript(()=>{
+    window.PhoneWall={onFrame:fn=>{window.drawTestText=fn;},ready:()=>{}};
+    const measure=CanvasRenderingContext2D.prototype.measureText;
+    window.textMeasureCount=0;
+    CanvasRenderingContext2D.prototype.measureText=function(text){window.textMeasureCount++;return measure.call(this,text);};
+  });
+  const previewContext={...phone.activeArtwork.release.definition,parameters:{...phone.activeArtwork.release.definition.parameters,text:'I'},viewport:{x:0,y:0,width:375,height:667},geometry:{x:0,y:0,width:375,height:667},clockOffsetMs:0,startAtServerMs:Date.now(),playing:true};
+  const encoded=Buffer.from(JSON.stringify(previewContext)).toString('base64');
+  await preview.goto(base+`/artwork-preview/${phone.activeArtwork.release.id}/index.html#`+encodeURIComponent(encoded));
+  await preview.waitForFunction(()=>typeof window.drawTestText==='function');
+  const fit=await preview.evaluate(()=>{
+    window.drawTestText(3);
+    const canvas=document.querySelector('canvas'),context=canvas.getContext('2d'),pixels=context.getImageData(0,0,canvas.width,canvas.height).data;
+    let top=canvas.height,bottom=0,count=0;
+    for(let index=0;index<pixels.length;index+=4)if(pixels[index]>150&&pixels[index+1]<70&&pixels[index+2]<70){const y=Math.floor(index/4/canvas.width);top=Math.min(top,y);bottom=Math.max(bottom,y);count++;}
+    const measured=window.textMeasureCount;
+    for(let frame=0;frame<60;frame++)window.drawTestText(3+frame/60);
+    return {top:top/canvas.height,bottom:bottom/canvas.height,count,measured,after:window.textMeasureCount};
+  });
+  assert.ok(fit.count>1000,JSON.stringify(fit));
+  assert.ok(fit.top>0&&fit.top<0.05,JSON.stringify(fit));
+  assert.ok(fit.bottom>0.95&&fit.bottom<1,JSON.stringify(fit));
+  assert.equal(fit.after,fit.measured,'Text metrics must stay cached between frames');
+  await preview.evaluate(()=>window.drawTestText(3));
+  if(process.env.PHONE_WALL_SCREENSHOT_PATH)await preview.screenshot({path:process.env.PHONE_WALL_SCREENSHOT_PATH});
+  await preview.close();
   await page.getByRole('tab',{name:'Advanced',exact:true}).click();
   await page.locator("#scene [name=kind]").selectOption("solid");
   await page

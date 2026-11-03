@@ -69,6 +69,10 @@ final class StateStore {
 
 protocol ScreenRenderer { func render(state: [String: Any], serverMs: Double, deviceId: String, in rect: CGRect, context: CGContext) }
 final class NativeRenderer: ScreenRenderer {
+    private var font = UIFont.monospacedSystemFont(ofSize:48,weight:.regular)
+    private var measuredText = ""
+    private var measuredSize = 0.0
+    private var measuredWidth = 0.0
     func render(state: [String: Any], serverMs: Double, deviceId: String, in rect: CGRect, context: CGContext) {
         guard state["mode"] as? String == "exhibition", let scene = state["scene"] as? [String: Any] else { return }
         let kind = scene["kind"] as? String ?? "test"
@@ -77,6 +81,8 @@ final class NativeRenderer: ScreenRenderer {
         let w = geometry["width"] as? Double ?? Double(rect.width), h = geometry["height"] as? Double ?? Double(rect.height)
         let x = geometry["x"] as? Double ?? 0, y = geometry["y"] as? Double ?? 0
         let fontSize = scene["fontSize"] as? Double ?? 48
+        let drawSize = kind == "test" ? 24.0 : fontSize
+        if font.pointSize != drawSize { font = .monospacedSystemFont(ofSize:drawSize,weight:.regular) }
         let hex = (scene["color"] as? String ?? "#ffffff").replacingOccurrences(of:"#",with:"")
         let rgb = UInt32(hex,radix:16) ?? 0xffffff
         let color = UIColor(red:CGFloat((rgb >> 16) & 255)/255,green:CGFloat((rgb >> 8) & 255)/255,blue:CGFloat(rgb & 255)/255,alpha:1)
@@ -96,11 +102,15 @@ final class NativeRenderer: ScreenRenderer {
         } else if kind == "ticker" {
             let start = scene["startAtServerMs"] as? Double ?? serverMs
             let speed = scene["speed"] as? Double ?? 100
-            let width = (text as NSString).size(withAttributes:[.font:UIFont.monospacedSystemFont(ofSize:fontSize,weight:.regular)]).width
+            if measuredText != text || measuredSize != fontSize {
+                measuredText = text; measuredSize = fontSize
+                measuredWidth = ceil((text as NSString).size(withAttributes:[.font:font]).width)
+            }
+            let width = measuredWidth
             let wallWidth = state["logicalWidth"] as? Double ?? w
             textX = wallWidth - (max(0, serverMs - start) / 1000 * speed).truncatingRemainder(dividingBy:wallWidth + width) - x
         }
-        (text as NSString).draw(in:CGRect(x:textX,y:kind == "ticker" ? fontSize-y : 30,width:max(w,10000),height:h), withAttributes:[.font:UIFont.monospacedSystemFont(ofSize:kind == "test" ? 24 : fontSize,weight:.regular), .foregroundColor:color])
+        (text as NSString).draw(in:CGRect(x:textX,y:kind == "ticker" ? fontSize-y : 30,width:max(w,10000),height:h), withAttributes:[.font:font, .foregroundColor:color])
     }
 }
 
