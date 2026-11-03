@@ -40,6 +40,8 @@ export class SimulatedClient extends EventEmitter {
         runtimeVersion: "2.0",
         capabilities: {
           sceneSchemaVersions: [1],
+          liveTicker:1,
+          kissingWall:1,
           model: "iPhone6s-simulated",
           osVersion: "15.8",
           width: 375,
@@ -100,6 +102,7 @@ export class SimulatedClient extends EventEmitter {
       }
       if (m.type === "server.error") this.emit("protocolError", m.payload.code);
       if(m.type==='pairing.state'){this.pairing=m.payload;this.emit('pairing',m.payload);}
+      if(m.type==='ticker.snapshot'){this.ticker=m.payload;this.emit('ticker',m.payload);}
     });
     ws.on("error", () => {});
     ws.on("close", () => {

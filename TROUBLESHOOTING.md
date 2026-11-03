@@ -1,5 +1,9 @@
 # Troubleshooting
 
+**Live queue waiting / no iMessages:** install phone app 2.3 (build 6), update the server source, and reopen Phone Wall Dashboard under the Messages user. This starts its user reader automatically. Grant Full Disk Access to the bundled Node executable as described in DEPLOYMENT.md, then reopen the dashboard again. Press Start Live Messages and wait for the reader's connected status before sending a new incoming message from another account/number. First connection skips existing history; outgoing messages and reactions are intentionally ignored. The backend `_phonewall` account cannot read a user's Messages folder and is not used for ingestion. No Terminal commands or TCC workarounds are needed.
+
+**Queued messages but a row does not start:** all configured phones in that row must be online, updated and running the live artwork. Other complete rows continue. Inspect the Advanced phone status for preparation errors; Pause/Start Live Messages retries failed live-scene preparation without deleting the queue. Night mode, pairing or a selected-phone blackout can hold a row. Runs interrupted by outages are retried, so partial visible repeats are possible. A database ROWID reset or attributed-body decoding error is shown rather than silently skipping data; preserve the DB/cursor and contact the installer.
+
 **Controller fails to start:** verify `PHONE_WALL_ADMIN_TOKEN` is 32+ characters, Node is at least 22.13, and `npm ci --prefix server/phone-wall` completed. Check persistent directory permissions, free disk and port conflicts. Meteor and MongoDB are not needed for the standalone service.
 
 **Mac restarted but service absent:** a LaunchAgent starts at user login. Check installation-account login and `launchctl print gui/$(id -u)/org.museum.phonewall`. Check the bounded server logs. Pre-login operation needs the reviewed LaunchDaemon setup, not an assumption about automatic login/power restoration.

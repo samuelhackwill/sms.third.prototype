@@ -8,7 +8,8 @@
   "scripts": {
     "start": "node index.mjs",
     "test": "node --test test/*.test.mjs ../../protocol/core.test.mjs",
-    "test:ui": "node test/ui-smoke.mjs"
+    "test:ui": "node test/ui-smoke.mjs",
+    "test:live": "node test/live-flow.mjs"
   },
   "dependencies": {
     "@fastify/static": "^10.1.8",

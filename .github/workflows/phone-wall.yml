@@ -13,6 +13,7 @@ jobs:
       - run: npx playwright install --with-deps firefox
         working-directory: server/phone-wall
       - run: npm run test:ui --prefix server/phone-wall
+      - run: npm run test:live --prefix server/phone-wall
   ios:
     runs-on: macos-latest
     steps:

@@ -10,7 +10,7 @@ import { envelope } from '../../../protocol/core.mjs';
 
 const directory = await mkdtemp(join(tmpdir(), "phone-wall-ui-"));
 const key = randomBytes(32).toString("hex");
-const { app } = await createController({ dataDir: directory, adminToken: key });
+const { app } = await createController({ dataDir: directory, adminToken: key,kissingOptions:{fetchImpl:async()=>{throw new Error('WAN disabled in browser test');}} });
 await app.listen({ host: "127.0.0.1", port: 0 });
 const base = `http://127.0.0.1:${app.server.address().port}`;
 let browser;
@@ -133,6 +133,7 @@ try {
   assert.match(await page.locator('#phone-details-health').textContent(), /App in background/);
   await page.locator('#phone-details-close').click();
   reportPower(0.95, true);
+  assert.equal(await page.getByRole('button',{name:'Start Live Messages',exact:true}).isVisible(),true);
   await page.getByRole('button',{name:'Start Pairing Mode',exact:true}).click();
   await page.waitForFunction(()=>document.querySelector('#pairing-status').textContent.includes('PAIRING ACTIVE'));
   await page.waitForFunction(() => {
@@ -333,6 +334,18 @@ try {
     .frameLocator('iframe[title="Web artwork preview slot 0"]')
     .getByText("LOCAL ART EXECUTED", { exact: true })
     .waitFor();
+  await page.getByRole('tab',{name:'Control',exact:true}).click();
+  await page.locator('#kissing-trim').check();
+  await page.locator('#kissing-before').fill('0.5');
+  await page.locator('#kissing-start').click();
+  await page.waitForFunction(()=>document.querySelector('#kissing-status').textContent.includes('PLAYING INDEPENDENTLY'));
+  assert.equal(phone.state.kissing.enabled,true);assert.equal(phone.state.kissing.trimStartOffsetSec,0.5);
+  await page.locator('#kissing-in').fill('600');await page.locator('#kissing-apply').click();
+  await page.waitForResponse(response=>response.url().endsWith('/phone-wall/api')&&response.request().method()==='GET');
+  assert.equal(phone.state.kissing.revealDurationMs,600);
+  await page.locator('#kissing-stop').click();
+  await page.waitForFunction(()=>document.querySelector('#kissing-status').textContent.includes('STOPPED'));
+  assert.equal(phone.state.kissing.enabled,false);
   phone.stop();
   await page.waitForFunction(() => document.querySelector('#wall article').dataset.connection === 'offline');
   assert.equal(await page.locator('#wall .power-age').first().isVisible(), true, 'Offline battery readings must be marked as last reported');

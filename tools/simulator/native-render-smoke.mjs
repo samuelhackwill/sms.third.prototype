@@ -46,8 +46,20 @@ try {
   await run('io',simulator,'screenshot','--type=png',join(output,'emoji-moving.png'));
   await until(()=>store.device(device._id).telemetry?.currentSceneId===moving.deployment.releaseId);
   const telemetry=store.device(device._id).telemetry;
-  await writeFile(join(output,'report.json'),JSON.stringify({targetFps:telemetry.targetFps,observedDisplayLinkFps:telemetry.displayLinkFps,scope:'Simulator callbacks only; not physical 6s frame delivery',screenshots:['emoji-static.png','emoji-moving.png']},null,2));
+  let liveCompleted=false;
+  if(process.env.PHONE_WALL_SMOKE_LIVE==='1'){
+    const state=store.current();store.commit({...state,testTextSpeed:1000},state.revision);
+    await request({action:'live.start'});
+    const sourceId='native-smoke-reader-0001',databaseId='a'.repeat(64);
+    const post=async payload=>{const response=await app.inject({url:'/phone-wall/reader/'+sourceId,method:'POST',headers:{authorization:`Bearer ${key}`},payload});assert.equal(response.statusCode,200,response.body);};
+    await post({action:'batch',databaseId,baseline:true,lastRowId:0});
+    await post({action:'batch',databaseId,expectedRowId:0,lastRowId:1,records:[{rowId:1,id:'native-smoke-message',text:'I'}]});
+    await until(()=>store.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE status='completed'").get().n===1);
+    liveCompleted=true;
+  }
+  await writeFile(join(output,'report.json'),JSON.stringify({targetFps:telemetry.targetFps,observedDisplayLinkFps:telemetry.displayLinkFps,liveCompleted,scope:'Simulator callbacks only; not physical 6s frame delivery',screenshots:['emoji-static.png','emoji-moving.png']},null,2));
   console.log(`PASS native simulator: emoji scenes prepared/displayed, requested ${telemetry.targetFps} fps, observed ~${Math.round(telemetry.displayLinkFps)} callbacks/s. Screenshots: ${output}`);
+  if(liveCompleted)console.log('PASS live message: controller FIFO → native WebSocket → cached WebView bridge → measured readiness/completion → row freed');
 }finally{
   if(launched)try{await run('terminate',simulator,bundleId);}catch{}
   await app.close();await rm(directory,{recursive:true,force:true});

@@ -124,6 +124,7 @@ export class Releases {
       throw new Error("invalid-deployment");
     for (const id of ids) {
       const d = this.store.device(id);
+      if(release.definition.artworkId==='live-ticker'&&d?.capabilities?.liveTicker!==1)throw new Error('phone-app-2.3-required-for-live-messages');
       if (
         !release.layout.slots.some((s) => s.deviceId === id) ||
         !Array.isArray(d?.capabilities?.sceneSchemaVersions) ||

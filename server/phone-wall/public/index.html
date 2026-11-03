@@ -48,6 +48,30 @@
         <button id="send-test-text" type="button" disabled>Send Test Text</button>
         <p id="test-text-status" role="status">Pair your phones first, then send a test. No phone-app update needed.</p>
       </section>
+      <section class="operator-step">
+        <p class="eyebrow">03 / INCOMING MESSAGES</p>
+        <h2>Live iMessages</h2>
+        <p>New incoming messages enter a FIFO queue and scroll on the next available row. Sent messages, reactions and attachments without text are ignored. The first connection skips existing history.</p>
+        <div class="actions"><button id="live-start" disabled>Start Live Messages</button><button id="live-pause" disabled>Pause Live Messages</button></div>
+        <p id="live-status" role="status"></p>
+        <p id="reader-status" role="status"></p>
+        <details><summary>One-time Messages permission</summary><p>Open Phone Wall Dashboard on this Mac to install/restart its logged-in-user reader. In System Settings → Privacy &amp; Security → Full Disk Access, allow <code>/Library/Application Support/PhoneWall/app/runtime/bin/node</code>. Then reopen Phone Wall Dashboard. The database is read-only and is not opened until you start Live Messages.</p></details>
+      </section>
+      <section class="operator-step">
+        <p class="eyebrow">04 / VIDEO</p>
+        <h2>Kissing Wall</h2>
+        <p>Each phone plays random kissing clips independently, with sound. The Mac downloads clips once and shares them locally. Cached clips keep playing during outages.</p>
+        <label><input id="kissing-trim" type="checkbox" />Play only the kiss (with padding)</label>
+        <div class="geometry">
+          <label>Before kiss (seconds)<input id="kissing-before" type="number" min="0" max="30" step="0.1" value="1" /></label>
+          <label>After kiss (seconds)<input id="kissing-after" type="number" min="0" max="30" step="0.1" value="1" /></label>
+          <label>Fade in (ms)<input id="kissing-in" type="number" min="0" max="5000" step="100" value="1200" /></label>
+          <label>Fade out (ms)<input id="kissing-out" type="number" min="0" max="5000" step="100" value="1000" /></label>
+        </div>
+        <div class="actions"><button id="kissing-start" disabled>Start Kissing Wall</button><button id="kissing-stop" disabled>Stop Kissing Wall</button><button id="kissing-apply" disabled>Apply Video Settings</button></div>
+        <p id="kissing-status" role="status"></p>
+        <p>Requires phone app 2.4 once. Settings apply to the next clip without reinstalling. Set each phone's speaker volume using its volume buttons.</p>
+      </section>
     </section>
     <section id="advanced-panel" role="tabpanel" aria-labelledby="advanced-tab" hidden>
       <label

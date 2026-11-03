@@ -23,6 +23,12 @@
     asset: (name) => name,
     ready: () => {},
   };
+  let ticker=window.PHONE_WALL.ticker||{enabled:false,runs:[]},tickerCallback;
+  window.PhoneWall.onTicker=fn=>{tickerCallback=fn;fn(ticker);};
+  window.PhoneWall.receiveTicker=value=>{ticker=value;if(tickerCallback)tickerCallback(value);};
+  // The browser preview never controls phones. Simulator tests may supply a native-bridge stand-in.
+  window.PhoneWall.readyRow=(runId,width)=>window.PHONE_WALL_TICKER_BRIDGE?.('ticker.ready',{runId,width});
+  window.PhoneWall.completeRow=runId=>window.PHONE_WALL_TICKER_BRIDGE?.('ticker.done',{runId});
   function frame() {
     const s = window.PHONE_WALL,
       now = Date.now() + (s.clockOffsetMs || 0);

@@ -7,7 +7,7 @@ import { applyDashboardIcon } from './dashboard-icon.mjs';
 
 if(process.platform!=='darwin')throw new Error('Build this macOS installer on a Mac.');
 const repo=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
-const version=process.env.PHONE_WALL_PACKAGE_VERSION??'2.2.0';
+const version=process.env.PHONE_WALL_PACKAGE_VERSION??'2.4.0';
 if(!/^\d+\.\d+\.\d+$/.test(version))throw new Error('Invalid package version');
 const output=resolve(process.env.PHONE_WALL_PACKAGE_OUTPUT??join(repo,'.data/distribution'));
 const scratch=join(repo,'.data','installer-build-'+randomUUID()),payload=join(scratch,'payload'),scripts=join(scratch,'scripts');
@@ -40,6 +40,7 @@ try {
   await copyFile(join(repo,'scripts/phone-wall/supervise.mjs'),join(helpers,'supervise.mjs'));
   await copyFile(join(repo,'scripts/phone-wall/update-from-github.mjs'),join(helpers,'update-from-github.mjs'));
   await copyFile(join(repo,'scripts/phone-wall/dashboard-icon.mjs'),join(helpers,'dashboard-icon.mjs'));
+  await copyFile(join(repo,'scripts/phone-wall/install-messages-agent.mjs'),join(helpers,'install-messages-agent.mjs'));
   await cp(join(repo,'scripts/phone-wall/assets'),join(helpers,'assets'),{recursive:true});
   for(const name of ['configure.mjs','open-dashboard.sh'])await copyFile(join(repo,'scripts/phone-wall/installer',name),join(helpers,'installer',name));
   for(const name of ['preinstall','postinstall']){await copyFile(join(repo,'scripts/phone-wall/installer',name),join(scripts,name));await chmod(join(scripts,name),0o755);}

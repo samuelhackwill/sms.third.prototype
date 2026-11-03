@@ -1,7 +1,7 @@
 (() => {
   const state = window.PHONE_WALL;
   const parameters = state.parameters;
-  const text = parameters.text.replace(/[\r\n]+/g, ' ');
+  let text = parameters.text.replace(/[\r\n]+/g, ' ');
   const viewport = state.viewport || state.geometry;
   const canvas = document.createElement('canvas');
   canvas.setAttribute('aria-label', 'Red serif test text');
@@ -10,7 +10,8 @@
   document.body.appendChild(canvas);
   const context = canvas.getContext('2d');
   if (!context) throw new Error('Test text canvas is unavailable');
-  let rows = [], ratio, sx, sy;
+  let rows = [], ratio, sx, sy, run = parameters.live && state.preview ? state.liveRun : null, lastAck = 0;
+  if(run)text=run.text;
   function metrics(size) {
     context.font = `${size}px ${parameters.fontFamily}`;
     const measured = context.measureText(text);
@@ -28,7 +29,8 @@
     canvas.width = Math.max(1, Math.round(window.innerWidth * ratio));
     canvas.height = Math.max(1, Math.round(window.innerHeight * ratio));
     context.textBaseline = 'alphabetic';
-    rows = parameters.rows.filter(row => row.top < viewport.y + viewport.height && row.top + row.height > viewport.y).map(row => {
+    const bands = parameters.live ? (run ? [run.band] : []) : parameters.rows;
+    rows = bands.filter(row => row.top < viewport.y + viewport.height && row.top + row.height > viewport.y).map(row => {
       const probe = metrics(100), available = row.height * 0.97;
       let size = Math.min(row.height * 4, available / Math.max(1, probe.ascent + probe.descent) * 100);
       let ink = metrics(size);
@@ -42,15 +44,28 @@
   }
   resize();
   window.addEventListener('resize', resize);
+  if (parameters.live && !state.preview) {
+    PhoneWall.onTicker(snapshot => {
+      const next = snapshot.enabled ? snapshot.runs[0] || null : null;
+      const changed = next?.id !== run?.id;
+      run = next;
+      if (changed) { text = run?.text || ''; lastAck = 0; resize(); }
+    });
+  }
   PhoneWall.onFrame(elapsedSeconds => {
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.fillStyle = '#000000';
     context.fillRect(0, 0, window.innerWidth, window.innerHeight);
     context.setTransform(ratio * sx, 0, 0, ratio * sy, -viewport.x * ratio * sx, -viewport.y * ratio * sy);
+    if (parameters.live && run?.phase === 'preparing') {
+      if (!state.preview && rows[0] && Date.now() - lastAck > 2000) { PhoneWall.readyRow(run.id,rows[0].width); lastAck = Date.now(); }
+      return;
+    }
     for (const row of rows) {
-      const elapsed = elapsedSeconds * 1000 - row.delayMs;
+      const elapsed = parameters.live ? Date.now() + state.clockOffsetMs - (run?.startAtServerMs || Infinity) : elapsedSeconds * 1000 - row.delayMs;
       if (elapsed < 0) continue;
-      const x = row.right - elapsed / 1000 * parameters.speed;
+      const x = row.right - elapsed / 1000 * (parameters.live ? run.speed : parameters.speed);
+      if (parameters.live && !state.preview && x + row.width < row.left && Date.now() - lastAck > 2000) { PhoneWall.completeRow(run.id); lastAck = Date.now(); }
       if (x > viewport.x + viewport.width || x + row.width < viewport.x) continue;
       context.save();
       context.beginPath();

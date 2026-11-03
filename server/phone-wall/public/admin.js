@@ -15,6 +15,8 @@ let wallSignature = "";
 let testDeployment = null, testOffline = 0, sendingTest = false;
 let testSpeedEdited=false;
 let testMessageEdited=false;
+let kissingEdited=false;
+for(const id of ['kissing-trim','kissing-before','kissing-after','kissing-in','kissing-out'])$(id).oninput=()=>{kissingEdited=true;};
 const defaultTestMessage=$('test-text-message').value;
 $('test-text-message').oninput=()=>{testMessageEdited=true;};
 function showTestSpeed() {
@@ -101,6 +103,7 @@ function scene() {
 }
 // Use the same scheduled handover and per-device assignment as the phone.
 function artworkAt(patch, now = Date.now() + offset) {
+  if(patch.kissing?.enabled)return null;
   if (patch.scene?.id === 'identify' && patch.previewUntil > now) return null;
   const pending = patch.artwork?.pending;
   return pending?.phase === 'scheduled' && now >= pending.startAtServerMs
@@ -180,18 +183,35 @@ function deviceLines(device, index) {
     `R${Math.floor(index / data.state.layout.columns) + 1} C${index % data.state.layout.columns + 1} · Slot ${index}`,
     device ? device.connected ? 'ONLINE' : age < 60000 ? 'STALE' : 'OFFLINE' : 'EMPTY · no phone assigned',
     device ? `Battery ${power.battery} · ${power.source}${power.source === 'Plugged' ? ' (charging or full)' : ''}${power.stale ? ' · last reported' : ''} · thermal ${t.thermalState ?? '?'}` : '',
-    device ? `Expected: ${device.display?.mode ?? data.state.mode} · ${art?.release.definition.artworkId ?? device.display?.scene?.kind ?? 'scene'}` : '',
+    device ? `Expected: ${device.display?.mode ?? data.state.mode} · ${device.display?.kissing?.enabled?'kissing-wall':art?.release.definition.artworkId ?? device.display?.scene?.kind ?? 'scene'}` : '',
     device ? `App ${device.appVersion} · reported scene ${t.currentSceneId ?? '?'}` : '',
     device?.lastError ?? '',
     typeof t.displayLinkFps === 'number' && t.displayLinkFps >= 0 ? `Display callbacks: ~${Math.round(t.displayLinkFps)} fps${t.targetFps ? ` / target ${t.targetFps}` : ''}` : '',
     device?.artworkStatus ? `Artwork: ${device.artworkStatus.status} ${device.artworkStatus.code ?? ''}` : '',
+    device?.display?.kissing?.enabled ? `Kissing Wall: ${device.kissingStatus?.status??'waiting'}${device.kissingStatus?.code?' · '+device.kissingStatus.code:''}` : '',
   ];
 }
 function render() {
   const state = data.state,
     devices = data.devices;
   const pairing=data.pairing;
+  const kissing=data.kissing;
+  $('kissing-start').disabled=!kissing||kissing.enabled||!!pairing?.active||!!kissing.upgradeRequired?.length;
+  $('kissing-stop').disabled=!kissing?.enabled;
+  $('kissing-apply').disabled=!kissing||!!pairing?.active;
+  if(kissing&&!kissingEdited){
+    $('kissing-trim').checked=kissing.trim;
+    for(const [id,key] of [['kissing-before','trimStartOffsetSec'],['kissing-after','trimEndOffsetSec'],['kissing-in','revealDurationMs'],['kissing-out','fadeOutDurationMs']])$(id).value=kissing[key];
+  }
+  $('kissing-status').textContent=kissing?.upgradeRequired?.length?`Install phone app 2.4 on ${kissing.upgradeRequired.length} connected phones to enable video.`:
+    `${kissing?.enabled?(state.mode==='exhibition'&&!pairing?.active?'PLAYING INDEPENDENTLY · SOUND ON':'PAUSED (night / pairing)'):'STOPPED'} · ${kissing?.clips??0} clips cached on Mac${kissing?.busy?' · downloading a clip':''}${kissing?.lastError?' · '+kissing.lastError:''}`;
   renderPhoneDetails();
+  const live=data.ticker;
+  $('live-start').disabled=!!live?.enabled||!!pairing?.active||!!live?.upgradeRequired?.length;
+  $('live-pause').disabled=!live?.enabled;
+  $('live-status').textContent=`${live?.enabled?(state.mode!=='exhibition'||pairing?.active?'WAITING (night / pairing)':'LIVE'):'PAUSED'} · ${live?.queued??0} waiting · ${live?.active.length??0} active rows · ${live?.completed??0} completed`;
+  const readers=live?.readers??[];
+  $('reader-status').textContent=live?.upgradeRequired?.length?`Install phone app 2.3 for live playback (${live.upgradeRequired.length} phones need updating).`:readers.length?readers.map(reader=>`${reader.status==='needs-full-disk-access'?'Reader needs Full Disk Access (see permission instructions)':Date.now()-reader.last_seen>45000?'Reader offline':reader.status==='reading'?'Reader connected; watching new iMessages':`Reader: ${reader.status}`}`).join(' · '):'Reader not connected. Open Phone Wall Dashboard on the Mac mini.';
   if(!testSpeedEdited)$('test-text-speed').value=state.testTextSpeed??240;
   if(!testMessageEdited)$('test-text-message').value=state.testText??defaultTestMessage;
   showTestSpeed();
@@ -246,12 +266,13 @@ function render() {
     artwork: devices.map((d) => {
       const art = artworkAt(d.display ?? {});
       return [d._id, art?.deploymentId, art?.releaseId, art?.startAtServerMs,
-        d.display?.mode, d.display?.scene, isPairing(d.display ?? {}), d.display?.pairing?.slotIndex];
+        d.display?.mode, d.display?.scene, d.display?.kissing?.enabled, isPairing(d.display ?? {}), d.display?.pairing?.slotIndex];
     }),
     selected: [...selected],
     inspected: inspectedDeviceId,
     draft: virtualDraft,
     web: $("web-previews").checked,
+    live: data.ticker?.active.map(run=>[run.id,run.phase,run.startAtServerMs]),
   });
   $('matrix-status').textContent = virtualDraft
     ? 'LOCAL DRAFT · Phones are unchanged. Choose Show Live Wall to return to controller state.'
@@ -341,6 +362,9 @@ function render() {
           definition: previewDefinition,
           parameters: previewDefinition.parameters ?? {},
           geometry: g,
+          deviceId:slot.deviceId,
+          preview:true,
+          liveRun:data.ticker?.active.find(run=>run.targets.includes(slot.deviceId))??null,
           viewport: g,
           playing: true,
           startAtServerMs: virtualDraft ? draftStarted : art.startAtServerMs,
@@ -437,6 +461,12 @@ function draw(time) {
       continue;
     }
     if (mode !== "exhibition" && !virtualDraft) continue;
+    if(!virtualDraft&&patch.kissing?.enabled){
+      c.fillStyle='#fff';c.font='24px Georgia';c.fillText('KISSING WALL',20,175);
+      c.font='18px Georgia';c.fillText('Independent · sound on',20,210);
+      previewNote.textContent='Status preview only. Video plays locally on the phone.';
+      continue;
+    }
     const art = artworkAt(patch, now);
     if (art?.deploymentId !== artwork?.deploymentId || art?.startAtServerMs !== artwork?.startAtServerMs) {
       render(); return;
@@ -659,6 +689,15 @@ $("preview").onclick = run(() => {
 $("identify").onclick = run(() => api({ action: "identify", ...target() }));
 $('pairing-start').onclick=run(()=>api({action:'pairing.start'}));
 $('pairing-stop').onclick=run(()=>api({action:'pairing.stop'}));
+$('live-start').onclick=run(async()=>{
+  if(!confirm('Show new incoming iMessages from this Mac on the wall? Existing history is skipped on the first connection.'))return;
+  await api({action:'live.start'});
+});
+$('live-pause').onclick=run(()=>api({action:'live.pause'}));
+function kissingSettings(){return {trim:$('kissing-trim').checked,trimStartOffsetSec:Number($('kissing-before').value),trimEndOffsetSec:Number($('kissing-after').value),revealDurationMs:Number($('kissing-in').value),fadeOutDurationMs:Number($('kissing-out').value)};}
+$('kissing-start').onclick=run(async()=>{await api({action:'kissing.start',settings:kissingSettings()});virtualDraft=null;});
+$('kissing-stop').onclick=run(()=>api({action:'kissing.stop'}));
+$('kissing-apply').onclick=run(async()=>{await api({action:'kissing.settings',settings:kissingSettings()});kissingEdited=false;});
 $('send-test-text').onclick=run(async()=>{
   sendingTest=true;testDeployment=null;$('send-test-text').disabled=true;
   $('test-text-status').textContent='Sending test…';

@@ -8,6 +8,9 @@ fi
 PORT="$(/usr/bin/plutil -extract port raw "$ROOT/config.json")"
 for ATTEMPT in $(/usr/bin/seq 1 20); do
   if /usr/bin/curl --silent --fail --max-time 1 "http://127.0.0.1:$PORT/health" >/dev/null; then
+    if [ -f "$ROOT/app/scripts/phone-wall/install-messages-agent.mjs" ]; then
+      "$ROOT/app/runtime/bin/node" "$ROOT/app/scripts/phone-wall/install-messages-agent.mjs" >/dev/null 2>&1 || true
+    fi
     KEY="$(/usr/bin/tr -d '\r\n' < "$ROOT/operator.key")"
     /usr/bin/open "http://127.0.0.1:$PORT/admin/phone-wall#operatorKey=$KEY"
     exit 0

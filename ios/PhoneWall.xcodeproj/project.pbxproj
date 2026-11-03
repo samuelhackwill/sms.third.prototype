@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A00000000000000000000033 /* KissingWallView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000032; };
 		A00000000000000000000013 /* PhoneWall/App.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000007 /* PhoneWall/App.swift */; };
 		A00000000000000000000015 /* PhoneWall/MediaManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000014 /* PhoneWall/MediaManager.swift */; };
 		A00000000000000000000017 /* PhoneWall/ServerDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000016 /* PhoneWall/ServerDiscovery.swift */; };
@@ -20,6 +21,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		A00000000000000000000032 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneWall/KissingWallView.swift; sourceTree = "<group>"; };
 		A00000000000000000000007 /* PhoneWall/App.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneWall/App.swift; sourceTree = "<group>"; };
 		A00000000000000000000008 /* PhoneWall.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = PhoneWall.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A00000000000000000000014 /* PhoneWall/MediaManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneWall/MediaManager.swift; sourceTree = "<group>"; };
@@ -37,6 +39,7 @@
 		A00000000000000000000003 = {
 			isa = PBXGroup;
 			children = (
+				A00000000000000000000032,
 				A00000000000000000000007 /* PhoneWall/App.swift */,
 				A00000000000000000000008 /* PhoneWall.app */,
 				A00000000000000000000014 /* PhoneWall/MediaManager.swift */,
@@ -98,6 +101,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A00000000000000000000033,
 				A00000000000000000000013 /* PhoneWall/App.swift in Sources */,
 				A00000000000000000000015 /* PhoneWall/MediaManager.swift in Sources */,
 				A00000000000000000000017 /* PhoneWall/ServerDiscovery.swift in Sources */,

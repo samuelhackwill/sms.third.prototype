@@ -5,6 +5,7 @@ final class StableWallController: UIViewController {
     private let host = UIView(), legacy = WallView(), blackout = UIView(), setup = UIStackView(), label = UILabel(), address = UITextField()
     private lazy var library = ArtworkLibrary(media:media)
     private lazy var runtime = ArtworkRuntime(host:host,library:library)
+    private lazy var kissing = KissingWallView(media:media)
     private let discovery = ServerDiscovery()
     private var displayLink: CADisplayLink?
     private let boot = ProcessInfo.processInfo.systemUptime
@@ -24,7 +25,7 @@ final class StableWallController: UIViewController {
     override var prefersStatusBarHidden: Bool { true }
     override func viewDidLoad() {
         super.viewDidLoad(); view.backgroundColor = .black
-        for child in [legacy,host,blackout] { child.frame = view.bounds; child.autoresizingMask = [.flexibleWidth,.flexibleHeight]; view.addSubview(child) }
+        for child in [legacy,host,kissing,blackout] { child.frame = view.bounds; child.autoresizingMask = [.flexibleWidth,.flexibleHeight]; view.addSubview(child) }
         blackout.backgroundColor = .black; blackout.isHidden = true
         label.text = "PHONE WALL\nDiscovering the local controller…"; label.textColor = .white; label.numberOfLines = 0
         let savedAddress = UserDefaults.standard.string(forKey:"serverURL")
@@ -40,25 +41,34 @@ final class StableWallController: UIViewController {
         setup.isHidden = !state.state.isEmpty
         runtime.clockOffset = { [weak self] in guard let self = self else { return 0 }; return self.connection.hasClockSample ? self.connection.offset : self.runtime.restoredOffset }
         runtime.report = { [weak self] payload in self?.connection.send("artwork.status",payload) }
+        runtime.onTickerMessage = { [weak self] type,payload in self?.connection.send(type,payload) }
+        kissing.report = { [weak self] payload in self?.connection.send("kissing.status",payload) }
         runtime.onDiagnostic = { [weak self] code in self?.diagnostics.record(code); self?.connection.send("client.error",["code":code]) }
         runtime.onActivated = { [weak self] in guard let self = self else { return }; self.setup.isHidden = true; self.legacy.isHidden = !self.identifying; self.view.bringSubviewToFront(self.pairingScreen) }
         let initialMode = state.state["mode"] as? String ?? "exhibition"
         runtime.setMode(initialMode); blackout.isHidden = initialMode == "exhibition"
+        kissing.setMode(initialMode)
+        if let saved = state.state["kissing"] as? [String:Any] { kissing.receive(saved) }
+        if kissing.enabled { runtime.setMode("night") }
         if initialMode == "night" { UIScreen.main.brightness = CGFloat(state.state["nightBrightness"] as? Double ?? 0) }
         runtime.restore()
         connection.onMessage = { [weak self] type,payload,revision in self?.receive(type,payload,revision) }
         connection.onDisconnect = { [weak self] in
             guard let self = self else { return }
             self.diagnostics.record("connection-lost-retaining-artwork")
+            self.runtime.receiveTicker(["enabled":false,"runs":[]])
             if self.pairingSessionId != nil { self.pairingScreen.isEnabled = false; self.pairingScreen.setTitle("OFFLINE\nWaiting for controller…",for:.normal) }
         }
         connection.onStatus = { [weak self] status in self?.label.text = status }
         connection.heartbeat = { [weak self] in
             guard let self = self else { return [:] }
-            return ["battery":UIDevice.current.batteryLevel,"charging":[UIDevice.BatteryState.charging,.full].contains(UIDevice.current.batteryState),"thermalState":ProcessInfo.processInfo.thermalState.rawValue,"foreground":UIApplication.shared.applicationState == .active,"lastRevision":self.state.revision,"currentSceneId":self.runtime.activeReleaseId ?? "legacy","uptime":ProcessInfo.processInfo.systemUptime-self.boot,"mediaState":self.runtime.status,"displayLinkFps":self.displayLinkFps,"targetFps":60]
+            return ["battery":UIDevice.current.batteryLevel,"charging":[UIDevice.BatteryState.charging,.full].contains(UIDevice.current.batteryState),"thermalState":ProcessInfo.processInfo.thermalState.rawValue,"foreground":UIApplication.shared.applicationState == .active,"lastRevision":self.state.revision,"currentSceneId":self.kissing.enabled ? "kissing-wall" : self.runtime.activeReleaseId ?? "legacy","uptime":ProcessInfo.processInfo.systemUptime-self.boot,"mediaState":self.kissing.enabled ? self.kissing.status : self.runtime.status,"displayLinkFps":self.displayLinkFps,"targetFps":60]
         }
         displayLink = CADisplayLink(target:self,selector:#selector(tick(_:))); displayLink?.preferredFramesPerSecond = 60; displayLink?.add(to:.main,forMode:.common)
         configure()
+        #if targetEnvironment(simulator)
+        if ProcessInfo.processInfo.arguments.contains("-phoneWallDisableDiscovery") { return }
+        #endif
         discovery.onEndpoint = { [weak self] endpoint in guard let self = self else { return }; self.connection.discoveredEndpoint = endpoint; if !self.connection.isConnected { self.connection.endpoint = endpoint; self.connection.connect() } }; discovery.start()
     }
     @objc private func configure() {
@@ -76,11 +86,13 @@ final class StableWallController: UIViewController {
             pairingSessionId = nil; pairingAssigned = false; pairingScreen.isHidden = true
             if let brightness = beforePairingBrightness { UIScreen.main.brightness = brightness; beforePairingBrightness = nil }
             if let paired = payload["paired"] as? Bool { setPaired(paired) }
+            kissing.setMode(state.state["mode"] as? String ?? "exhibition")
             return
         }
         if beforePairingBrightness == nil { beforePairingBrightness = UIScreen.main.brightness }
         UIScreen.main.brightness = max(0.4,UIScreen.main.brightness)
         pairingSessionId = id; pairingScreen.isHidden = false; view.bringSubviewToFront(pairingScreen)
+        kissing.setMode("night")
         pairingExpiry?.cancel()
         let expiry = DispatchWorkItem { [weak self] in
             guard let self = self else { return }
@@ -98,6 +110,7 @@ final class StableWallController: UIViewController {
     }
     private func receive(_ type: String,_ payload: [String:Any],_ revision: Int) {
         runtime.deviceId = connection.deviceId; runtime.endpoint = connection.endpoint; runtime.token = connection.token
+        kissing.endpoint = connection.endpoint; kissing.token = connection.token
         if type == "server.welcome" {
             label.text = "Connected to \(connection.endpoint?.host ?? "controller")\nPairing code: \(payload["pairingCode"] ?? "?")"
             address.text = connection.endpoint?.absoluteString ?? address.text
@@ -105,6 +118,7 @@ final class StableWallController: UIViewController {
         }
         if type == "server.error" { diagnostics.record(payload["code"] as? String ?? "server-error") }
         if type == "pairing.state" { showPairing(payload); return }
+        if type == "ticker.snapshot" { runtime.receiveTicker(payload); return }
         if type == "command", let name = payload["name"] as? String, let id = payload["commandId"] as? String {
             var completed = UserDefaults.standard.stringArray(forKey:"completedCommands") ?? []
             if completed.contains(id) { connection.send("client.ack",["commandId":id,"result":"duplicate"]); return }
@@ -119,7 +133,10 @@ final class StableWallController: UIViewController {
         let mode = payload["mode"] as? String ?? "blackout"
         let previewUntil = payload["previewUntil"] as? Double ?? 0
         identifying = (payload["scene"] as? [String:Any])?["id"] as? String == "identify" && previewUntil>Date().timeIntervalSince1970*1000+connection.offset
-        runtime.setMode(identifying ? "night" : mode); blackout.isHidden = mode == "exhibition"
+        if let config = payload["kissing"] as? [String:Any] { kissing.receive(config) }
+        kissing.setMode(identifying || pairingSessionId != nil ? "night" : mode)
+        runtime.setMode(identifying || kissing.enabled ? "night" : mode); blackout.isHidden = mode == "exhibition"
+        kissing.isHidden = !kissing.enabled || identifying
         host.isHidden = identifying; legacy.isHidden = !identifying && runtime.activeReleaseId != nil
         UIScreen.main.brightness = CGFloat(mode == "night" ? payload["nightBrightness"] as? Double ?? 0 : payload["brightness"] as? Double ?? 0.6)
         if pairingSessionId != nil { beforePairingBrightness = UIScreen.main.brightness; UIScreen.main.brightness = max(0.4,UIScreen.main.brightness) }
@@ -134,6 +151,7 @@ final class StableWallController: UIViewController {
         if interval >= 2 { displayLinkFps = Double(frameCount-1)/interval; frameWindowStart = link.timestamp; frameCount = 1 }
         let lead = max(0,min(0.1,link.targetTimestamp-CACurrentMediaTime()))*1000
         runtime.tick(presentationLeadMs:lead)
+        kissing.tick()
         if identifying || runtime.activeReleaseId == nil { legacy.setNeedsDisplay() }
     }
 }

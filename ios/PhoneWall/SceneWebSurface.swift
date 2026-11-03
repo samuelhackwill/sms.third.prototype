@@ -20,9 +20,11 @@ final class SceneWebSurface: UIView, WKNavigationDelegate {
     private var sentStart = -1.0
     private var sentOffset = -Double.greatestFiniteMagnitude
     private var capturedAt = Date.distantPast
+    private var ticker: [String:Any] = ["enabled":false,"runs":[]]
     var onReady: (() -> Void)?
     var onFailure: ((String) -> Void)?
     var onDiagnostic: ((String) -> Void)?
+    var onTickerMessage: ((String,[String:Any]) -> Void)?
     init(file: URL, context: [String:Any]) {
         self.file = file; self.context = context
         super.init(frame:.zero)
@@ -37,17 +39,22 @@ final class SceneWebSurface: UIView, WKNavigationDelegate {
         let config = WKWebViewConfiguration(), messages = SceneWebMessages(); messages.owner = self
         config.websiteDataStore = .nonPersistent()
         config.userContentController.add(messages,name:"phoneWallHealth")
-        var payload = context; payload["playing"] = playing
+        var payload = context; payload["playing"] = playing; payload["ticker"] = ticker
         let data = (try? JSONSerialization.data(withJSONObject:payload)) ?? Data("{}".utf8)
         let script = """
         (() => {
           window.PHONE_WALL=JSON.parse(new TextDecoder().decode(Uint8Array.from(atob('\(data.base64EncodedString())'),c=>c.charCodeAt(0))));
-          const post=(event)=>window.webkit.messageHandlers.phoneWallHealth.postMessage({event});
+          const post=(event,payload={})=>window.webkit.messageHandlers.phoneWallHealth.postMessage({...payload,event});
           let failed=false,last=0,callbacks=[];
           window.addEventListener('error',()=>{failed=true;post('error')});
           window.addEventListener('unhandledrejection',()=>{failed=true;post('error')});
           window.addEventListener('load',()=>{if(!failed && !window.PHONE_WALL.parameters?.manualReady)post('ready')});
           window.PhoneWall={onFrame:fn=>callbacks.push(fn),asset:name=>name,ready:()=>{if(!failed)post('ready')}};
+          let ticker=window.PHONE_WALL.ticker,tickerCallback;
+          window.PhoneWall.onTicker=fn=>{tickerCallback=fn;fn(ticker)};
+          window.PhoneWall.receiveTicker=value=>{ticker=value;if(tickerCallback)tickerCallback(value)};
+          window.PhoneWall.readyRow=(runId,width)=>post('ticker.ready',{runId,width});
+          window.PhoneWall.completeRow=runId=>post('ticker.done',{runId});
           function frame(){
             const now=Date.now();if(now-last>1000){post('heartbeat');last=now;}
             const state=window.PHONE_WALL;
@@ -64,9 +71,19 @@ final class SceneWebSurface: UIView, WKNavigationDelegate {
     }
     func receive(_ message: WKScriptMessage) {
         guard message.webView === web, let value = message.body as? [String:Any], let event = value["event"] as? String else { return }
-        if event == "ready" { heartbeat = Date(); onReady?(); update(offset:context["clockOffsetMs"] as? Double ?? 0,start:context["startAtServerMs"] as? Double ?? 0,playing:playing) }
+        if event == "ready" { heartbeat = Date(); onReady?(); receiveTicker(ticker); update(offset:context["clockOffsetMs"] as? Double ?? 0,start:context["startAtServerMs"] as? Double ?? 0,playing:playing) }
+        if ["ticker.ready","ticker.done"].contains(event), let runId = value["runId"] as? String, runId.count <= 128 {
+            var payload: [String:Any] = ["runId":runId]
+            if event == "ticker.ready" { guard let width = value["width"] as? Double, width.isFinite, width > 0, width <= 1000000 else { return }; payload["width"] = width }
+            onTickerMessage?(event,payload)
+        }
         if event == "heartbeat" { heartbeat = Date() }
         if event == "error" { recover("web-javascript-error") }
+    }
+    func receiveTicker(_ value: [String:Any]) {
+        ticker = value
+        guard let data = try? JSONSerialization.data(withJSONObject:value) else { return }
+        web?.evaluateJavaScript("window.PhoneWall?.receiveTicker?.(JSON.parse(new TextDecoder().decode(Uint8Array.from(atob('\(data.base64EncodedString())'),c=>c.charCodeAt(0)))))",completionHandler:nil)
     }
     func update(offset: Double, start: Double, playing: Bool) {
         context["clockOffsetMs"] = offset; context["startAtServerMs"] = start

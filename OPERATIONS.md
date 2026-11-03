@@ -14,6 +14,20 @@ Native app **2.2 (build 5)** requests **60 frames/second**; older 2.1 apps reque
 
 For a published server update, open **Update Phone Wall** in Applications and approve once; no package reinstall or Terminal is required after installing version 2.2.0. Only committed/pushed source is downloaded. Update outside exhibition hours with internet available; normal operation remains offline-capable. Artwork-only changes do not require an IPA update.
 
+## Independent Kissing Wall
+
+Install phone app **2.4 (build 7)** once, then use **Control > Kissing Wall > Start Kissing Wall**. Each phone plays its own random clip, with sound enabled. Set speaker volume using each phone's volume buttons; a clip with no audio track is naturally silent. The Mac initially downloads clips from the original kissing API and shares verified files locally. The pool grows gradually, so the first clip may repeat until more arrive. Internet is required to obtain new clips, not to replay cached ones.
+
+Optional **Play only the kiss** uses the API kiss timestamps and the before/after padding. Fade and trim settings apply to the next clip without an IPA update. Night Mode, Blackout and pairing pause video/audio; Resume continues it. Stop Kissing Wall returns to the previous artwork. Starting test text, live messages or another published artwork exits kissing mode. The matrix shows video status, not a synchronized video preview. Clicking a phone shows its reported loading/playing/error status. Synchronized video batches are not implemented in this port.
+
+## Live Incoming Messages
+
+After the one-time [Messages setup](DEPLOYMENT.md#live-imessages-one-time-setup-on-sms-ingestor) and phone app 2.3 installation, open **Control > Live iMessages > Start Live Messages**. Wait for the reader's connected status before sending the first new incoming message. The first database connection skips old history. Each message enters one FIFO; whichever row is ready next takes the oldest waiting message. The row starts all its phones together after they have prepared the actual text, and becomes free after all of them confirm the text has left the row.
+
+**Pause Live Messages** stops dispatch and reading, keeping the queue/cursor. Resume catches up messages received during the pause. Night mode and pairing temporarily hold playback while retaining incoming messages. Sending Test Text or publishing different artwork pauses Live Messages; press Start Live Messages to return. A row with an offline phone waits while other rows continue. Interrupted/unfinished runs return to the queue; a partially seen message may replay after a network/server interruption rather than being silently lost. Duplicate database deliveries do not create duplicate queue entries.
+
+If the reader needs Full Disk Access, follow the on-screen permission instructions and reopen the Mac dashboard. Messages ingestion requires the Mac's Messages user to remain logged in. Do not grant this access on a personal machine/account containing conversations you would not want broadcast. Original Messages data is never changed or erased by Phone Wall.
+
 Artistic editing and staged release instructions are in [RUNTIME.md](RUNTIME.md). Use one phone, then a selected group, then promote the same immutable release to the entire matrix. Do not treat a release as successful until its target phones report displayed; a preparation error leaves the previous artwork in place.
 
 1. Switch on the dedicated router, screen chargers and Mac mini. If the Mac was deliberately shut down, press its power button and log into the installation account as instructed. Restored power alone may not start it.

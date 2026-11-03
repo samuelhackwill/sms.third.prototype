@@ -13,6 +13,9 @@ import { validateScene } from "./config.mjs";
 import { Releases } from "./releases.mjs";
 import { PairingSession } from './pairing.mjs';
 import { testTextDefinition } from './test-text.mjs';
+import { LiveTicker } from './live-ticker.mjs';
+import { KissingWall } from './kissing-wall.mjs';
+import { releaseHash } from './scenes.mjs';
 import {
   envelope,
   decode,
@@ -35,6 +38,7 @@ export async function createController({
   dataDir,
   adminToken,
   logger = false,
+  kissingOptions = {},
 } = {}) {
   if (typeof adminToken !== "string" || adminToken.length < 32)
     throw new Error(
@@ -57,12 +61,16 @@ export async function createController({
   await writeFile(join(mediaDir,testTextHash),testTextScript,{mode:0o600});
   store.db.prepare('INSERT OR IGNORE INTO assets VALUES(?,?,?)').run(testTextHash,'text/javascript',testTextScript.length);
   const releases = new Releases(store, pixiHash);
+  const ticker=new LiveTicker(store);
   const app = Fastify({
     logger,
     bodyLimit: 65536,
     logController: new Fastify.LogController({ disableRequestLogging: true }),
   });
   const sessions = new Map();
+  const kissing=new KissingWall(store,mediaDir,{...kissingOptions,onChange:()=>broadcast()});
+  await kissing.initialize();
+  const liveAttempts=new Map();
   const pairing=new PairingSession(store);
   const wss = new WebSocketServer({ noServer: true, maxPayload: 65536 });
   const send = (ws, type, payload, revision = 0, id) => {
@@ -76,7 +84,7 @@ export async function createController({
       send(
         ws,
         "state.snapshot",
-        { ...state, artwork: releases.snapshot(id) },
+        { ...state, artwork: releases.snapshot(id), kissing:kissing.snapshot(id) },
         state.revision,
       );
   };
@@ -85,6 +93,33 @@ export async function createController({
   };
   const pairingState=(id)=>{const ws=sessions.get(id);if(ws)send(ws,'pairing.state',pairing.status(id));};
   const broadcastPairing=()=>{for(const id of sessions.keys())pairingState(id);};
+  const tickerBroadcast=()=>{for(const [id,ws] of sessions)send(ws,'ticker.snapshot',ticker.snapshot(id));};
+  const pauseTicker=()=>{ticker.pause();tickerBroadcast();};
+  function tickerTick(){
+    const state=store.current(),allowed=state.mode==='exhibition'&&!pairing.status().active;
+    if(ticker.enabled&&allowed&&state.layout.slots.length){
+      const definition=testTextDefinition(state.layout,{asset:testTextHash});
+      definition.artworkId='live-ticker';definition.parameters={...definition.parameters,live:true};
+      definition.artworkVersion=releaseHash({parameters:definition.parameters,elements:definition.elements,canvas:definition.canvas,layout:state.layout});
+      for(const id of state.layout.slots.map(slot=>slot.deviceId)){
+        if(!sessions.has(id)||store.device(id)?.capabilities?.liveTicker!==1)continue;
+        const art=releases.snapshot(id);
+        if(art.pending)continue;
+        const attempt=liveAttempts.get(id);
+        if(attempt?.layoutRevision===state.layoutRevision&&(attempt.failed||['failed','cancelled'].includes(releases.deployment(attempt.id).phase)))continue;
+        if(art.active?.release.definition.artworkId==='live-ticker'&&art.active.release.definition.artworkVersion===definition.artworkVersion)continue;
+        try{
+          const release=releases.create(definition),deployment=releases.deploy(release.id,[id],{delayMs:1000});
+          liveAttempts.set(id,{id:deployment.id,layoutRevision:state.layoutRevision});snapshot(id);
+        }catch{liveAttempts.set(id,{failed:true,layoutRevision:state.layoutRevision});store.updateDevice(id,{lastError:'live-ticker-prepare-failed'});}
+      }
+    }
+    const ready=new Set([...sessions.keys()].filter(id=>{
+      const art=releases.snapshot(id),status=store.device(id)?.artworkStatus;
+      return store.device(id)?.capabilities?.liveTicker===1&&store.snapshot(id)?.mode==='exhibition'&&!art.pending&&art.active?.release.definition.artworkId==='live-ticker'&&status?.releaseId===art.active.releaseId&&status.status==='displayed';
+    }));
+    if(ticker.tick(ready,allowed))tickerBroadcast();
+  }
   const bearer = (req) =>
     req.headers.authorization?.replace(/^Bearer /, "") ?? "";
   const operator = (req) => equal(bearer(req), adminToken);
@@ -125,6 +160,8 @@ export async function createController({
     return {
       state,
       pairing:pairing.status(),
+      kissing:{...kissing.status(),upgradeRequired:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.kissingWall!==1).map(slot=>slot.deviceId)},
+      ticker:{...ticker.status(),upgradeRequired:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.liveTicker!==1).map(slot=>slot.deviceId)},
       serverTimeMs: Date.now(),
       history: store.history(),
       artwork: releases.list(),
@@ -144,12 +181,28 @@ export async function createController({
                 mode: display.mode,
                 previewUntil: display.previewUntil,
                 pairing: pairing.status(d._id),
+                kissing:kissing.snapshot(d._id),
                 artwork: releases.snapshot(d._id),
               }
             : null,
         };
       }),
     };
+  });
+  app.get('/phone-wall/reader/:sourceId',{preHandler:authorize},async(req)=>{
+    const id=req.params.sourceId;if(!validId(id))throw new Error('invalid-reader-id');
+    if(!ticker.source(id))ticker.reader(id);
+    else store.db.prepare('UPDATE ticker_sources SET last_seen=? WHERE id=?').run(Date.now(),id);
+    return {enabled:ticker.enabled,cursor:ticker.source(id)};
+  });
+  app.post('/phone-wall/reader/:sourceId',{preHandler:authorize},async(req)=>{
+    const id=req.params.sourceId;if(!validId(id))throw new Error('invalid-reader-id');
+    if(req.body?.action==='status'){
+      const code=req.body.code;if(typeof code!=='string'||!/^[-a-z]{1,80}$/.test(code))throw new Error('invalid-reader-status');
+      ticker.reader(id,code,code==='paused'?null:code);return {ok:true};
+    }
+    if(req.body?.action!=='batch'||!ticker.enabled)throw new Error('reader-disabled');
+    return ticker.ingest({...req.body,sourceId:id});
   });
   function targets(input) {
     const state = store.current();
@@ -185,6 +238,28 @@ export async function createController({
     )
       throw new Error("expected-revision-required");
     let state = structuredClone(previous);
+    if(['kissing.start','kissing.settings','kissing.stop'].includes(input.action)){
+      if(input.settings?.enabled!==undefined)throw new Error('use-kissing-start-or-stop');
+      if(input.action!=='kissing.stop'&&pairing.status().active)throw new Error('stop-pairing-before-kissing-wall');
+      if(input.action==='kissing.start'){
+        if(!state.layout.slots.length)throw new Error('pair-phones-before-kissing-wall');
+        if(state.layout.slots.some(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.kissingWall!==1))throw new Error('phone-app-2.4-required-for-kissing-wall');
+      }
+      kissing.configure({...input.settings,...(input.action==='kissing.start'?{enabled:true}:input.action==='kissing.stop'?{enabled:false}:{})});
+      if(input.action==='kissing.start'){
+        pauseTicker();store.commit({...state,mode:'exhibition',schedule:null,overrides:{}},previous.revision);
+        store.db.prepare('DELETE FROM previews').run();
+      }
+      broadcast();kissing.tick();return {ok:true};
+    }
+    if(input.action==='live.start'){
+      if(pairing.status().active)throw new Error('stop-pairing-before-live-messages');
+      if(state.layout.slots.some(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.liveTicker!==1))throw new Error('phone-app-2.3-required-for-live-messages');
+      kissing.configure({enabled:false});liveAttempts.clear();ticker.start();store.commit({...state,mode:'exhibition',schedule:null,overrides:{}},previous.revision);broadcast();tickerTick();return {ok:true};
+    }
+    if(input.action==='live.pause'){pauseTicker();return {ok:true};}
+    if(['test.text','release.deploy','rollback','scene','preview','identify'].includes(input.action))pauseTicker();
+    if(kissing.settings.enabled&&['test.text','release.deploy','rollback','scene','preview'].includes(input.action)){kissing.configure({enabled:false});broadcast();}
     if(input.action==='pairing.start'||input.action==='pairing.stop') {
       const result=input.action==='pairing.start'?pairing.start():pairing.stop();
       broadcast();broadcastPairing();
@@ -488,9 +563,9 @@ export async function createController({
       socket.destroy();
       return;
     }
-    wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws));
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit("connection", ws,req));
   });
-  wss.on("connection", (ws) => {
+  wss.on("connection", (ws,req) => {
     if (wss.clients.size > 100) {
       ws.close(1013);
       return;
@@ -539,6 +614,7 @@ export async function createController({
           device = store.register(p);
           sessions.get(device._id)?.close();
           sessions.set(device._id, ws);
+          liveAttempts.delete(device._id);
           send(ws, "server.welcome", {
             paired: !!store.snapshot(device._id),
             pairingCode: device.pairingCode,
@@ -546,9 +622,20 @@ export async function createController({
           });
           snapshot(device._id);
           pairingState(device._id);
+          send(ws,'ticker.snapshot',ticker.snapshot(device._id));
         } else if (m.type === "time.request")
           send(ws, "time.response", { sent: p.sent }, 0, m.messageId);
-        else if (m.type === "state.request") {snapshot(device._id);pairingState(device._id);}
+        else if (m.type === "state.request") {snapshot(device._id);pairingState(device._id);send(ws,'ticker.snapshot',ticker.snapshot(device._id));}
+        else if(m.type==='kissing.status'){
+          if(device.capabilities?.kissingWall!==1||!store.snapshot(device._id))throw new Error('unauthorized-kissing-status');
+          if(!['stopped','loading','playing','ended','waiting-for-clips','prefetch-error','error'].includes(p.status))throw new Error('invalid-kissing-status');
+          const status={status:p.status,at:Date.now(),hash:/^[a-f0-9]{64}$/.test(p.hash??'')?p.hash:null,code:typeof p.code==='string'?p.code.slice(0,100):null,audio:p.audio===true};
+          store.updateDevice(device._id,{kissingStatus:status,...(p.status==='error'?{lastError:status.code}:{})});
+        }
+        else if(['ticker.ready','ticker.done'].includes(m.type)){
+          if(device.capabilities?.liveTicker!==1||!store.snapshot(device._id))throw new Error('unauthorized-ticker');
+          if(ticker.acknowledge(device._id,{...p,type:m.type}))tickerBroadcast();
+        }
         else if(m.type==='pairing.tap') {
           try {pairing.tap(device._id,p.sessionId);broadcast();broadcastPairing();}
           catch(error){send(ws,'pairing.state',{...pairing.status(device._id),error:error.message});}
@@ -603,6 +690,7 @@ export async function createController({
   const releaseTimer = setInterval(() => {
     try {
       for (const id of releases.tick(sessions)) snapshot(id);
+      tickerTick();
     } catch {
       app.log.error("artwork-deployment-tick-failed");
     }
@@ -616,6 +704,7 @@ export async function createController({
       store.prune();
       expired.forEach((row) => snapshot(row.device_id));
       const state = store.current();
+      kissing.tick();
       if (state.schedule) {
         const mode = scheduledMode(state.schedule);
         if (state.mode !== mode) {
@@ -630,11 +719,12 @@ export async function createController({
   app.addHook("preClose", async () => {
     clearInterval(tick);
     clearInterval(releaseTimer);
+    await kissing.close();
     for (const ws of wss.clients) ws.terminate();
     wss.close();
   });
   app.addHook("onClose", async () => {
     store.close();
   });
-  return { app, store, sessions, releases };
+  return { app, store, sessions, releases, ticker, kissing };
 }

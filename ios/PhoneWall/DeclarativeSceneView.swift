@@ -19,6 +19,7 @@ final class DeclarativeSceneView: UIView {
     private var viewportSize = CGSize(width:-1,height:-1)
     var onFailure: ((String)->Void)?
     var onDiagnostic: ((String)->Void)?
+    var onTickerMessage: ((String,[String:Any])->Void)?
     init(manifest: ArtworkManifest, deviceId: String) throws {
         self.manifest = manifest
         guard let slot = manifest.layout.slots.first(where:{$0.deviceId == deviceId}) else { throw ArtworkFailure.invalidManifest }
@@ -57,7 +58,8 @@ final class DeclarativeSceneView: UIView {
                 guard let asset = e.asset, let file = files[asset] else { throw ArtworkFailure.missingAsset }
                 let player = AVQueuePlayer(); player.isMuted = true
                 observers.append(player.observe(\.status,options:[.new]) { [weak self] player,_ in if player.status == .failed { DispatchQueue.main.async { self?.failed = true; self?.onFailure?("video-renderer-failed") } } })
-                let looper = AVPlayerLooper(player:player,templateItem:AVPlayerItem(url:file)); loopers.append(looper); players.append(player)
+                let playable = try await library.media.videoFile(file)
+                let looper = AVPlayerLooper(player:player,templateItem:AVPlayerItem(url:playable)); loopers.append(looper); players.append(player)
                 view = UIView(); let layer = AVPlayerLayer(player:player); layer.videoGravity = .resizeAspect; view.layer.addSublayer(layer); videos.append((view,layer))
             case "web":
                 let file = try await library.bundle(manifest,element:e,files:files)
@@ -71,6 +73,7 @@ final class DeclarativeSceneView: UIView {
                 surface.onReady = { [weak self] in self?.readyWebs.insert(e.id) }
                 surface.onFailure = { [weak self] code in self?.failed = true; self?.onFailure?(code) }
                 surface.onDiagnostic = { [weak self] code in self?.onDiagnostic?(code) }
+                surface.onTickerMessage = { [weak self] type,payload in self?.onTickerMessage?(type,payload) }
                 webs.append(surface); view = surface
             default: throw ArtworkFailure.invalidManifest
             }
@@ -135,5 +138,6 @@ final class DeclarativeSceneView: UIView {
         render(serverMs:serverMs,startAt:startAt,offset:offset)
     }
     func setMode(_ mode: String) { self.mode = mode; players.forEach{mode == "exhibition" && started ? $0.play() : $0.pause()} }
+    func receiveTicker(_ payload: [String:Any]) { webs.forEach { $0.receiveTicker(payload) } }
     func stop() { players.forEach{$0.pause()}; webs.forEach{$0.stop()}; removeFromSuperview() }
 }

@@ -20,6 +20,8 @@ import UIKit
     var report: (([String:Any])->Void)?
     var onActivated: (() -> Void)?
     var onDiagnostic: ((String)->Void)?
+    var onTickerMessage: ((String,[String:Any])->Void)?
+    private var tickerState: [String:Any] = ["enabled":false,"runs":[]]
     private(set) var activeReleaseId: String?
     private(set) var status = "idle"
     private(set) var restoredOffset = 0.0
@@ -81,7 +83,8 @@ import UIKit
             else if self.candidate?.view === view { self.blocked.insert(deployment.deploymentId); self.cancelCandidate(); self.status = "error"; self.send(deployment,"error",code:code); Task { await self.library.protectLastGood() } }
         }
         view.onDiagnostic = { [weak self] code in self?.onDiagnostic?(code) }
-        do { try await view.prepare(files:files,library:library,offset:clockOffset()); return Prepared(deployment:deployment,view:view) }
+        view.onTickerMessage = { [weak self] type,payload in self?.onTickerMessage?(type,payload) }
+        do { try await view.prepare(files:files,library:library,offset:clockOffset()); view.receiveTicker(tickerState); return Prepared(deployment:deployment,view:view) }
         catch { view.stop(); throw error }
     }
     func tick(presentationLeadMs: Double = 0) {
@@ -102,6 +105,7 @@ import UIKit
         let old = active
         active = next; candidate = nil; activeReleaseId = next.deployment.releaseId; status = "displayed"
         next.view.setMode(mode)
+        next.view.receiveTicker(tickerState)
         let now = Date().timeIntervalSince1970*1000+clockOffset()
         next.view.activate(serverMs:now,startAt:start,offset:clockOffset())
         if next.deployment.release.definition.transition.type == "fade", old != nil, mode == "exhibition" {
@@ -132,5 +136,8 @@ import UIKit
     func setMode(_ mode: String) {
         guard self.mode != mode else { return }; self.mode = mode; active?.view.setMode(mode)
         if mode == "exhibition", let active = active, let start = active.deployment.startAtServerMs { active.view.activate(serverMs:Date().timeIntervalSince1970*1000+clockOffset(),startAt:start,offset:clockOffset()) }
+    }
+    func receiveTicker(_ payload: [String:Any]) {
+        tickerState = payload; active?.view.receiveTicker(payload); candidate?.view.receiveTicker(payload)
     }
 }
