@@ -22,6 +22,8 @@ The updater validates the source format/runtime, installs locked production depe
 
 Internet is needed only while downloading updates. Interrupted staging leaves the running installation untouched; do not schedule updates during the show. If the updater is forcibly terminated, a stale `update.lock` may require administrator recovery; do not remove a lock while another update is running. The full privileged update/reboot cycle still needs validation on the Mac mini. The system never automatically updates from a mutable branch unattended.
 
+Dashboard launcher icons are also applied by the updated updater. When upgrading from the original 2.2.0 installer, **run Update Phone Wall twice for the first icon change**: the old updater only swaps server files; that first run installs the icon-aware updater, and the second applies the icon to Applications. Later icon updates take one run. The aubergine asset is rendered from macOS Apple Color Emoji using `xcrun swift scripts/phone-wall/build-dashboard-icon.swift scripts/phone-wall/assets/dashboard.icns` on the development Mac; the committed ICNS is used directly on the Mac mini, which needs no Swift/Xcode. The launcher is staged, re-signed and signature-checked before replacing it; Finder/Dock are not forcibly restarted.
+
 Server/dashboard changes and supported JSON/native/web artwork need no phone reinstall. New UIKit behavior, entitlements, OS permissions or native APIs still require a signed IPA. The simplified controls and Send Test Text work with the existing 2.1 runtime. Optional app 2.1.1 (build 4) more explicitly hides the connection form and dismisses its keyboard after pairing; it is not required to try the new dashboard or text action.
 
 ## Developer Local Start

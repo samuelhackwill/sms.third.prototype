@@ -3,6 +3,7 @@ import { createHash,randomUUID } from 'node:crypto';
 import { mkdir,readFile,writeFile,copyFile,cp,rm,chmod,readdir } from 'node:fs/promises';
 import { join,resolve,dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { applyDashboardIcon } from './dashboard-icon.mjs';
 
 if(process.platform!=='darwin')throw new Error('Build this macOS installer on a Mac.');
 const repo=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
@@ -38,13 +39,15 @@ try {
   const helpers=join(app,'scripts/phone-wall');await mkdir(join(helpers,'installer'),{recursive:true});
   await copyFile(join(repo,'scripts/phone-wall/supervise.mjs'),join(helpers,'supervise.mjs'));
   await copyFile(join(repo,'scripts/phone-wall/update-from-github.mjs'),join(helpers,'update-from-github.mjs'));
+  await copyFile(join(repo,'scripts/phone-wall/dashboard-icon.mjs'),join(helpers,'dashboard-icon.mjs'));
+  await cp(join(repo,'scripts/phone-wall/assets'),join(helpers,'assets'),{recursive:true});
   for(const name of ['configure.mjs','open-dashboard.sh'])await copyFile(join(repo,'scripts/phone-wall/installer',name),join(helpers,'installer',name));
   for(const name of ['preinstall','postinstall']){await copyFile(join(repo,'scripts/phone-wall/installer',name),join(scripts,name));await chmod(join(scripts,name),0o755);}
   const applications=join(payload,'Applications');await mkdir(applications,{recursive:true});
   const dashboard=join(applications,'Phone Wall Dashboard.app');
   run('/usr/bin/osacompile',['-o',dashboard,'-e','do shell script ("/bin/bash " & quoted form of "/Library/Application Support/PhoneWall/app/scripts/phone-wall/installer/open-dashboard.sh")']);
   run('/usr/libexec/PlistBuddy',['-c','Add :CFBundleIdentifier string org.museum.phonewall.dashboard',join(dashboard,'Contents/Info.plist')]);
-  run('/usr/bin/codesign',['--force','--sign','-','--timestamp=none',dashboard]);
+  await applyDashboardIcon({applicationsDir:applications,iconFile:join(repo,'scripts/phone-wall/assets/dashboard.icns')});
   const updater=join(applications,'Update Phone Wall.app');
   run('/usr/bin/osacompile',['-o',updater,'-e','set resultText to do shell script (quoted form of "/Library/Application Support/PhoneWall/app/runtime/bin/node" & " " & quoted form of "/Library/Application Support/PhoneWall/app/scripts/phone-wall/update-from-github.mjs") with administrator privileges','-e','display dialog resultText buttons {"OK"} default button "OK"','-e','do shell script ("/usr/bin/open " & quoted form of "/Applications/Phone Wall Dashboard.app")']);
   run('/usr/libexec/PlistBuddy',['-c','Add :CFBundleIdentifier string org.museum.phonewall.updater',join(updater,'Contents/Info.plist')]);

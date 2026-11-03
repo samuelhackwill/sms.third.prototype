@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdir,readFile,writeFile,cp,readdir,lstat,rm,rename,mkdtemp } from 'node:fs/promises';
 import { join,resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { applyDashboardIcon } from './dashboard-icon.mjs';
 
 const repository='samuelhackwill/sms.third.prototype',branch='phone-wall-runtime-2';
 const root='/Library/Application Support/PhoneWall',label='org.museum.phonewall';
@@ -105,6 +106,8 @@ async function update() {
         }
         return false;
       }});
+    try {await applyDashboardIcon({iconFile:join(root,'app/scripts/phone-wall/assets/dashboard.icns')});}
+    catch(error){throw new Error(`Server updated, but the dashboard icon could not be applied. Run Update Phone Wall again. ${error.message}`);}
     console.log(`Updated to ${format.version} (${commit.slice(0,8)}). Open Phone Wall Dashboard.`);
   } finally {
     if(work)await rm(work,{recursive:true,force:true});
