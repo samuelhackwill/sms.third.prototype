@@ -89,15 +89,19 @@ try {
   assert.equal(new URL(page.url()).hash, '');
   assert.equal(await page.locator('#advanced-panel').isVisible(),false);
   assert.equal(await page.locator('#control-panel').isVisible(),true);
+  assert.equal(await page.locator('h1').count(),0);
+  assert.equal(await page.locator('#matrix-panel').isVisible(),true);
+  assert.equal(await page.locator('#matrix-panel').evaluate(panel => getComputedStyle(panel).position),'sticky');
+  const controlBounds = await page.locator('#control-panel').boundingBox();
+  const matrixBounds = await page.locator('#matrix-panel').boundingBox();
+  assert.ok(matrixBounds.x >= controlBounds.x + controlBounds.width, 'Matrix should sit to the right of the controls');
   assert.equal(await page.locator('#login').isVisible(),false);
   await page.getByRole('button',{name:'Start Pairing Mode',exact:true}).click();
   await page.waitForFunction(()=>document.querySelector('#pairing-status').textContent.includes('PAIRING ACTIVE'));
-  await page.getByRole('tab',{name:'Advanced',exact:true}).click();
   await page.waitForFunction(() => {
     const p = document.querySelector('#wall canvas').getContext('2d').getImageData(5,5,1,1).data;
     return p[0] > 150 && p[1] < 30 && p[2] < 30;
   });
-  await page.getByRole('tab',{name:'Control',exact:true}).click();
   await page.getByRole('button',{name:'Stop Pairing',exact:true}).click();
   await page.waitForFunction(()=>document.querySelector('#pairing-status').textContent.includes('Pairing stopped'));
   await page.locator('#test-text-speed').focus();
@@ -111,7 +115,7 @@ try {
   assert.equal(phone.activeArtwork.release.definition.artworkId,'operator-test-text');
   assert.equal(phone.activeArtwork.release.definition.parameters.speed,120);
   assert.equal(phone.activeArtwork.release.definition.parameters.text,emojiMessage);
-  await page.getByRole('tab',{name:'Advanced',exact:true}).click();
+  assert.equal(await page.locator('#advanced-panel').isVisible(), false, 'Text preview must work from Control');
   assert.equal(await page.locator('#web-previews').isChecked(), false);
   assert.equal(await page.locator('#wall article.selected').count(), 0);
   assert.equal(await page.locator('#wall iframe').count(), 0, 'Test text must render without embedded WebViews');
@@ -126,11 +130,13 @@ try {
   });
   await waitForMatrixText();
   if (process.env.PHONE_WALL_MATRIX_SCREENSHOT_PATH) {
-    await page.locator('#wall article').first().screenshot({ path: process.env.PHONE_WALL_MATRIX_SCREENSHOT_PATH });
+    await page.screenshot({ path: process.env.PHONE_WALL_MATRIX_SCREENSHOT_PATH });
   }
   await page.locator('#wall canvas').first().evaluate(canvas => { canvas.matrixPollMarker = 'same renderer'; });
   await page.waitForResponse(response => response.url().endsWith('/phone-wall/api') && response.request().method() === 'GET');
   assert.equal(await page.locator('#wall canvas').first().evaluate(canvas => canvas.matrixPollMarker), 'same renderer', 'Telemetry polling must preserve the running renderer');
+  await page.getByRole('tab',{name:'Advanced',exact:true}).click();
+  assert.equal(await page.locator('#matrix-panel').isVisible(),true);
   await page.getByRole('button',{name:'Blackout',exact:true}).click();
   await page.waitForFunction(() => {
     const p = document.querySelector('#wall canvas').getContext('2d').getImageData(100,100,1,1).data;
@@ -234,6 +240,12 @@ try {
   );
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.locator("#wall canvas").count(), 30);
+  await page.getByRole('tab',{name:'Control',exact:true}).click();
+  assert.equal(await page.locator('#matrix-panel').evaluate(panel => getComputedStyle(panel).position),'static');
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Mobile layout should fit without horizontal page scrolling');
+  const mobileControl = await page.locator('#control-panel').boundingBox(), mobileMatrix = await page.locator('#matrix-panel').boundingBox();
+  assert.ok(mobileMatrix.y >= mobileControl.y + mobileControl.height, 'Mobile matrix should stack below controls');
+  await page.getByRole('tab',{name:'Advanced',exact:true}).click();
   const uploaded = await page.request.post(base + "/phone-wall/media", {
     headers: {
       authorization: `Bearer ${key}`,

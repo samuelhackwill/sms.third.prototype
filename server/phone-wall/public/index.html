@@ -7,8 +7,6 @@
   ><link rel="stylesheet" href="/console/style.css" />
   <main>
     <header>
-      <p class="eyebrow">LOCAL INSTALLATION / CONTROL ROOM</p>
-      <h1>Phone Wall</h1>
       <p id="status" role="status">Connect to the local controller.</p>
     </header>
     <form id="login">
@@ -24,6 +22,8 @@
       <button id="control-tab" role="tab" aria-selected="true" aria-controls="control-panel">Control</button>
       <button id="advanced-tab" role="tab" aria-selected="false" aria-controls="advanced-panel" tabindex="-1">Advanced</button>
     </nav>
+    <div class="dashboard-layout">
+    <div class="dashboard-panels">
     <section id="control-panel" role="tabpanel" aria-labelledby="control-tab">
       <section class="operator-step">
         <p class="eyebrow">01 / SET THE POSITIONS</p>
@@ -50,6 +50,12 @@
       </section>
     </section>
     <section id="advanced-panel" role="tabpanel" aria-labelledby="advanced-tab" hidden>
+      <label
+        >Target<select id="scope">
+          <option value="all">Entire matrix</option>
+          <option value="selected">Selected phones</option>
+        </select></label
+      >
     <nav aria-label="Exhibition">
       <button data-mode="exhibition">Start Exhibition</button
       ><button data-mode="night">Night Mode</button
@@ -60,25 +66,6 @@
       ><button data-command="clearCache">Clear Cache</button
       ><button id="identify">Identify</button>
     </nav>
-    <section class="wall-head">
-      <h2>The Matrix</h2>
-      <p>
-        Expected phone output from the controller. Test text appears automatically.
-        Click slots to select phones. Empty slots have no assigned output.
-      </p>
-      <p id="matrix-status" role="status"></p>
-      <label
-        >Target<select id="scope">
-          <option value="all">Entire matrix</option>
-          <option value="selected">Selected phones</option>
-        </select></label
-      >
-    </section>
-    <div id="wall" aria-label="Virtual phone matrix"></div>
-    <label
-      ><input type="checkbox" id="web-previews" />Run actual web artwork on
-      selected virtual phones (maximum four; test text always runs automatically)</label
-    >
     <div id="pending"></div>
     <section id="artwork-studio">
       <h2>Staged Artwork Releases</h2>
@@ -251,6 +238,21 @@
       ><button id="upload-code">Upload Version</button>
     </section>
     </section>
+    </div>
+    <aside id="matrix-panel" aria-label="Live phone matrix">
+    <div class="wall-head">
+      <h2>The Matrix</h2>
+      <p>
+        Click phones to select them. Hover for diagnostics.
+      </p>
+      <p id="matrix-status" role="status"></p>
+    </div>
+    <div id="wall" aria-label="Virtual phone matrix"></div>
+    <label
+      ><input type="checkbox" id="web-previews" />Preview selected web artwork (up to four)</label
+    >
+    </aside>
+    </div>
     <footer>Local network · No WAN dependency · iOS 15 native clients</footer>
   </main>
   <script type="module" src="/console/admin.js"></script>

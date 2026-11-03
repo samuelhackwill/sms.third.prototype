@@ -187,15 +187,19 @@ function render() {
     selected: [...selected],
     draft: virtualDraft,
     web: $("web-previews").checked,
-    visible: !$('advanced-panel').hidden,
   });
   $('matrix-status').textContent = virtualDraft
     ? 'LOCAL DRAFT · Phones are unchanged. Choose Show Live Wall to return to controller state.'
-    : 'LIVE CONTROLLER STATE · Expected output, not a screen capture. Offline phones may differ. Updated every 3 seconds.';
+    : 'LIVE CONTROLLER STATE · 3s refresh. Offline phones may differ.';
   // Keep running web renderers alive across telemetry polls.
-  for (const { slot, index, labels } of canvases) {
-    const lines = deviceLines(devices.find(d => d._id === slot?.deviceId), index);
-    labels.forEach((label, i) => { label.textContent = lines[i]; });
+  for (const { slot, index, labels, previewNote } of canvases) {
+    const device = devices.find(d => d._id === slot?.deviceId);
+    const lines = deviceLines(device, index);
+    labels.forEach((label, i) => { label.textContent = i === 0 ? `R${Math.floor(index / state.layout.columns) + 1} C${index % state.layout.columns + 1}` : lines[i]; });
+    const card = labels[0].parentElement;
+    card.title = [...lines, previewNote.textContent].filter(Boolean).join('\n');
+    card.setAttribute('aria-label', lines.filter(Boolean).join('. '));
+    card.dataset.connection = device ? device.connected ? 'online' : 'offline' : 'empty';
   }
   $("pending").replaceChildren();
   for (const d of devices.filter((d) => !d.paired)) {
@@ -252,7 +256,6 @@ function render() {
       (e) => e.type === "web",
     );
     if (
-      !$('advanced-panel').hidden &&
       webElement &&
       !hasTestTextPreview(previewDefinition) &&
       slot &&
@@ -291,9 +294,12 @@ function render() {
       card.append(iframe);
     }
     const lines = deviceLines(device, index), labels = [];
-    for (const line of lines) {
+    card.title = lines.filter(Boolean).join('\n');
+    card.setAttribute('aria-label', lines.filter(Boolean).join('. '));
+    card.dataset.connection = device ? device.connected ? 'online' : 'offline' : 'empty';
+    for (const [lineIndex, line] of lines.entries()) {
       const p = document.createElement("p");
-      p.textContent = line;
+      p.textContent = lineIndex === 0 ? `R${Math.floor(index / state.layout.columns) + 1} C${index % state.layout.columns + 1}` : line;
       card.append(p);
       labels.push(p);
     }
@@ -307,7 +313,7 @@ function render() {
 let lastFrame = 0;
 function draw(time) {
   requestAnimationFrame(draw);
-  if (!data || $('advanced-panel').hidden || time - lastFrame < 33) return;
+  if (!data || time - lastFrame < 33) return;
   lastFrame = time;
   const now = Date.now() + offset,
     state = data.state;
@@ -335,6 +341,13 @@ function draw(time) {
     c.fillRect(0, 0, 300, 400);
     const definition = virtualDraft ?? artworkAt(patch, now)?.release.definition;
     if (previewNote.textContent && (!hasTestTextPreview(definition) || (!virtualDraft && (mode !== 'exhibition' || isPairing(patch))))) previewNote.textContent = '';
+    if (!slot && !virtualDraft) {
+      c.fillStyle = '#d6d8cc'; c.fillRect(0, 0, 300, 400);
+      c.strokeStyle = '#7b9d92'; c.lineWidth = 3; c.beginPath();
+      c.moveTo(125, 200); c.lineTo(175, 200);
+      c.moveTo(150, 175); c.lineTo(150, 225); c.stroke();
+      continue;
+    }
     if (!virtualDraft && isPairing(patch)) {
       const assigned = patch.pairing.slotIndex != null;
       c.fillStyle = assigned ? '#0d6626' : '#cc0d0d';
@@ -350,11 +363,6 @@ function draw(time) {
     if (art?.deploymentId !== artwork?.deploymentId || art?.startAtServerMs !== artwork?.startAtServerMs) {
       render(); return;
     }
-    if (!slot && !virtualDraft) {
-      c.fillStyle = '#7b9d92'; c.font = '20px monospace';
-      c.fillText('No phone assigned', 20, 50);
-      continue;
-    }
     if (virtualDraft || art) {
       const manifest = virtualDraft ?? art.release.definition;
       const layout = virtualDraft ? null : art?.release.layout;
@@ -368,7 +376,10 @@ function draw(time) {
         now,
         index,
       );
-      if (note && previewNote.textContent !== note) previewNote.textContent = note;
+      if (note && previewNote.textContent !== note) {
+        previewNote.textContent = note;
+        canvas.parentElement.title = [...deviceLines(data.devices.find(d => d._id === slot?.deviceId), index), note].filter(Boolean).join('\n');
+      }
       if (!canvas.hidden && !hasTestTextPreview(manifest) && manifest.elements.some(e => e.type === 'web')) {
         c.fillStyle = '#000'; c.fillRect(0, 330, 300, 70);
         c.fillStyle = '#fff'; c.font = '16px sans-serif';
