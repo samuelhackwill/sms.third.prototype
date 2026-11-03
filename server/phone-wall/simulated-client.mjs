@@ -18,6 +18,7 @@ export class SimulatedClient extends EventEmitter {
       stopped: false,
       attempt: 0,
       connections: 0,
+      bootSessionId:randomUUID(),
       state: null,
       offset: 0,
       samples: [],
@@ -35,7 +36,7 @@ export class SimulatedClient extends EventEmitter {
     ws.on("open", () =>
       send("client.hello", {
         ...this.identity,
-        bootSessionId: randomUUID(),
+        bootSessionId: this.bootSessionId,
         appVersion: "simulator-2",
         runtimeVersion: "2.0",
         capabilities: {

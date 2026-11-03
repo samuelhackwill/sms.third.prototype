@@ -76,6 +76,7 @@ final class NativeRenderer: ScreenRenderer {
     func render(state: [String: Any], serverMs: Double, deviceId: String, in rect: CGRect, context: CGContext) {
         guard state["mode"] as? String == "exhibition", let scene = state["scene"] as? [String: Any] else { return }
         let kind = scene["kind"] as? String ?? "test"
+        if kind == "test", scene["id"] as? String != "identify" { return }
         let device = state["device"] as? [String: Any] ?? [:]
         let geometry = device["geometry"] as? [String: Any] ?? [:]
         let w = geometry["width"] as? Double ?? Double(rect.width), h = geometry["height"] as? Double ?? Double(rect.height)
@@ -94,11 +95,7 @@ final class NativeRenderer: ScreenRenderer {
         if kind == "test" {
             let slot = device["slotIndex"] as? Int ?? 0
             let columns = (state["layout"] as? [String:Any])?["columns"] as? Int ?? 5
-            text = "PHONE WALL\n\(deviceId.prefix(8))\nSlot \(slot) / R\(slot / max(1,columns)+1) C\(slot % max(1,columns)+1)\n\(Int(serverMs))"
-            context.setStrokeColor(UIColor.darkGray.cgColor); context.setLineWidth(1)
-            for n in 0...10 { context.move(to:CGPoint(x:Double(n)*w/10,y:0)); context.addLine(to:CGPoint(x:Double(n)*w/10,y:h)); context.move(to:CGPoint(x:0,y:Double(n)*h/10)); context.addLine(to:CGPoint(x:w,y:Double(n)*h/10)) }; context.strokePath()
-            let barX = (serverMs / 10).truncatingRemainder(dividingBy: 5000) - x
-            context.setFillColor(UIColor.cyan.cgColor); context.fill(CGRect(x:barX,y:0,width:10,height:h))
+            text = "PHONE WALL\n\(deviceId.prefix(8))\nSlot \(slot) / R\(slot / max(1,columns)+1) C\(slot % max(1,columns)+1)"
         } else if kind == "ticker" {
             let start = scene["startAtServerMs"] as? Double ?? serverMs
             let speed = scene["speed"] as? Double ?? 100

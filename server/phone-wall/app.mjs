@@ -68,6 +68,7 @@ export async function createController({
     logController: new Fastify.LogController({ disableRequestLogging: true }),
   });
   const sessions = new Map();
+  let closing=false;
   const kissing=new KissingWall(store,mediaDir,{...kissingOptions,onChange:()=>broadcast()});
   await kissing.initialize();
   const liveAttempts=new Map();
@@ -587,12 +588,16 @@ export async function createController({
       alive = Date.now();
     });
     ws.on("error", () => {});
-    ws.on("close", () => {
+    ws.on("close", (closeCode) => {
       clearInterval(timer);
-      if (device && sessions.get(device._id) === ws)
+      if (device && sessions.get(device._id) === ws) {
         sessions.delete(device._id);
+        if(!closing)store.updateDevice(device._id,{lastDisconnect:{at:Date.now(),code:closeCode,reason:ws.failureCode??'socket-closed'}});
+      }
     });
     ws.on("message", (raw) => {
+      if(closing||ws.readyState!==1||(device&&sessions.get(device._id)!==ws))return;
+      let decoded=false,messageType='invalid';
       try {
         if (Date.now() - windowAt > 60000) {
           windowAt = Date.now();
@@ -601,6 +606,7 @@ export async function createController({
         if (++count > 120) throw new Error("rate-limit");
         const m = decode(raw.toString()),
           p = m.payload;
+        decoded=true;messageType=m.type;
         if (!device) {
           if (
             m.type !== "client.hello" ||
@@ -611,6 +617,13 @@ export async function createController({
             p.token.length > 128
           )
             throw new Error("invalid-hello");
+          const existing=store.device(p.deviceId),current=sessions.get(p.deviceId);
+          if(existing&&equal(existing.tokenHash,hash(p.token))&&current?.readyState===1&&existing.bootSessionId!==p.bootSessionId){
+            const conflict={at:Date.now(),reason:'device-identity-conflict'};
+            store.updateDevice(p.deviceId,{connectionIssue:conflict});
+            app.log.warn({deviceId:p.deviceId,code:conflict.reason},'phone-wall-connection-conflict');
+            throw new Error('device-identity-conflict');
+          }
           device = store.register(p);
           sessions.get(device._id)?.close();
           sessions.set(device._id, ws);
@@ -619,6 +632,7 @@ export async function createController({
             paired: !!store.snapshot(device._id),
             pairingCode: device.pairingCode,
             heartbeatSeconds: 12,
+            features:{liveTicker:1,kissingWall:1},
           });
           snapshot(device._id);
           pairingState(device._id);
@@ -647,7 +661,7 @@ export async function createController({
               Number.isFinite(p.battery) && p.battery >= -1 && p.battery <= 1
                 ? p.battery
                 : -1,
-            charging: p.charging === true,
+            charging: typeof p.charging==='boolean'?p.charging:null,
             foreground: p.foreground === true,
             thermalState: [0, 1, 2, 3].includes(p.thermalState)
               ? p.thermalState
@@ -663,6 +677,7 @@ export async function createController({
           store.updateDevice(device._id, {
             telemetry,
             lastSeenAt: new Date().toISOString(),
+            telemetryAt:Date.now(),
           });
         } else if (m.type === "artwork.status") {
           releases.acknowledge(device._id, p);
@@ -682,8 +697,12 @@ export async function createController({
           );
         } else throw new Error("unsupported-message");
       } catch (error) {
-        send(ws, "server.error", { code: error.message });
-        ws.close(1008, "protocol-error");
+        const code=error instanceof SyntaxError?'invalid-json':/^[a-z0-9-]{1,100}$/.test(error.message)?error.message:'controller-message-failed';
+        const fatal=!device||!decoded||code==='rate-limit';
+        if(device)store.updateDevice(device._id,{connectionIssue:{at:Date.now(),reason:code,messageType,fatal}});
+        app.log.warn({deviceId:device?._id??null,code,messageType,fatal},'phone-wall-message-error');
+        send(ws, "server.error", { code, fatal });
+        if(fatal){ws.failureCode=code;ws.close(1008,code);}
       }
     });
   });
@@ -717,6 +736,7 @@ export async function createController({
     }
   }, 1000);
   app.addHook("preClose", async () => {
+    closing=true;
     clearInterval(tick);
     clearInterval(releaseTimer);
     await kissing.close();

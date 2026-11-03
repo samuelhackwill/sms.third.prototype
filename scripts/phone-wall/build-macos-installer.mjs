@@ -7,7 +7,7 @@ import { applyDashboardIcon } from './dashboard-icon.mjs';
 
 if(process.platform!=='darwin')throw new Error('Build this macOS installer on a Mac.');
 const repo=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
-const version=process.env.PHONE_WALL_PACKAGE_VERSION??'2.4.0';
+const version=process.env.PHONE_WALL_PACKAGE_VERSION??'2.4.1';
 if(!/^\d+\.\d+\.\d+$/.test(version))throw new Error('Invalid package version');
 const output=resolve(process.env.PHONE_WALL_PACKAGE_OUTPUT??join(repo,'.data/distribution'));
 const scratch=join(repo,'.data','installer-build-'+randomUUID()),payload=join(scratch,'payload'),scripts=join(scratch,'scripts');

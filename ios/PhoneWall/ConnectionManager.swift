@@ -16,6 +16,8 @@ final class ConnectionManager {
     private var generation = 0
     private var samples: [(rtt: Double, offset: Double)] = []
     private var lastResponse = Date()
+    private var connectedAt: Date?
+    private var features: [String:Int] = [:]
     private(set) var offset: Double = 0
     var hasClockSample: Bool { !samples.isEmpty }
     var onMessage: ((String, [String: Any], Int) -> Void)?
@@ -31,7 +33,8 @@ final class ConnectionManager {
         }
         monitor.start(queue: DispatchQueue(label: "wall.network"))
     }
-    func connect() {
+    func connect(force: Bool = false) {
+        if socket != nil && !force { return }
         guard let endpoint = endpoint else { return }
         if deviceId.isEmpty || token.isEmpty {
             do { deviceId = try DeviceIdentity.value("deviceId"); token = try DeviceIdentity.value("token") }
@@ -45,6 +48,7 @@ final class ConnectionManager {
         }
         retry?.cancel(); handshakeTimeout?.cancel(); timer?.invalidate(); socket?.cancel(with: .goingAway, reason: nil)
         isConnected = false
+        connectedAt = nil; features = [:]
         onStatus?("Connecting to \(endpoint.host ?? "controller")…")
         generation += 1
         let current = generation
@@ -58,14 +62,23 @@ final class ConnectionManager {
         let screen = UIScreen.main
         send("client.hello", ["deviceId": deviceId, "token": token, "bootSessionId": bootSession, "appVersion": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "2.0", "runtimeVersion":"2.0", "capabilities": ["sceneSchemaVersions":[1],"liveTicker":1,"kissingWall":1,"model": UIDevice.current.model, "osVersion": UIDevice.current.systemVersion, "width": screen.bounds.width, "height": screen.bounds.height, "pixelWidth": screen.nativeBounds.width, "pixelHeight": screen.nativeBounds.height, "scale": screen.scale, "codecs": ["h264"]]])
         receive(ws, generation: current)
-        timer = Timer.scheduledTimer(withTimeInterval: 12, repeats: true) { [weak self] _ in
+        let heartbeatTimer = Timer(timeInterval:12,repeats:true) { [weak self] _ in
             guard let self = self else { return }
             if Date().timeIntervalSince(self.lastResponse) > 45 { self.failed(current); return }
-            self.send("client.heartbeat", self.heartbeat?() ?? [:])
+            self.publishHeartbeat()
             self.send("time.request", ["sent": Date().timeIntervalSince1970 * 1000])
         }
+        timer = heartbeatTimer; RunLoop.main.add(heartbeatTimer,forMode:.common)
     }
+    func discovered(_ url: URL) {
+        discoveredEndpoint = url
+        guard socket == nil else { return }
+        endpoint = url; connect()
+    }
+    func publishHeartbeat() { if isConnected { send("client.heartbeat",heartbeat?() ?? [:]) } }
     func send(_ type: String, _ payload: [String: Any], id: String = UUID().uuidString) {
+        if type.hasPrefix("ticker."), features["liveTicker"] != 1 { return }
+        if type.hasPrefix("kissing."), features["kissingWall"] != 1 { return }
         let object: [String: Any] = ["v": 1, "type": type, "messageId": id, "payload": payload]
         guard let data = try? JSONSerialization.data(withJSONObject: object), let text = String(data: data, encoding: .utf8) else { return }
         let current = generation
@@ -85,10 +98,12 @@ final class ConnectionManager {
                     if type == "server.welcome" {
                         self.isConnected = true
                         self.handshakeTimeout?.cancel()
-                        self.attempt = 0
+                        self.connectedAt = Date()
+                        self.features = p["features"] as? [String:Int] ?? [:]
                         self.samples = []
+                        self.publishHeartbeat()
                         self.send("state.request",[:])
-                        for n in 0..<5 { DispatchQueue.main.asyncAfter(deadline:.now()+Double(n)*0.2) { [weak self] in self?.send("time.request",["sent":Date().timeIntervalSince1970 * 1000]) } }
+                        for n in 0..<5 { DispatchQueue.main.asyncAfter(deadline:.now()+Double(n)*0.2) { [weak self] in guard let self = self, self.generation == current else { return }; self.send("time.request",["sent":Date().timeIntervalSince1970 * 1000]) } }
                     }
                     if type == "time.response", let sent = p["sent"] as? Double, let server = m["serverTimeMs"] as? Double {
                         let now = Date().timeIntervalSince1970 * 1000
@@ -107,6 +122,8 @@ final class ConnectionManager {
         socket?.cancel(with: .goingAway, reason: nil); socket = nil; timer?.invalidate(); handshakeTimeout?.cancel(); isConnected = false
         onStatus?("Controller unavailable. Retrying automatically…")
         onDisconnect?()
+        if let connectedAt = connectedAt, Date().timeIntervalSince(connectedAt)>=30 { attempt = 0 }
+        connectedAt = nil; features = [:]
         let delay = min(30, 0.5 * pow(2, Double(min(attempt, 8)))) * Double.random(in: 0.5...1)
         attempt += 1
         endpoint = attempt % 2 == 0 ? (fallbackEndpoint ?? discoveredEndpoint ?? endpoint) : (discoveredEndpoint ?? fallbackEndpoint ?? endpoint)

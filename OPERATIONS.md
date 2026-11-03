@@ -16,7 +16,7 @@ For a published server update, open **Update Phone Wall** in Applications and ap
 
 ## Independent Kissing Wall
 
-Install phone app **2.4 (build 7)** once, then use **Control > Kissing Wall > Start Kissing Wall**. Each phone plays its own random clip, with sound enabled. Set speaker volume using each phone's volume buttons; a clip with no audio track is naturally silent. The Mac initially downloads clips from the original kissing API and shares verified files locally. The pool grows gradually, so the first clip may repeat until more arrive. Internet is required to obtain new clips, not to replay cached ones.
+Install phone app **2.4.1 (build 8)** once, then use **Control > Kissing Wall > Start Kissing Wall**. Each phone plays its own random clip, with sound enabled. Set speaker volume using each phone's volume buttons; a clip with no audio track is naturally silent. The Mac initially downloads clips from the original kissing API and shares verified files locally. The pool grows gradually, so the first clip may repeat until more arrive. Internet is required to obtain new clips, not to replay cached ones.
 
 Optional **Play only the kiss** uses the API kiss timestamps and the before/after padding. Fade and trim settings apply to the next clip without an IPA update. Night Mode, Blackout and pairing pause video/audio; Resume continues it. Stop Kissing Wall returns to the previous artwork. Starting test text, live messages or another published artwork exits kissing mode. The matrix shows video status, not a synchronized video preview. Clicking a phone shows its reported loading/playing/error status. Synchronized video batches are not implemented in this port.
 

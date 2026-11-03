@@ -62,18 +62,22 @@ final class StableWallController: UIViewController {
         connection.onStatus = { [weak self] status in self?.label.text = status }
         connection.heartbeat = { [weak self] in
             guard let self = self else { return [:] }
-            return ["battery":UIDevice.current.batteryLevel,"charging":[UIDevice.BatteryState.charging,.full].contains(UIDevice.current.batteryState),"thermalState":ProcessInfo.processInfo.thermalState.rawValue,"foreground":UIApplication.shared.applicationState == .active,"lastRevision":self.state.revision,"currentSceneId":self.kissing.enabled ? "kissing-wall" : self.runtime.activeReleaseId ?? "legacy","uptime":ProcessInfo.processInfo.systemUptime-self.boot,"mediaState":self.kissing.enabled ? self.kissing.status : self.runtime.status,"displayLinkFps":self.displayLinkFps,"targetFps":60]
+            let batteryState = UIDevice.current.batteryState
+            let charging: Any = batteryState == .unknown ? NSNull() : [UIDevice.BatteryState.charging,.full].contains(batteryState)
+            return ["battery":UIDevice.current.batteryLevel,"charging":charging,"thermalState":ProcessInfo.processInfo.thermalState.rawValue,"foreground":UIApplication.shared.applicationState == .active,"lastRevision":self.state.revision,"currentSceneId":self.kissing.enabled ? "kissing-wall" : self.runtime.activeReleaseId ?? "legacy","uptime":ProcessInfo.processInfo.systemUptime-self.boot,"mediaState":self.kissing.enabled ? self.kissing.status : self.runtime.status,"displayLinkFps":self.displayLinkFps,"targetFps":60]
         }
+        for name in [UIDevice.batteryStateDidChangeNotification,UIDevice.batteryLevelDidChangeNotification] { NotificationCenter.default.addObserver(self,selector:#selector(powerChanged),name:name,object:nil) }
         displayLink = CADisplayLink(target:self,selector:#selector(tick(_:))); displayLink?.preferredFramesPerSecond = 60; displayLink?.add(to:.main,forMode:.common)
         configure()
         #if targetEnvironment(simulator)
         if ProcessInfo.processInfo.arguments.contains("-phoneWallDisableDiscovery") { return }
         #endif
-        discovery.onEndpoint = { [weak self] endpoint in guard let self = self else { return }; self.connection.discoveredEndpoint = endpoint; if !self.connection.isConnected { self.connection.endpoint = endpoint; self.connection.connect() } }; discovery.start()
+        discovery.onEndpoint = { [weak self] endpoint in self?.connection.discovered(endpoint) }; discovery.start()
     }
+    @objc private func powerChanged() { connection.publishHeartbeat() }
     @objc private func configure() {
         guard let text = address.text, let url = URL(string:text), ["ws","wss"].contains(url.scheme ?? ""), url.host != nil else { label.text = "Enter a valid controller address."; return }
-        UserDefaults.standard.set(text,forKey:"serverURL"); connection.fallbackEndpoint = url; connection.endpoint = connection.discoveredEndpoint ?? url; connection.connect(); view.endEditing(true)
+        UserDefaults.standard.set(text,forKey:"serverURL"); connection.fallbackEndpoint = url; connection.endpoint = connection.discoveredEndpoint ?? url; connection.connect(force:true); view.endEditing(true)
     }
     @objc private func pairingTapped() {
         guard let id = pairingSessionId, !pairingAssigned, connection.isConnected else { return }

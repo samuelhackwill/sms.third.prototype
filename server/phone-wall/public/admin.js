@@ -1,4 +1,5 @@
 import { drawArtwork, hasTestTextPreview } from "./scene-preview.js";
+import { powerReading } from './device-health.js';
 const $ = (id) => document.getElementById(id);
 function requestId(){if(typeof crypto.randomUUID==='function')return crypto.randomUUID();return Array.from(crypto.getRandomValues(new Uint8Array(16)),n=>n.toString(16).padStart(2,'0')).join('');}
 let virtualDraft = null;
@@ -114,11 +115,7 @@ function isPairing(patch) {
 }
 
 function powerStatus(device) {
-  const t = device?.telemetry ?? {};
-  const battery = Number.isFinite(t.battery) && t.battery >= 0 && t.battery <= 1 ? `${Math.round(t.battery * 100)}%` : '—';
-  const source = typeof t.charging === 'boolean' ? t.charging ? 'Plugged' : 'Unplugged' : 'No data';
-  const stale = !!device && (!device.connected || Date.now() + offset - new Date(device.lastSeenAt).getTime() > 30000);
-  return { battery, source, stale, state: source === 'Plugged' ? 'plugged' : source === 'Unplugged' ? 'unplugged' : 'unknown' };
+  return powerReading(device,Date.now()+offset);
 }
 
 function updatePower(element, device) {
@@ -126,7 +123,7 @@ function updatePower(element, device) {
   const power = powerStatus(device);
   element.dataset.power = power.state;
   element.querySelector('.battery-level').textContent = power.battery;
-  element.querySelector('.power-source').textContent = power.source;
+  element.querySelector('.power-source').textContent = power.stale ? `${power.source} (last report)` : power.source;
   element.querySelector('.power-age').hidden = !power.stale;
 }
 
@@ -189,6 +186,8 @@ function deviceLines(device, index) {
     typeof t.displayLinkFps === 'number' && t.displayLinkFps >= 0 ? `Display callbacks: ~${Math.round(t.displayLinkFps)} fps${t.targetFps ? ` / target ${t.targetFps}` : ''}` : '',
     device?.artworkStatus ? `Artwork: ${device.artworkStatus.status} ${device.artworkStatus.code ?? ''}` : '',
     device?.display?.kissing?.enabled ? `Kissing Wall: ${device.kissingStatus?.status??'waiting'}${device.kissingStatus?.code?' · '+device.kissingStatus.code:''}` : '',
+    device?.connectionIssue ? `Last connection issue: ${device.connectionIssue.reason}${device.connectionIssue.messageType?' · '+device.connectionIssue.messageType:''}` : '',
+    device?.lastDisconnect ? `Last disconnect: ${device.lastDisconnect.reason} (code ${device.lastDisconnect.code})` : '',
   ];
 }
 function render() {
@@ -511,11 +510,11 @@ function draw(time) {
           g.x;
       c.fillText(s.text, x, (s.fontSize ?? 48) - g.y);
     } else if (s.kind === "test") {
-      c.font = "24px monospace";
-      c.fillText(`Slot ${index}`, 20, 50);
-      c.fillText(String(Math.round(now)), 20, 90);
-      c.fillStyle = "#4de0ce";
-      c.fillRect(((now / 10) % width) - g.x, 0, 10, g.height);
+      if(s.id==='identify'){
+        c.font = "24px monospace";
+        c.fillText(`Slot ${index}`, 20, 50);
+        c.fillText(`R${Math.floor(index/state.layout.columns)+1} C${index%state.layout.columns+1}`,20,90);
+      }
     } else
       c.fillText(
         s.kind === "text"
