@@ -1,0 +1,17 @@
+#!/bin/bash
+set -euo pipefail
+if [ "$(/usr/sbin/sysctl -n hw.optional.arm64 2>/dev/null || echo 0)" != "1" ]; then
+  echo 'This Phone Wall installer is for Apple Silicon Macs (including the M1 Mac mini).' >&2
+  exit 1
+fi
+PLIST='/Library/LaunchDaemons/org.museum.phonewall.plist'
+if [ -f "$PLIST" ]; then
+  EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$PLIST")"
+  if [ "$EXECUTABLE" != '/Library/Application Support/PhoneWall/app/runtime/bin/node' ]; then
+    echo 'An independently configured Phone Wall daemon already exists. Refusing to overwrite it.' >&2
+    exit 1
+  fi
+  if /bin/launchctl print system/org.museum.phonewall >/dev/null 2>&1; then
+    /bin/launchctl bootout system "$PLIST"
+  fi
+fi

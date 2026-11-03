@@ -99,6 +99,7 @@ export class SimulatedClient extends EventEmitter {
         });
       }
       if (m.type === "server.error") this.emit("protocolError", m.payload.code);
+      if(m.type==='pairing.state'){this.pairing=m.payload;this.emit('pairing',m.payload);}
     });
     ws.on("error", () => {});
     ws.on("close", () => {

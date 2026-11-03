@@ -8,7 +8,7 @@
   <main>
     <header>
       <p class="eyebrow">LOCAL INSTALLATION / CONTROL ROOM</p>
-      <h1>Phone Wall<span>Studio</span></h1>
+      <h1>Phone Wall</h1>
       <p id="status" role="status">Connect to the local controller.</p>
     </header>
     <form id="login">
@@ -20,6 +20,30 @@
           autocomplete="off" /></label
       ><button>Connect</button>
     </form>
+    <nav class="tabs" role="tablist" aria-label="Dashboard">
+      <button id="control-tab" role="tab" aria-selected="true" aria-controls="control-panel">Control</button>
+      <button id="advanced-tab" role="tab" aria-selected="false" aria-controls="advanced-panel" tabindex="-1">Advanced</button>
+    </nav>
+    <section id="control-panel" role="tabpanel" aria-labelledby="control-tab">
+      <section class="operator-step">
+        <p class="eyebrow">01 / SET THE POSITIONS</p>
+        <h2>Pair / Position</h2>
+        <p>Start pairing, then tap the red phones from top left to bottom right. Green means assigned.</p>
+        <div class="actions">
+          <button id="pairing-start" type="button" disabled>Start Pairing Mode</button>
+          <button id="pairing-stop" type="button" disabled>Stop Pairing</button>
+        </div>
+        <p id="pairing-status" role="status"></p>
+      </section>
+      <section class="operator-step">
+        <p class="eyebrow">02 / TRY THE WALL</p>
+        <h2>Send Test Text</h2>
+        <p>Send “Bla bla bla” across each paired row, from right to left. Rows start one after another.</p>
+        <button id="send-test-text" type="button" disabled>Send Test Text</button>
+        <p id="test-text-status" role="status">Pair your phones first, then send a test. No phone-app update needed.</p>
+      </section>
+    </section>
+    <section id="advanced-panel" role="tabpanel" aria-labelledby="advanced-tab" hidden>
     <nav aria-label="Exhibition">
       <button data-mode="exhibition">Start Exhibition</button
       ><button data-mode="night">Night Mode</button
@@ -136,7 +160,7 @@
         </form>
       </article>
       <article>
-        <h2>Pair / Position</h2>
+        <h2>Manual Slot Assignment</h2>
         <p>
           Codes appear below the matrix. Existing codes can update a position.
         </p>
@@ -218,6 +242,7 @@
         aria-label="Experimental JavaScript"
       ></textarea
       ><button id="upload-code">Upload Version</button>
+    </section>
     </section>
     <footer>Local network · No WAN dependency · iOS 15 native clients</footer>
   </main>

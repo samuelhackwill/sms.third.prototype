@@ -77,29 +77,43 @@ try {
     }
     return route.continue();
   });
-  await page.goto(base + "/admin/phone-wall");
-  await page.locator("#key").fill(key);
-  await page.getByRole("button", { name: "Connect", exact: true }).click();
+  await page.goto(base + "/admin/phone-wall#operatorKey=" + key);
   await page.waitForFunction(
     () => document.querySelectorAll("#wall canvas").length === 30,
   );
+  assert.equal(new URL(page.url()).hash, '');
+  assert.equal(await page.locator('#advanced-panel').isVisible(),false);
+  assert.equal(await page.locator('#control-panel').isVisible(),true);
+  assert.equal(await page.locator('#login').isVisible(),false);
+  await page.getByRole('button',{name:'Start Pairing Mode',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelector('#pairing-status').textContent.includes('PAIRING ACTIVE'));
+  await page.getByRole('button',{name:'Stop Pairing',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelector('#pairing-status').textContent.includes('Pairing stopped'));
+  await page.getByRole('button',{name:'Send Test Text',exact:true}).click();
+  await page.waitForFunction(()=>document.querySelector('#test-text-status').textContent.includes('Test sent to 1 phone'));
+  assert.equal(phone.activeArtwork.release.definition.artworkId,'operator-test-text');
+  await page.getByRole('tab',{name:'Advanced',exact:true}).click();
   await page.locator("#scene [name=kind]").selectOption("solid");
   await page
     .getByRole("button", { name: "Build Release from Controls" })
     .click();
   await page.waitForFunction(
-    () => document.querySelector("#artwork-releases").options.length === 1,
+    () => document.querySelector("#artwork-releases").options.length === 2,
   );
+  const solidDisplayed=new Promise(resolve=>phone.once('artwork',resolve));
   await page
     .getByRole("button", { name: "Prepare + Publish Target", exact: true })
     .click();
+  await solidDisplayed;
   await page.waitForFunction(() =>
     document.querySelector("#deployments").textContent.includes("displayed"),
   );
   assert.equal(phone.activeArtwork.release.definition.elements[0].type, "rect");
+  const beforeExhibition=JSON.parse(await page.locator('#config').inputValue()).revision;
   await page
     .getByRole("button", { name: "Start Exhibition", exact: true })
     .click();
+  await page.waitForFunction(revision=>JSON.parse(document.querySelector('#config').value).revision>revision,beforeExhibition);
   await page.waitForFunction(() =>
     document.querySelector("#status").textContent.includes("exhibition"),
   );

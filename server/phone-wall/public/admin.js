@@ -1,5 +1,6 @@
 import { drawArtwork } from "./scene-preview.js";
 const $ = (id) => document.getElementById(id);
+function requestId(){if(typeof crypto.randomUUID==='function')return crypto.randomUUID();return Array.from(crypto.getRandomValues(new Uint8Array(16)),n=>n.toString(16).padStart(2,'0')).join('');}
 let virtualDraft = null;
 let token = "",
   data = null,
@@ -10,6 +11,24 @@ let token = "",
 const selected = new Set(),
   samples = [];
 let wallSignature = "";
+let testDeployment = null, testOffline = 0, sendingTest = false;
+function selectTab(name) {
+  for(const tab of ['control','advanced']) {
+    const selected=tab===name;
+    $(`${tab}-tab`).setAttribute('aria-selected',String(selected));
+    $(`${tab}-tab`).tabIndex=selected?0:-1;
+    $(`${tab}-panel`).hidden=!selected;
+  }
+}
+for(const tab of ['control','advanced']) {
+  $(`${tab}-tab`).onclick=()=>selectTab(tab);
+  $(`${tab}-tab`).onkeydown=event=>{
+    if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;
+    event.preventDefault();
+    const next=event.key==='Home'?'control':event.key==='End'?'advanced':tab==='control'?'advanced':'control';
+    selectTab(next);$(`${next}-tab`).focus();
+  };
+}
 function status(message) {
   $("status").textContent = message;
 }
@@ -26,6 +45,7 @@ async function api(input) {
   if (!response.ok) throw new Error(value.error);
   if (!input) {
     data = value;
+    $('login').hidden=true;
     render();
   } else await api();
   return value;
@@ -52,7 +72,7 @@ function target() {
 function scene() {
   const f = $("scene");
   return {
-    id: crypto.randomUUID(),
+    id: requestId(),
     kind: f.kind.value,
     text: f.text.value,
     speed: Number(f.speed.value),
@@ -65,6 +85,22 @@ function scene() {
 function render() {
   const state = data.state,
     devices = data.devices;
+  const pairing=data.pairing;
+  const test=data.artwork.deployments.find(d=>d.id===testDeployment);
+  const busy=test&&['preparing','scheduled'].includes(test.phase);
+  $('send-test-text').disabled=sendingTest||!!pairing?.active||!!busy;
+  if(test) {
+    const count=Object.keys(test.targets).length;
+    const failed=Object.values(test.targets).filter(t=>t.status==='error').length;
+    $('test-text-status').textContent=failed?`Test failed on ${failed} phones. Open Advanced for details.`:
+      test.phase==='preparing'?`Preparing ${count} phones…`:
+      test.phase==='scheduled'?`Ready. Starting ${count} phones together…`:
+      test.phase==='active'?`Test sent to ${count} phone${count===1?'':'s'}.${testOffline?` ${testOffline} offline phones skipped.`:''}`:
+      `Test ${test.phase}: ${test.reason??'see Advanced for details'}`;
+  }
+  $('pairing-start').disabled=!!pairing?.active;
+  $('pairing-stop').disabled=!pairing?.active;
+  $('pairing-status').textContent=pairing?.active?`PAIRING ACTIVE · ${pairing.count}/${pairing.capacity} assigned · Next: row ${Math.floor(pairing.count/pairing.columns)+1}, column ${pairing.count%pairing.columns+1}. Tap a red phone.`:`Pairing stopped · ${pairing?.count??0} assigned this session. Existing positions retained.`;
   status(
     `${devices.filter((d) => d.connected).length} connected · ${state.layout.slots.length}/${state.layout.rows * state.layout.columns} paired · ${state.mode} · revision ${state.revision}`,
   );
@@ -219,7 +255,7 @@ function render() {
   $("pending").replaceChildren();
   for (const d of devices.filter((d) => !d.paired)) {
     const b = document.createElement("button");
-    b.textContent = `Pair ${d.pairingCode} · ${d.capabilities?.model ?? d._id}`;
+    b.textContent = `Pair ${d.pairingCode} · ${d.connected?'ONLINE':'OFFLINE'} · ${d.capabilities?.model ?? d._id}`;
     b.onclick = () => {
       $("pair").code.value = d.pairingCode;
       $("pair").width.value = d.capabilities?.width ?? 375;
@@ -231,7 +267,7 @@ function render() {
 let lastFrame = 0;
 function draw(time) {
   requestAnimationFrame(draw);
-  if (!data || time - lastFrame < 33) return;
+  if (!data || $('advanced-panel').hidden || time - lastFrame < 33) return;
   lastFrame = time;
   const now = Date.now() + offset,
     state = data.state;
@@ -328,7 +364,7 @@ document.querySelectorAll("[data-command]").forEach(
         action: "command",
         name: b.dataset.command,
         ...target(),
-        operationId: crypto.randomUUID(),
+        operationId: requestId(),
       }),
     )),
 );
@@ -443,7 +479,7 @@ async function deployRelease(all = false) {
   const result = await api({
     action: "release.deploy",
     releaseId,
-    operationId: crypto.randomUUID(),
+    operationId: requestId(),
     ...(all ? {} : target()),
   });
   virtualDraft = null;
@@ -460,6 +496,17 @@ $("preview").onclick = run(() => {
   $("release-status").textContent = "Virtual draft preview. Phones unchanged.";
 });
 $("identify").onclick = run(() => api({ action: "identify", ...target() }));
+$('pairing-start').onclick=run(()=>api({action:'pairing.start'}));
+$('pairing-stop').onclick=run(()=>api({action:'pairing.stop'}));
+$('send-test-text').onclick=run(async()=>{
+  sendingTest=true;testDeployment=null;$('send-test-text').disabled=true;
+  $('test-text-status').textContent='Sending test…';
+  try {
+    const result=await api({action:'test.text'});
+    testDeployment=result.deployment.id;testOffline=result.offline;
+  } catch(error) {$('test-text-status').textContent=error.message;throw error;}
+  finally {sendingTest=false;if(data)render();}
+});
 $("pair").onsubmit = run(() => {
   const f = $("pair");
   return api({
@@ -484,7 +531,7 @@ $("save-config").onclick = run(async () => {
     action: "configure",
     config,
     expectedRevision: config.revision,
-    operationId: crypto.randomUUID(),
+    operationId: requestId(),
   });
   edited = false;
   render();
@@ -494,7 +541,7 @@ $("rollback").onclick = run(() =>
     action: "rollback",
     revision: Number($("history").value),
     expectedRevision: data.state.revision,
-    operationId: crypto.randomUUID(),
+    operationId: requestId(),
   }),
 );
 async function upload(body, mime) {
@@ -523,6 +570,8 @@ $("code").value =
 $("upload-code").onclick = run(() =>
   upload($("code").value, "text/javascript"),
 );
+const launchKey=new URLSearchParams(location.hash.slice(1)).get('operatorKey');
+if(launchKey!==null){history.replaceState(null,'',location.pathname+location.search);if(/^[a-f0-9]{64}$/.test(launchKey)){token=launchKey;api().catch(error=>status(error.message));}}
 setInterval(async () => {
   if (!token) return;
   const sent = Date.now();

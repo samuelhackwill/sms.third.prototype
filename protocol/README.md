@@ -13,11 +13,21 @@ Envelope: `{v:1,type,messageId,payload}`. Server messages also contain `wallId:m
 
 ## Commands and state controls
 
+### Interactive pairing (app 2.1+)
+
+Authenticated operator actions `pairing.start` / `pairing.stop` manage one ten-minute transient session. `GET /phone-wall/api` includes `pairing` status. Server `pairing.state` contains active, sessionId, count, capacity, rows, columns, expiresAt, remainingMs, per-device slotIndex (null until tapped this session), paired, and optional error. The relative lifetime avoids depending on an already synchronized phone clock during setup. It is sent on welcome, state request, start/stop, assignments and expiry; no missed event replay is needed. Only the dashboard can start a session.
+
+Phones show red while waiting; `pairing.tap:{sessionId}` on the authenticated socket assigns the sender to the next zero-based slot, left-to-right and top-to-bottom. Repeat taps by the same device/session return its existing assignment. The server commits each position before acknowledging; successful phones show green with row/column. Invalid/expired taps return a nonfatal pairing.state error and do not close the socket. The destination slot is replaced, not the entire layout. Cell pitch is frozen from measured display dimensions at session start; each slot retains its reported size and configured gap. Layout edits are blocked while active. Stop, expiry, full capacity or server restart end pairing without deleting committed assignments. Reconnect returns the current session status. Phones locally dismiss an expired pairing overlay even if disconnected.
+
+Native connections count as established only after server.welcome. A ten-second handshake timeout bounds stale connection attempts; discovered endpoints can replace an in-flight failed fallback. Bonjour resolves again every fifteen seconds and retries failed resolutions. Fallback and discovered endpoints alternate on failed attempts. These changes do not bypass iOS local-network permission or router isolation.
+
 Operator `POST /phone-wall/api` with `action:command`, `name`, optional deviceId / deviceIds / group. Names: `reloadState`, `restartScene`, `blackout`, `resume`, `clearCache`. Legacy aliases reload-state/purge-expired-media and query-diagnostics remain supported.
 
 Blackout/resume/restartScene modify persistent desired state and distribute snapshots. Selected targets receive versioned per-device overrides. Entire-wall controls reset those overrides. Native reloadState asks for a new snapshot. clearCache clears the local cache and requests state/refetch. Transient commands carry commandId and native clients keep the last 100 completed IDs to acknowledge duplicates. Persistent mutations accept operationId, recorded transactionally with the configuration; retry the same operation ID for a lost response. Exactly-once execution of arbitrary native side effects across crashes is not claimed.
 
 ## HTTP
+
+Operator `POST /phone-wall/api` action `test.text` creates a schema-v1 native text release: one right-to-left x animation per occupied row, delayed 750 ms between rows. Only online paired phones enter its readiness barrier; the response reports online/offline counts and the deployment descriptor. Pairing must be stopped first. It sets exhibition mode and clears previews/overrides but preserves prior immutable releases for rollback. This is supported by existing runtime 2.x; no new phone protocol or renderer is required.
 
 - `GET /health`: liveness, no secrets.
 - `GET /phone-wall/api`: operator state, history and health, never credential hashes.

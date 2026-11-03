@@ -11,6 +11,8 @@ import { Transform } from "node:stream";
 import { Store, hash, equal } from "./store.mjs";
 import { validateScene } from "./config.mjs";
 import { Releases } from "./releases.mjs";
+import { PairingSession } from './pairing.mjs';
+import { testTextDefinition } from './test-text.mjs';
 import {
   envelope,
   decode,
@@ -57,6 +59,7 @@ export async function createController({
     logController: new Fastify.LogController({ disableRequestLogging: true }),
   });
   const sessions = new Map();
+  const pairing=new PairingSession(store);
   const wss = new WebSocketServer({ noServer: true, maxPayload: 65536 });
   const send = (ws, type, payload, revision = 0, id) => {
     if (ws.readyState === 1)
@@ -76,6 +79,8 @@ export async function createController({
   const broadcast = () => {
     for (const id of sessions.keys()) snapshot(id);
   };
+  const pairingState=(id)=>{const ws=sessions.get(id);if(ws)send(ws,'pairing.state',pairing.status(id));};
+  const broadcastPairing=()=>{for(const id of sessions.keys())pairingState(id);};
   const bearer = (req) =>
     req.headers.authorization?.replace(/^Bearer /, "") ?? "";
   const operator = (req) => equal(bearer(req), adminToken);
@@ -115,6 +120,7 @@ export async function createController({
     const state = store.current();
     return {
       state,
+      pairing:pairing.status(),
       serverTimeMs: Date.now(),
       history: store.history(),
       artwork: releases.list(),
@@ -174,6 +180,23 @@ export async function createController({
     )
       throw new Error("expected-revision-required");
     let state = structuredClone(previous);
+    if(input.action==='pairing.start'||input.action==='pairing.stop') {
+      const result=input.action==='pairing.start'?pairing.start():pairing.stop();
+      broadcast();broadcastPairing();
+      return {ok:true,pairing:result};
+    }
+    if(pairing.status().active&&['pair','layout','configure','rollback'].includes(input.action))throw new Error('stop-pairing-before-editing-layout');
+    if(input.action==='test.text') {
+      if(pairing.status().active)throw new Error('stop-pairing-before-sending-test-text');
+      const ids=state.layout.slots.map(slot=>slot.deviceId).filter(id=>sessions.has(id));
+      if(!ids.length)throw new Error('no-paired-phones-online');
+      const release=releases.create(testTextDefinition(state.layout));
+      const deployment=releases.deploy(release.id,ids,{delayMs:1500});
+      store.commit({...state,mode:'exhibition',schedule:null,overrides:{}},previous.revision);
+      store.db.prepare('DELETE FROM previews').run();
+      broadcast();broadcastPairing();
+      return {ok:true,deployment,online:ids.length,offline:state.layout.slots.length-ids.length};
+    }
     if (input.action === "release.create")
       return { release: releases.create(input.definition, input.layout) };
     if (input.action === "release.deploy") {
@@ -339,6 +362,7 @@ export async function createController({
     else if (["mode", "scene", "rollback", "configure"].includes(input.action))
       store.db.prepare("DELETE FROM previews").run();
     broadcast();
+    broadcastPairing();
     return { ok: true, revision: updated.revision };
   });
   app.addContentTypeParser(
@@ -514,9 +538,14 @@ export async function createController({
             heartbeatSeconds: 12,
           });
           snapshot(device._id);
+          pairingState(device._id);
         } else if (m.type === "time.request")
           send(ws, "time.response", { sent: p.sent }, 0, m.messageId);
-        else if (m.type === "state.request") snapshot(device._id);
+        else if (m.type === "state.request") {snapshot(device._id);pairingState(device._id);}
+        else if(m.type==='pairing.tap') {
+          try {pairing.tap(device._id,p.sessionId);broadcast();broadcastPairing();}
+          catch(error){send(ws,'pairing.state',{...pairing.status(device._id),error:error.message});}
+        }
         else if (m.type === "client.heartbeat") {
           alive = Date.now();
           const telemetry = {
@@ -571,6 +600,7 @@ export async function createController({
   }, 100);
   const tick = setInterval(() => {
     try {
+      if(pairing.expire())broadcastPairing();
       const expired = store.db
         .prepare("SELECT device_id FROM previews WHERE expires<=?")
         .all(Date.now());
