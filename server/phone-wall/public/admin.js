@@ -1,4 +1,4 @@
-import { drawArtwork, hasTestTextPreview } from "./scene-preview.js";
+import { drawArtwork, drawLiveText, hasTestTextPreview } from "./scene-preview.js";
 const $ = (id) => document.getElementById(id);
 function requestId(){if(typeof crypto.randomUUID==='function')return crypto.randomUUID();return Array.from(crypto.getRandomValues(new Uint8Array(16)),n=>n.toString(16).padStart(2,'0')).join('');}
 let virtualDraft = null;
@@ -315,7 +315,7 @@ function render() {
     );
     if (
       webElement &&
-      !hasTestTextPreview(previewDefinition) &&
+      !hasTestTextPreview(previewDefinition) && previewDefinition?.artworkId !== 'live-ticker' &&
       slot &&
       (virtualDraft || !isPairing(device?.display ?? {})) &&
       (virtualDraft || (device?.display?.mode ?? state.mode) === 'exhibition') &&
@@ -400,7 +400,7 @@ function draw(time) {
     c.fillStyle = "#000";
     c.fillRect(0, 0, 300, 400);
     const definition = virtualDraft ?? artworkAt(patch, now)?.release.definition;
-    if (previewNote.textContent && (!hasTestTextPreview(definition) || (!virtualDraft && (mode !== 'exhibition' || isPairing(patch))))) previewNote.textContent = '';
+    if (previewNote.textContent && ((!hasTestTextPreview(definition) && definition?.artworkId !== 'live-ticker') || (!virtualDraft && (mode !== 'exhibition' || isPairing(patch))))) previewNote.textContent = '';
     if (!slot && !virtualDraft) {
       c.fillStyle = '#d6d8cc'; c.fillRect(0, 0, 300, 400);
       c.strokeStyle = '#7b9d92'; c.lineWidth = 3; c.beginPath();
@@ -434,14 +434,9 @@ function draw(time) {
       const layout = virtualDraft ? null : art?.release.layout;
       const actual =
         layout?.slots.find((s) => s.deviceId === slot?.deviceId)?.geometry ?? g;
-      const note = drawArtwork(
-        c,
-        manifest,
-        actual,
-        virtualDraft ? draftStarted : art.startAtServerMs,
-        now,
-        index,
-      );
+      const note = !virtualDraft && manifest.artworkId === 'live-ticker'
+        ? drawLiveText(c, manifest, actual, data.ticker?.active.find(run => run.targets.includes(slot.deviceId)), now)
+        : drawArtwork(c, manifest, actual, virtualDraft ? draftStarted : art.startAtServerMs, now, index);
       if (note && previewNote.textContent !== note) {
         previewNote.textContent = note;
         if (slot?.deviceId === inspectedDeviceId) $('phone-details-preview').textContent = note;

@@ -58,6 +58,24 @@ function drawTestText(c, definition, g, elapsed) {
   c.restore();
   return visible ? 'Displaying test text' : inProgress ? 'Waiting for text to reach this phone' : 'Test finished · send a new test to replay';
 }
+export function drawLiveText(c, definition, geometry, run, now) {
+  if (!run || run.phase !== 'playing' || !Number.isFinite(run.startAtServerMs)) {
+    c.fillStyle = '#000';
+    c.fillRect(0, 0, c.canvas.width, c.canvas.height);
+    return run ? 'Preparing live text' : 'Waiting for incoming text';
+  }
+  const preview = {
+    background: '#000',
+    parameters: {
+      ...definition.parameters,
+      text: run.text,
+      speed: run.speed,
+      rows: [{...run.band, delayMs: 0}],
+    },
+  };
+  drawTestText(c, preview, geometry, now - run.startAtServerMs);
+  return definition.parameters.color === '#00ff00' ? 'Roland Barthes text' : 'Incoming iMessage text';
+}
 export function drawArtwork(
   context,
   definition,
