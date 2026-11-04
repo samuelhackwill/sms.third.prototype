@@ -331,7 +331,7 @@ export async function createController({
       kissing.configure({enabled:false});liveAttempts.clear();cacheRecovery.clear();ticker.start();store.commit({...state,mode:'exhibition',schedule:null,overrides:{}},previous.revision);broadcast();tickerTick();return {ok:true};
     }
     if(input.action==='live.pause')return {ok:true};
-    if(input.action==='curated.toggle')return {selected:ticker.toggleCurated(input.id)};
+    if(input.action==='curated.toggle'){const selected=ticker.toggleCurated(input.id);tickerBroadcast();tickerTick();return {selected};}
     if(input.action==='curated.injection'){
       const enabled=ticker.setCuratedInjection(input.enabled);
       tickerBroadcast();tickerTick();return {enabled};

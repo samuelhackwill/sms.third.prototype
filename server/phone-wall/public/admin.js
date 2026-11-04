@@ -48,10 +48,11 @@ async function loadCurated(){
     const items=messages.map(message=>{
       const button=document.createElement('button');
       button.type='button';
-      const label=document.createElement('span'),body=document.createElement('span');
+      const label=document.createElement('span'),meta=document.createElement('span'),body=document.createElement('span');
       label.className='curated-selection-label';label.textContent='✓ Included';
+      meta.className='curated-source-label';meta.textContent=message.source==='sms'?`Archived SMS · ${message.sender}`:'Messages archive';
       body.textContent=message.text;
-      button.append(label,body);
+      button.append(label,meta,body);
       button.setAttribute('aria-pressed',String(message.selected===1));
       button.onclick=run(async()=>{
         const result=await api({action:'curated.toggle',id:message.id});
@@ -61,7 +62,7 @@ async function loadCurated(){
       return button;
     });
     $('curated-list').replaceChildren(...items);
-    if(!items.length)$('curated-list').textContent='No Messages texts imported yet.';
+    if(!items.length)$('curated-list').textContent='No archived messages yet.';
     requestAnimationFrame(updateCuratedMarkers);
     curatedLoadedCount=messages.length;
     curatedLoadedSelected=messages.filter(message=>message.selected===1).length;

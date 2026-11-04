@@ -38,6 +38,11 @@ test('curated archive replay uses sender color, lower rows, density, and random 
   store.db.prepare('INSERT INTO router_archive(external_id,sender,router_id,text,archived_at,deleted_at) VALUES(?,?,?,?,?,?)').run('tenda:0612349999:8','0612349999','8','Another old SMS',Date.now()-180000,Date.now()-60000);
   ticker.setSpeedRange('curated',300,300);ticker.setArchiveDensity(6);ticker.setArchiveReplay(true);
   ticker.startCurated(['1234567890','']);ticker.tick(new Set(ids),true);
+  assert.equal(ticker.runs().some(run=>run.source==='archive'),false);
+  assert.equal(ticker.curatedMessages().filter(message=>message.source==='sms').length,2);
+  ticker.toggleCurated('sms:tenda:0612345678:7');
+  ticker.toggleCurated('sms:tenda:0612349999:8');
+  ticker.tick(new Set(ids),true);
   const replay=ticker.runs().find(run=>run.source==='archive'&&run.text==='Old SMS');
   assert.ok([2,3].includes(replay?.row));
   assert.equal(replay?.text,'Old SMS');
@@ -45,6 +50,9 @@ test('curated archive replay uses sender color, lower rows, density, and random 
   assert.equal(replay?.backgroundColor,routerBackground('tenda:0612345678:7'));
   assert.equal(replay?.speed,300);
   assert.deepEqual(ticker.runs().filter(run=>run.source==='archive').map(run=>run.row).sort(),[2,3]);
+  ticker.toggleCurated('sms:tenda:0612345678:7');
+  ticker.tick(new Set(ids),true);
+  assert.equal(ticker.runs().some(run=>run.source==='archive'&&run.text==='Old SMS'),false);
   ticker.setArchiveReplay(false);
   assert.equal(ticker.runs().some(run=>run.source==='archive'),false);
 });
