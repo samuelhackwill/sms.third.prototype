@@ -36,6 +36,12 @@ function drawTestText(c, definition, g, elapsed) {
       if (ink.ascent + ink.descent > available) {
         size *= available / (ink.ascent + ink.descent); ink = metrics(size);
       }
+      if (p.effect === 'flash') {
+        const availableWidth = (row.right - row.left) * 0.9;
+        if (ink.width > availableWidth) {
+          size *= availableWidth / ink.width; ink = metrics(size);
+        }
+      }
       return { ...row, width: ink.width, font: `${size}px ${p.fontFamily}`,
         baseline: row.top + (row.height - ink.ascent - ink.descent) / 2 + ink.ascent };
     });
