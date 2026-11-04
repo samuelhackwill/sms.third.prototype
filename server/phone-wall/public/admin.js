@@ -19,6 +19,18 @@ let kissingEdited=false;
 let curatedEdited=false,curatedLoadedCount=-1,curatedLoadedSelected=-1,curatedLoading=false;
 for(const id of ['curated-custom-a','curated-custom-b'])$(id).oninput=()=>{curatedEdited=true;};
 const curatedTexts=()=>[$('curated-custom-a').value,$('curated-custom-b').value];
+function updateCuratedMarkers(){
+  const list=$('curated-list'),rail=$('curated-selection-rail');
+  const height=Math.max(1,list.scrollHeight);
+  const markers=[...list.querySelectorAll('button[aria-pressed="true"]')].map(button=>{
+    const marker=document.createElement('span');
+    marker.className='curated-selection-marker';
+    marker.style.top=`${Math.max(1,Math.min(99,(button.offsetTop+button.offsetHeight/2)/height*100))}%`;
+    return marker;
+  });
+  rail.replaceChildren(...markers);
+}
+window.addEventListener('resize',()=>requestAnimationFrame(updateCuratedMarkers));
 async function loadCurated(){
   if(curatedLoading||!token)return;
   curatedLoading=true;
@@ -28,16 +40,22 @@ async function loadCurated(){
     const {messages}=await response.json();
     const items=messages.map(message=>{
       const button=document.createElement('button');
-      button.type='button';button.textContent=message.text;
+      button.type='button';
+      const label=document.createElement('span'),body=document.createElement('span');
+      label.className='curated-selection-label';label.textContent='✓ Included';
+      body.textContent=message.text;
+      button.append(label,body);
       button.setAttribute('aria-pressed',String(message.selected===1));
       button.onclick=run(async()=>{
         const result=await api({action:'curated.toggle',id:message.id});
         button.setAttribute('aria-pressed',String(result.selected));
+        requestAnimationFrame(updateCuratedMarkers);
       });
       return button;
     });
     $('curated-list').replaceChildren(...items);
     if(!items.length)$('curated-list').textContent='No Messages texts imported yet.';
+    requestAnimationFrame(updateCuratedMarkers);
     curatedLoadedCount=messages.length;
     curatedLoadedSelected=messages.filter(message=>message.selected===1).length;
   }catch(error){$('curated-list').textContent=error.message;}

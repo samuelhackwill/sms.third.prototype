@@ -37,11 +37,16 @@
 .operator-step h2 { font-size: clamp(32px,5vw,52px); margin: 12px 0; }
 .operator-step button { padding: 16px 24px; font-size: 20px; }
 .operator-step [role="status"] { color: var(--muted); }
-#curated-list { max-height: 420px; overflow-y: auto; border: 1px solid var(--line); }
+#curated-list-wrap { display: grid; grid-template-columns: minmax(0,1fr) 12px; gap: 4px; height: 420px; }
+#curated-list { position: relative; overflow-y: auto; border: 1px solid var(--line); }
 #curated-list button { display: block; width: 100%; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 10px 12px; background: transparent; color: var(--ink); text-align: left; font: 14px/1.4 Georgia, serif; overflow-wrap: anywhere; }
 #curated-list button:hover, #curated-list button:focus-visible { background: var(--ink); color: white; }
-#curated-list button[aria-pressed="true"] { background: var(--ink); color: white; }
-#curated-list button[aria-pressed="true"]::before { content: "✓  "; }
+#curated-list button[aria-pressed="true"] { background: #f3c7ae; color: var(--ink); border-left: 6px solid var(--accent); padding-left: 6px; }
+#curated-list button[aria-pressed="true"]:hover, #curated-list button[aria-pressed="true"]:focus-visible { background: #eeb394; }
+.curated-selection-label { display: none; margin-bottom: 4px; font: bold 11px/1.3 Menlo, monospace; color: #9b351b; text-transform: uppercase; letter-spacing: 1px; }
+#curated-list button[aria-pressed="true"] .curated-selection-label { display: block; }
+#curated-selection-rail { position: relative; border: 1px solid var(--line); background: #d8d7ca; }
+.curated-selection-marker { position: absolute; left: 0; right: 0; height: 4px; background: var(--accent); transform: translateY(-50%); }
 #test-text-speed { width: 100%; padding: 0; accent-color: var(--ink); }
 #test-text-message { width: 100%; }
 #test-text-speed-value { font-variant-numeric: tabular-nums; }
