@@ -114,7 +114,7 @@ function drawTestText(c, definition, g, elapsed) {
   return visible ? 'Displaying test text' : inProgress ? 'Waiting for text to reach this phone' : 'Test finished · send a new test to replay';
 }
 export function drawLiveText(c, definition, geometry, run, now) {
-  const incoming = definition.parameters.curatedMode && run?.source === 'router';
+  const incoming = definition.parameters.curatedMode && (run?.source === 'router' || run?.source === 'archive');
   if (!run || run.phase !== 'playing' || !Number.isFinite(run.startAtServerMs)) {
     c.fillStyle = '#000';
     c.fillRect(0, 0, c.canvas.width, c.canvas.height);
@@ -135,6 +135,7 @@ export function drawLiveText(c, definition, geometry, run, now) {
   drawTestText(c, preview, geometry, now - run.startAtServerMs);
   if(run.source==='custom')return run.row===0?'Priority digits':'Priority text';
   if(run.source==='curated')return 'Selected archive text';
+  if(run.source==='archive')return 'Archived SMS replay';
   if(run.source==='router')return 'Incoming SMS';
   return definition.parameters.color === '#00ff00'?'Roland Barthes text':'Live text';
 }

@@ -24,6 +24,31 @@ test('SMS background depends on the sender’s last four digits and stays dark',
   }
 });
 
+test('curated archive replay uses sender color, lower rows, density, and random speed range',async t=>{
+  const dir=await mkdtemp(join(tmpdir(),'wall-archive-replay-'));
+  const store=new Store(join(dir,'controller.sqlite'));
+  t.after(async()=>{store.close();await rm(dir,{recursive:true,force:true});});
+  const ids=Array.from({length:20},(_,i)=>`archive-phone-${i}`);
+  ids.forEach(id=>store.register({deviceId:id,token:id+'x'.repeat(64),bootSessionId:'archive-replay-0001'}));
+  const state=store.current();state.layout.rows=4;state.layout.columns=5;
+  state.layout.slots=ids.map((deviceId,index)=>({deviceId,slotIndex:index,geometry:{x:index%5*375,y:Math.floor(index/5)*667,width:375,height:667}}));
+  store.commit(state,state.revision);
+  const ticker=new LiveTicker(store);
+  store.db.prepare('INSERT INTO router_archive(external_id,sender,router_id,text,archived_at,deleted_at) VALUES(?,?,?,?,?,?)').run('tenda:0612345678:7','0612345678','7','Old SMS',Date.now()-180000,Date.now()-60000);
+  store.db.prepare('INSERT INTO router_archive(external_id,sender,router_id,text,archived_at,deleted_at) VALUES(?,?,?,?,?,?)').run('tenda:0612349999:8','0612349999','8','Another old SMS',Date.now()-180000,Date.now()-60000);
+  ticker.setSpeedRange('curated',300,300);ticker.setArchiveDensity(6);ticker.setArchiveReplay(true);
+  ticker.startCurated(['1234567890','']);ticker.tick(new Set(ids),true);
+  const replay=ticker.runs().find(run=>run.source==='archive'&&run.text==='Old SMS');
+  assert.ok([2,3].includes(replay?.row));
+  assert.equal(replay?.text,'Old SMS');
+  assert.equal(replay?.effect,'sms-sweep');
+  assert.equal(replay?.backgroundColor,routerBackground('tenda:0612345678:7'));
+  assert.equal(replay?.speed,300);
+  assert.deepEqual(ticker.runs().filter(run=>run.source==='archive').map(run=>run.row).sort(),[2,3]);
+  ticker.setArchiveReplay(false);
+  assert.equal(ticker.runs().some(run=>run.source==='archive'),false);
+});
+
 test('ten concurrent senders are archived fully before exact router messages are deleted',async t=>{
   const dir=await mkdtemp(join(tmpdir(),'wall-router-cleanup-'));
   const store=new Store(join(dir,'controller.sqlite'));

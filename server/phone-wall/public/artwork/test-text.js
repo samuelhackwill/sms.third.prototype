@@ -14,7 +14,7 @@
   const context = canvas.getContext('2d');
   if (!context) throw new Error('Test text canvas is unavailable');
   let rows = [], ratio, sx, sy, run = parameters.live && state.preview ? state.liveRun : null, lastAck = 0;
-  const incomingStyle = () => parameters.curatedMode && run?.source === 'router';
+  const incomingStyle = () => parameters.curatedMode && (run?.source === 'router' || run?.source === 'archive');
   function sweepTiming(row, elapsed) {
     const count = run.targets.length;
     const column = Math.max(0, Math.min(count - 1,

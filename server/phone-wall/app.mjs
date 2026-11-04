@@ -336,6 +336,18 @@ export async function createController({
       const enabled=ticker.setCuratedInjection(input.enabled);
       tickerBroadcast();tickerTick();return {enabled};
     }
+    if(input.action==='curated.archive'){
+      const enabled=ticker.setArchiveReplay(input.enabled);
+      tickerBroadcast();tickerTick();return {enabled};
+    }
+    if(input.action==='curated.archive-density'){
+      const density=ticker.setArchiveDensity(input.density);
+      tickerBroadcast();tickerTick();return {density};
+    }
+    if(input.action==='ticker.speed-range'){
+      const range=ticker.setSpeedRange(input.mode,input.min,input.max);
+      tickerBroadcast();tickerTick();return {range};
+    }
     if(input.action==='curated.second'){
       const enabled=ticker.setCuratedSecond(input.enabled);
       tickerBroadcast();tickerTick();return {enabled};

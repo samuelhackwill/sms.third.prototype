@@ -58,15 +58,17 @@
       <section class="operator-step">
         <p class="eyebrow">04 / TEXT ARCHIVE</p>
         <h2>Roland Barthes Mode</h2>
-        <p>Sentences from the local archive scroll across available rows in green, in book order, at a different fast speed for each sentence. The sequence loops automatically.</p>
+        <p>Sentences from the local archive scroll across available rows in green, in book order. Each sentence gets a random speed within the range below.</p>
         <div class="actions"><button id="barthes-start" disabled>Start Roland Barthes Mode</button><button id="barthes-stop" disabled>Stop Roland Barthes Mode</button></div>
+        <div class="speed-controls" data-mode="barthes"><label>Minimum scroll speed <output id="barthes-min-value">1000 px/s</output><input id="barthes-min-speed" type="range" min="20" max="6000" step="20" value="1000" /></label><label>Maximum scroll speed <output id="barthes-max-value">6000 px/s</output><input id="barthes-max-speed" type="range" min="20" max="6000" step="20" value="6000" /></label></div>
+        <p>Speed changes apply to the next sentence.</p>
         <p id="barthes-status" role="status"></p>
       </section>
       <section class="operator-step">
         <p class="eyebrow">05 / VIDEO</p>
         <h2>Kissing Wall</h2>
         <p>Each phone plays random kissing clips independently, with sound. The Mac downloads clips once and shares them locally. Cached clips keep playing during outages.</p>
-        <label><input id="kissing-trim" type="checkbox" />Play only the kiss (with padding)</label>
+        <label class="condition-toggle"><input id="kissing-trim" type="checkbox" />Play only the kiss (with padding)</label>
         <div class="geometry">
           <label>Before kiss (seconds)<input id="kissing-before" type="number" min="0" max="30" step="0.1" value="1" /></label>
           <label>After kiss (seconds)<input id="kissing-after" type="number" min="0" max="30" step="0.1" value="1" /></label>
@@ -80,13 +82,15 @@
       <section class="operator-step">
         <p class="eyebrow">PRIORITY MESSAGES</p>
         <h2>Curated Mode</h2>
-        <p>All text in this mode uses sans serif. The first row shows two digits per phone at full height when its message contains enough digits, blinking 0.5 seconds on and 0.2 seconds off. The optional second row scrolls its message. These priority rows are never interrupted. New SMS fade in across the row from right to left, scroll in white on a dark color chosen from the sender’s last four digits, then fade back to black from right to left.</p>
+        <p>All text in this mode uses sans serif. The first row shows two digits per phone at full height when its message contains enough digits, blinking 0.5 seconds on and 0.2 seconds off. The optional second row scrolls its message. These priority rows are never interrupted. Live and archived SMS fade in from right to left, scroll in white on a dark color chosen from the sender’s last four digits, then fade back to black.</p>
         <label>First row message<input id="curated-custom-a" type="text" maxlength="500" autocomplete="off" /></label>
         <label>Second row message<input id="curated-custom-b" type="text" maxlength="500" autocomplete="off" /></label>
         <p>Edit either message and choose Apply row messages while this mode is running. The second message displays only when its row is enabled.</p>
         <div class="actions"><button id="curated-start" type="button">Start Curated Mode</button><button id="curated-stop" type="button">Stop Curated Mode</button></div>
-        <button id="curated-second-toggle" type="button">Enable second priority row</button>
-        <button id="curated-db-toggle" type="button">Enable database messages</button>
+        <div class="condition-group"><label class="condition-toggle"><input id="curated-second-toggle" type="checkbox" />Second priority row</label><label class="condition-toggle"><input id="curated-db-toggle" type="checkbox" />Selected database messages</label><label class="condition-toggle"><input id="curated-archive-toggle" type="checkbox" />Replay archived SMS with sender colors</label></div>
+        <div class="speed-controls" data-mode="curated"><label>Minimum scroll speed <output id="curated-min-value">240 px/s</output><input id="curated-min-speed" type="range" min="20" max="6000" step="20" value="240" /></label><label>Maximum scroll speed <output id="curated-max-value">240 px/s</output><input id="curated-max-speed" type="range" min="20" max="6000" step="20" value="240" /></label></div>
+        <p>Each scrolling text gets a random speed in this range. Changes apply to the next text.</p>
+        <label class="density-control">Archived SMS in rotation <output id="curated-archive-density-value">1</output><input id="curated-archive-density" type="range" min="1" max="6" step="1" value="1" /><small>At Saturate, add one whenever a lower row is free.</small></label>
         <p id="curated-status" role="status"></p>
         <h3>Messages</h3>
         <p>Click a message to include it in the rotation. Click again to remove it. Selected messages display in red on lower rows only when database messages are enabled.</p>
@@ -99,7 +103,7 @@
         <p class="eyebrow">06 / DIAGNOSTICS</p>
         <h2>Phone Debug Display</h2>
         <p>Show the app version, connection state and last error code on each phone.</p>
-        <button id="debug-toggle" type="button">Enable phone debug display</button>
+        <label class="condition-toggle"><input id="debug-toggle" type="checkbox" />Show debug display on phones</label>
         <p id="debug-status" role="status"></p>
       </section>
     </section>
@@ -320,7 +324,7 @@
       <h3 id="error-log-heading">Phone error log</h3>
       <div id="error-log-entries" role="log" aria-live="off"></div>
     </section>
-    <label
+    <label class="condition-toggle"
       ><input type="checkbox" id="web-previews" />Preview selected web artwork (up to four)</label
     >
     </aside>

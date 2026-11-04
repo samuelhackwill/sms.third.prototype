@@ -17,6 +17,13 @@ let testSpeedEdited=false;
 let testMessageEdited=false;
 let kissingEdited=false;
 let curatedEdited=false,curatedLoadedCount=-1,curatedLoadedSelected=-1,curatedLoading=false;
+let speedDragMode=null,densityDragging=false;
+function speedLabels(mode){
+  const min=Number($(`${mode}-min-speed`).value),max=Number($(`${mode}-max-speed`).value);
+  $(`${mode}-min-value`).textContent=`${min} px/s`;
+  $(`${mode}-max-value`).textContent=`${max} px/s`;
+}
+function densityLabel(){$('curated-archive-density-value').textContent=$('curated-archive-density').value==='6'?'Saturate':$('curated-archive-density').value;}
 for(const id of ['curated-custom-a','curated-custom-b'])$(id).oninput=()=>{curatedEdited=true;};
 const curatedTexts=()=>[$('curated-custom-a').value,$('curated-custom-b').value];
 function updateCuratedMarkers(){
@@ -221,7 +228,7 @@ function render() {
     `${kissing?.enabled?(state.mode==='exhibition'&&!pairing?.active?'PLAYING INDEPENDENTLY · SOUND ON':'PAUSED (night / pairing)'):'STOPPED'} · ${kissing?.clips??0} clips cached on Mac${kissing?.busy?' · caching available clips':''}${kissing?.lastError?' · '+kissing.lastError:''}`;
   renderPhoneDetails();
   renderErrors();
-  $('debug-toggle').textContent=state.debugEnabled?'Disable phone debug display':'Enable phone debug display';
+  $('debug-toggle').checked=!!state.debugEnabled;
   $('debug-status').textContent=state.debugEnabled?'Visible on phones with app 2.4.2 or newer.':'Hidden on phones.';
   const live=data.ticker;
   const barthesActive=live?.enabled&&live.mode==='barthes';
@@ -236,9 +243,13 @@ function render() {
   $('curated-start').disabled=!!pairing?.active||!state.layout.slots.length||!!live?.upgradeRequired?.length;
   $('curated-start').textContent=curatedActive?'Apply row messages':'Start Curated Mode';
   $('curated-stop').disabled=!curatedActive;
-  $('curated-second-toggle').textContent=live?.curatedSecondEnabled?'Disable second priority row':'Enable second priority row';
-  $('curated-db-toggle').textContent=live?.curatedInjectionEnabled?'Disable database messages':'Enable database messages';
-  $('curated-status').textContent=curatedActive?`${live.curatedSecondEnabled?'Two priority rows':'First priority row only'} · database messages ${live.curatedInjectionEnabled?'on':'off'} · ${live.curatedSelected} selected · ${live.queued} waiting`:`Stopped · second row ${live?.curatedSecondEnabled?'on':'off'} · database messages ${live?.curatedInjectionEnabled?'on':'off'} · ${live?.curatedSelected??0} selected`;
+  $('curated-second-toggle').checked=!!live?.curatedSecondEnabled;
+  $('curated-db-toggle').checked=!!live?.curatedInjectionEnabled;
+  $('curated-archive-toggle').checked=!!live?.archiveReplayEnabled;
+  $('curated-status').textContent=curatedActive?`${live.curatedSecondEnabled?'Two priority rows':'First priority row only'} · selected texts ${live.curatedInjectionEnabled?'on':'off'} · archived SMS ${live.archiveReplayEnabled?'on':'off'} · ${live.queued} waiting`:`Stopped · ${live?.curatedSelected??0} selected texts`;
+  for(const mode of ['barthes','curated']){if(speedDragMode!==mode){$(`${mode}-min-speed`).value=live?.speedRanges?.[mode]?.min??(mode==='barthes'?1000:240);$(`${mode}-max-speed`).value=live?.speedRanges?.[mode]?.max??(mode==='barthes'?6000:240);}speedLabels(mode);}
+  if(!densityDragging)$('curated-archive-density').value=live?.archiveDensity??1;
+  densityLabel();
   if(curatedLoadedCount!==live?.curatedCount||curatedLoadedSelected!==live?.curatedSelected)void loadCurated();
   const router=live?.router;
   $('reader-status').textContent=live?.upgradeRequired?.length?`Install phone app 2.3 for live playback (${live.upgradeRequired.length} phones need updating).`:router?.status==='reading'&&Date.now()-router.at<15000?router.deleteError?`Tenda polled · cleanup error: ${router.deleteError}`:router.stats?.emptyResponse?`Tenda polled ${Math.max(0,Math.round((Date.now()-router.at)/1000))}s ago · router returned no inbox · last full inbox ${router.lastNonempty?`${Math.round((Date.now()-router.lastNonempty.at)/60000)} min ago`:'never'}`:`Tenda router connected · polled ${Math.max(0,Math.round((Date.now()-router.at)/1000))}s ago`:router?.status==='error'?`Tenda router error: ${router.code}`:router?.status==='starting'?'Connecting to Tenda router…':'Tenda router is not connected.';
@@ -705,14 +716,22 @@ $('barthes-start').onclick=run(()=>api({action:'barthes.start'}));
 $('barthes-stop').onclick=run(()=>api({action:'barthes.stop'}));
 $('curated-start').onclick=run(async()=>{await api({action:data.ticker?.enabled&&data.ticker.mode==='curated'?'curated.messages':'curated.start',messages:curatedTexts()});curatedEdited=false;});
 $('curated-stop').onclick=run(()=>api({action:'curated.stop'}));
-$('curated-second-toggle').onclick=run(async()=>{
+$('curated-second-toggle').onchange=run(async()=>{
   if(curatedEdited&&data.ticker?.enabled&&data.ticker.mode==='curated'){
     await api({action:'curated.messages',messages:curatedTexts()});
     curatedEdited=false;
   }
-  await api({action:'curated.second',enabled:!data.ticker.curatedSecondEnabled});
+  await api({action:'curated.second',enabled:$('curated-second-toggle').checked});
 });
-$('curated-db-toggle').onclick=run(()=>api({action:'curated.injection',enabled:!data.ticker.curatedInjectionEnabled}));
+$('curated-db-toggle').onchange=run(()=>api({action:'curated.injection',enabled:$('curated-db-toggle').checked}));
+$('curated-archive-toggle').onchange=run(()=>api({action:'curated.archive',enabled:$('curated-archive-toggle').checked}));
+for(const mode of ['barthes','curated'])for(const side of ['min','max']){
+  const control=$(`${mode}-${side}-speed`);
+  control.oninput=()=>{speedDragMode=mode;const other=$(`${mode}-${side==='min'?'max':'min'}-speed`);if(side==='min'&&Number(control.value)>Number(other.value))other.value=control.value;if(side==='max'&&Number(control.value)<Number(other.value))other.value=control.value;speedLabels(mode);};
+  control.onchange=run(async()=>{const min=Number($(`${mode}-min-speed`).value),max=Number($(`${mode}-max-speed`).value);try{await api({action:'ticker.speed-range',mode,min,max});}finally{speedDragMode=null;}});
+}
+$('curated-archive-density').oninput=()=>{densityDragging=true;densityLabel();};
+$('curated-archive-density').onchange=run(async()=>{try{await api({action:'curated.archive-density',density:Number($('curated-archive-density').value)});}finally{densityDragging=false;}});
 $('reset-installation').onclick=run(async()=>{
   if(!confirm('Erase all Phone Wall pairings, wall settings, queued messages and downloaded media, then restart the controller?'))return;
   const button=$('reset-installation'),before=data?.state?.installationId;
@@ -827,4 +846,4 @@ setInterval(async () => {
   }
 }, 3000);
 
-$('debug-toggle').onclick=run(()=>api({action:'debug',enabled:!data.state.debugEnabled}));
+$('debug-toggle').onchange=run(()=>api({action:'debug',enabled:$('debug-toggle').checked}));
