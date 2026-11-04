@@ -86,6 +86,7 @@
       const elapsed = parameters.live ? Date.now() + state.clockOffsetMs - (run?.startAtServerMs || Infinity) : elapsedSeconds * 1000 - row.delayMs;
       if (elapsed < 0) continue;
       const flashing = parameters.live && run?.effect === 'flash';
+      if (flashing && elapsed % 700 >= 500) continue;
       if (flashing && row.digitPair) {
         const pair = row.digitPair;
         context.save();
@@ -96,7 +97,6 @@
         context.scale(viewport.width * 0.94 / pair.width, row.height * 0.96 / (pair.ascent + pair.descent));
         context.font = `100px ${parameters.fontFamily}`;
         context.fillStyle = parameters.color;
-        context.globalAlpha = 0.25 + 0.75 * (1 - Math.cos(elapsed * Math.PI / 2500)) / 2;
         context.fillText(pair.text, -pair.width / 2, (pair.ascent - pair.descent) / 2);
         context.restore();
         continue;
@@ -110,7 +110,6 @@
       context.clip();
       context.font = row.font;
       context.fillStyle = parameters.color;
-      if (flashing) context.globalAlpha = 0.25 + 0.75 * (1 - Math.cos(elapsed * Math.PI / 2500)) / 2;
       context.fillText(text, x, row.baseline);
       context.restore();
     }

@@ -70,6 +70,7 @@ function drawTestText(c, definition, g, elapsed) {
   for (const row of cached.rows) {
     const rowElapsed = elapsed - row.delayMs;
     const flashing = p.effect === 'flash';
+    if (flashing && rowElapsed >= 0 && rowElapsed % 700 >= 500) { inProgress = true; continue; }
     if (flashing && row.digitPair && rowElapsed >= 0) {
       const pair = row.digitPair;
       visible = true; inProgress = true;
@@ -77,7 +78,6 @@ function drawTestText(c, definition, g, elapsed) {
       c.translate(g.x + g.width / 2, row.top + row.height / 2);
       c.scale(g.width * 0.94 / pair.width, row.height * 0.96 / (pair.ascent + pair.descent));
       c.font = `100px ${p.fontFamily}`; c.fillStyle = p.color;
-      c.globalAlpha = 0.25 + 0.75 * (1 - Math.cos(rowElapsed * Math.PI / 2500)) / 2;
       c.fillText(pair.text, -pair.width / 2, (pair.ascent - pair.descent) / 2);
       c.restore();
       continue;
@@ -88,7 +88,6 @@ function drawTestText(c, definition, g, elapsed) {
     visible = true;
     c.save(); c.beginPath(); c.rect(row.left, row.top, row.right - row.left, row.height); c.clip();
     c.font = row.font; c.fillStyle = p.color;
-    if (flashing) c.globalAlpha = 0.25 + 0.75 * (1 - Math.cos(rowElapsed * Math.PI / 2500)) / 2;
     c.fillText(cached.text, x, row.baseline); c.restore();
   }
   c.restore();
