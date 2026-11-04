@@ -17,6 +17,43 @@ const testTextMetrics = new WeakMap();
 const digitFont = 'Arial, Helvetica, sans-serif';
 const sweepStepMs = 120, sweepFadeMs = 260;
 const clamp = value => Math.max(0, Math.min(1, value));
+const emojiPattern = /[\u00A9\u00AE\u203C\u2049\u2122\u2139\u{1F000}-\u{1FAFF}\u2600-\u27BF\u20E3]/u;
+const segmenter = Intl.Segmenter ? new Intl.Segmenter('und', {granularity:'grapheme'}) : null;
+const emojiCache = new Map();
+const segments = value => segmenter ? [...segmenter.segment(value)].map(part => part.segment) : Array.from(value);
+function emojiTint(background, textColor) {
+  const match = /^hsl\((\d+),\s*(\d+)%,\s*\d+%\)$/.exec(background || '');
+  return match ? `hsl(${match[1]}, ${match[2]}%, 78%)` : textColor;
+}
+function tintedEmoji(ctx, glyph, color) {
+  const key = `${ctx.font}|${glyph}|${color}`;
+  if (emojiCache.has(key)) return emojiCache.get(key);
+  const measured = ctx.measureText(glyph), size = parseFloat(ctx.font) || 100;
+  const left = Math.ceil(Math.max(0, measured.actualBoundingBoxLeft || 0)) + 4;
+  const top = Math.ceil(Math.max(measured.actualBoundingBoxAscent || 0, size * 0.9)) + 4;
+  const width = Math.ceil(Math.max(measured.width, measured.actualBoundingBoxRight || 0) + left + 4);
+  const height = top + Math.ceil(Math.max(measured.actualBoundingBoxDescent || 0, size * 0.25)) + 4;
+  const tile = document.createElement('canvas'); tile.width = width; tile.height = height;
+  const ink = tile.getContext('2d'); ink.font = ctx.font; ink.textBaseline = 'alphabetic';
+  ink.fillText(glyph, left, top);
+  ink.globalCompositeOperation = 'source-in'; ink.fillStyle = color; ink.fillRect(0, 0, width, height);
+  const result = {tile, left, top, advance:measured.width};
+  if (emojiCache.size >= 16) emojiCache.delete(emojiCache.keys().next().value);
+  emojiCache.set(key, result);
+  return result;
+}
+function drawColoredText(ctx, value, x, baseline, textColor, emojiColor) {
+  let cursor = x, plain = '';
+  const flush = () => {if (!plain) return; ctx.fillStyle = textColor; ctx.fillText(plain, cursor, baseline); cursor += ctx.measureText(plain).width; plain = '';};
+  for (const part of segments(value)) {
+    if (!emojiPattern.test(part)) {plain += part; continue;}
+    flush();
+    const glyph = tintedEmoji(ctx, part, emojiColor);
+    ctx.drawImage(glyph.tile, cursor - glyph.left, baseline - glyph.top);
+    cursor += glyph.advance;
+  }
+  flush();
+}
 // Match artwork/test-text.js in logical wall coordinates, without a WebView per tile.
 function drawTestText(c, definition, g, elapsed) {
   const p = definition.parameters;
@@ -107,8 +144,9 @@ function drawTestText(c, definition, g, elapsed) {
     if (rowElapsed < 0 || x > g.x + g.width || x + row.width < g.x) continue;
     visible = true;
     c.save(); c.beginPath(); c.rect(row.left, row.top, row.right - row.left, row.height); c.clip();
-    c.font = row.font; c.fillStyle = p.color;
-    c.fillText(cached.text, x, row.baseline); c.restore();
+    c.font = row.font;
+    drawColoredText(c, cached.text, x, row.baseline, p.color, sweep ? emojiTint(definition.background, p.color) : p.color);
+    c.restore();
   }
   c.restore();
   return visible ? 'Displaying test text' : inProgress ? 'Waiting for text to reach this phone' : 'Test finished · send a new test to replay';
