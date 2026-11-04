@@ -63,20 +63,28 @@ export class TendaReader {
   }
   async cleanup(){
     if(this.stopped)return;
-    let pending=false;
     try{
       const batch=await this.pendingDeletes(100);
-      pending=batch.length>0;
       if(batch.length&&this.cookies){
-        const sender=batch[0].sender,items=batch.filter(item=>item.sender===sender);
-        this.onDeleteAttempt(items.map(item=>item.externalId));
+        const sender=batch[0].sender;
         const before=parseTendaConversation(await this.module({phone:sender,modules:'smsPhoneList'}),sender);
+        await this.onRecords(before,{detailed:true});
+        const refreshed=await this.pendingDeletes(100);
+        const items=refreshed.filter(item=>item.sender===sender);
+        if(!items.length){this.deleteError=null;return;}
+        this.onDeleteAttempt(items.map(item=>item.externalId));
         const matches=items.map(item=>({item,note:before.find(note=>note.routerId===item.routerId&&note.text===item.text&&note.receivedAt===item.receivedAt)})).filter(match=>match.note);
         const missing=items.filter(item=>!matches.some(match=>match.item===item));
         if(missing.length)this.onDeleteConfirmed(missing.map(item=>item.externalId));
         if(matches.length){
           await this.deleteMessages(sender,matches.map(match=>match.note.routerIdRaw));
           const after=parseTendaConversation(await this.module({phone:sender,modules:'smsPhoneList'}),sender);
+          await this.onRecords(after,{detailed:true});
+          const targetIds=new Set(matches.map(({note})=>note.id));
+          if(before.some(note=>!targetIds.has(note.id)&&!after.some(remaining=>remaining.id===note.id))){
+            this.deletionDisabled=true;
+            throw new Error('router-delete-removed-other-messages');
+          }
           const confirmed=matches.filter(({item})=>!after.some(note=>note.routerId===item.routerId&&note.text===item.text&&note.receivedAt===item.receivedAt));
           if(confirmed.length)this.onDeleteConfirmed(confirmed.map(({item})=>item.externalId));
           if(confirmed.length!==matches.length)throw new Error('router-delete-unconfirmed');
@@ -84,7 +92,6 @@ export class TendaReader {
         this.deleteError=null;
       }
     }catch(error){this.deleteError=/^router-[a-z-]+$/.test(error.message)?error.message:'router-delete-failed';}
-    if(!this.stopped)this.deleteTimer=setTimeout(()=>this.cleanup(),pending?500:5000);
   }
   async inbox(){
     const raw=await this.module({currentPage:'1',pageSizes:String(this.config.pageSize),modules:'smsList'});
@@ -112,7 +119,7 @@ export class TendaReader {
       const {records,stats,detailed}=await this.inbox();
       if(stats.emptyResponse&&Date.now()-(this.lastNonempty?.at??0)>30000&&Date.now()-this.lastLoginAt>60000)this.cookies='';
       phase='ingest';
-      if(!this.stopped){const ingestion=await this.onRecords(records,{detailed});this.failures=0;if(records.length)this.lastNonempty={at:Date.now(),...stats};this.onStatus?.({status:'reading',at:Date.now(),count:records.length,stats,inserted:ingestion?.inserted??0,baselined:ingestion?.baselined??0,lastNonempty:this.lastNonempty,deleteError:this.deleteError});}
+      if(!this.stopped){const ingestion=await this.onRecords(records,{detailed});this.failures=0;if(records.length)this.lastNonempty={at:Date.now(),...stats};if(!this.deletionDisabled)await this.cleanup();this.onStatus?.({status:'reading',at:Date.now(),count:records.length,stats,inserted:ingestion?.inserted??0,baselined:ingestion?.baselined??0,lastNonempty:this.lastNonempty,deleteError:this.deleteError});}
     }catch(error){
       if(phase==='inbox')this.cookies='';
       this.failures++;

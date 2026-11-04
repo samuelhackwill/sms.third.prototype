@@ -38,6 +38,7 @@ test('ten concurrent senders are archived fully before exact router messages are
   assert.throws(()=>ticker.ingestRouter([...records,{id:null,text:'invalid'}],{detailed:true}),/invalid-router-record/);
   assert.equal(ticker.status().routerArchive.total,0);
   assert.equal(ticker.ingestRouter(records,{detailed:true}).inserted,10);
+  store.db.prepare('UPDATE router_archive SET archived_at=?').run(Date.now()-121000);
   assert.equal(ticker.status().routerQueued,10);
   assert.equal(ticker.status().routerArchive.pending,10);
   assert.equal(store.db.prepare('SELECT text FROM router_archive LIMIT 1').get().text.length,180);
@@ -68,12 +69,45 @@ test('router success response does not count as deleted while the message remain
   const ticker=new LiveTicker(store);ticker.enableRouter();ticker.ingestRouter([],{detailed:true});
   const sender='0612345678',note={id:5,time:1800000000,content:'Still there',isSend:0};
   ticker.ingestRouter(parseTendaConversation(JSON.stringify({smsPhoneList:[note]}),sender),{detailed:true});
+  store.db.prepare('UPDATE router_archive SET archived_at=?').run(Date.now()-121000);
   const reader=new TendaReader({config:{baseUrl:'http://example.invalid'},onRecords:()=>{},pendingDeletes:limit=>ticker.pendingRouterDeletes(limit),onDeleteAttempt:ids=>ticker.markRouterDeleteAttempt(ids),onDeleteConfirmed:ids=>ticker.markRouterDeleted(ids)});
   reader.cookies='test';reader.module=async()=>JSON.stringify({smsPhoneList:[note]});reader.deleteMessages=async()=>{};
   await reader.cleanup();reader.stop();
   assert.equal(ticker.status().routerArchive.pending,1);
   assert.equal(ticker.status().routerArchive.deleted,0);
   assert.equal(reader.deleteError,'router-delete-unconfirmed');
+});
+
+test('a new text in an old thread is archived before cleanup and blocks deletion',async t=>{
+  const dir=await mkdtemp(join(tmpdir(),'wall-router-race-'));
+  const store=new Store(join(dir,'controller.sqlite'));
+  t.after(async()=>{store.close();await rm(dir,{recursive:true,force:true});});
+  const ticker=new LiveTicker(store);ticker.enableRouter();ticker.ingestRouter([],{detailed:true});
+  const sender='0612345678',first={id:5,time:1800000000,content:'First',isSend:0},second={id:6,time:1800000001,content:'Second',isSend:0};
+  ticker.ingestRouter(parseTendaConversation(JSON.stringify({smsPhoneList:[first]}),sender),{detailed:true});
+  store.db.prepare('UPDATE router_archive SET archived_at=?').run(Date.now()-121000);
+  const reader=new TendaReader({config:{baseUrl:'http://example.invalid'},onRecords:records=>ticker.ingestRouter(records,{detailed:true}),pendingDeletes:limit=>ticker.pendingRouterDeletes(limit),onDeleteAttempt:ids=>ticker.markRouterDeleteAttempt(ids),onDeleteConfirmed:ids=>ticker.markRouterDeleted(ids)});
+  reader.cookies='test';reader.module=async()=>JSON.stringify({smsPhoneList:[first,second]});
+  let deletes=0;reader.deleteMessages=async()=>{deletes++;};
+  await reader.cleanup();reader.stop();
+  assert.equal(deletes,0);
+  assert.equal(ticker.status().routerArchive.total,2);
+  assert.equal(ticker.status().routerArchive.deleted,0);
+  assert.equal(ticker.status().routerMessages.find(row=>row.status==='queued')?.n,2);
+});
+
+test('a reused router ID with different content becomes a new message',async t=>{
+  const dir=await mkdtemp(join(tmpdir(),'wall-router-id-'));
+  const store=new Store(join(dir,'controller.sqlite'));
+  t.after(async()=>{store.close();await rm(dir,{recursive:true,force:true});});
+  const ticker=new LiveTicker(store);ticker.enableRouter();ticker.ingestRouter([],{detailed:true});
+  const sender='0612345678';
+  const first=parseTendaConversation(JSON.stringify({smsPhoneList:[{id:5,time:1800000000,content:'First',isSend:0}]}),sender);
+  const second=parseTendaConversation(JSON.stringify({smsPhoneList:[{id:5,time:1800000001,content:'Second',isSend:0}]}),sender);
+  assert.equal(ticker.ingestRouter(first,{detailed:true}).inserted,1);
+  assert.equal(ticker.ingestRouter(second,{detailed:true}).inserted,1);
+  assert.equal(ticker.ingestRouter(second,{detailed:true}).inserted,0);
+  assert.equal(ticker.status().routerArchive.total,2);
 });
 
 test('router delete uses the per-message request from the Tenda web UI',async t=>{

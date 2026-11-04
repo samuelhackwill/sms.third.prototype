@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 const segmenter=new Intl.Segmenter('und',{granularity:'grapheme'});
 const barthesFile=new URL('./public/artwork/barthes-sentences.ndjson',import.meta.url);
@@ -81,10 +81,12 @@ export class LiveTicker {
       let inserted=0,baselined=0;
       for(const record of records){
         if(typeof record.id!=='string'||!record.id||record.id.length>512||typeof record.text!=='string')throw new Error('invalid-router-record');
-        const id='tenda:'+record.id;
+        const baseId='tenda:'+record.id;
         const sender=typeof record.sender==='string'?record.sender:record.id.split(':')[0];
         const routerId=record.routerId==null?null:String(record.routerId);
         const receivedAt=typeof record.receivedAt==='string'?record.receivedAt.slice(0,40):null;
+        const prior=this.db.prepare('SELECT text,received_at AS receivedAt FROM router_archive WHERE external_id=?').get(baseId);
+        const id=prior&&(prior.text!==record.text||prior.receivedAt!==receivedAt)?`${baseId}:${createHash('sha256').update(JSON.stringify([receivedAt,record.text])).digest('hex').slice(0,16)}`:baseId;
         archive.run(id,sender,routerId,record.text,receivedAt,Date.now());
         stillOnRouter.run(id,Date.now()-30000);
         if(!seen.run(id).changes)continue;
@@ -97,7 +99,7 @@ export class LiveTicker {
       return {inserted,baselined,baseline:!initialized,detailBaseline};
     });
   }
-  pendingRouterDeletes(limit=100){return this.db.prepare('SELECT external_id AS externalId,sender,router_id AS routerId,text,received_at AS receivedAt FROM router_archive WHERE router_id IS NOT NULL AND deleted_at IS NULL AND (delete_attempt_at IS NULL OR delete_attempt_at<?) ORDER BY archived_at LIMIT ?').all(Date.now()-15000,limit);}
+  pendingRouterDeletes(limit=100){const now=Date.now();return this.db.prepare('SELECT a.external_id AS externalId,a.sender,a.router_id AS routerId,a.text,a.received_at AS receivedAt FROM router_archive a WHERE a.router_id IS NOT NULL AND a.deleted_at IS NULL AND a.archived_at<? AND (a.delete_attempt_at IS NULL OR a.delete_attempt_at<?) AND NOT EXISTS (SELECT 1 FROM router_archive recent WHERE recent.sender=a.sender AND recent.archived_at>=?) ORDER BY a.archived_at LIMIT ?').all(now-120000,now-15000,now-120000,limit);}
   markRouterDeleteAttempt(ids){const update=this.db.prepare('UPDATE router_archive SET delete_attempt_at=? WHERE external_id=? AND deleted_at IS NULL');this.store.transaction(()=>{for(const id of ids)update.run(Date.now(),id);});}
   markRouterDeleted(ids){const update=this.db.prepare('UPDATE router_archive SET deleted_at=? WHERE external_id=? AND deleted_at IS NULL');this.store.transaction(()=>{for(const id of ids)update.run(Date.now(),id);});}
   start(){this.requeue(true);this.db.prepare("DELETE FROM ticker_messages WHERE source='barthes' OR source IN ('custom','curated','curated-click') AND status!='completed'").run();this.db.prepare("UPDATE ticker_settings SET enabled=1,mode='messages' WHERE id=1").run();}
