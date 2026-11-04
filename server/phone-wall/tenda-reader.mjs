@@ -6,7 +6,7 @@ const outgoing=note=>[true,1,'1','true'].includes(note.isSend);
 function record(sender,note){
   const body=String(note.content??''),stamp=Number(note.time)||0;
   const key=note.id!=null?`${sender}:${note.id}`:`${sender}:${stamp}:${body}`;
-  return {id:key,text:body,receivedAt:stamp>0?new Date(stamp*1000).toISOString():null,stamp};
+  return {id:key,sender,routerId:note.id!=null?String(note.id):null,text:body,receivedAt:stamp>0?new Date(stamp*1000).toISOString():null,stamp};
 }
 
 export function parseTendaInboxDetailed(raw) {
@@ -36,9 +36,9 @@ export function parseTendaConversation(raw,sender){
 }
 
 export class TendaReader {
-  constructor({config,onRecords,onStatus}){this.config=config;this.onRecords=onRecords;this.onStatus=onStatus;this.stopped=false;this.timer=null;this.cookies='';this.failures=0;this.threads=new Map();this.lastFullRefresh=0;this.lastLoginAt=0;}
-  start(){this.poll();return this;}
-  stop(){this.stopped=true;clearTimeout(this.timer);}
+  constructor({config,onRecords,onStatus,pendingDeletes=()=>[],onDeleteAttempt=()=>{},onDeleteConfirmed=()=>{}}){this.config=config;this.onRecords=onRecords;this.onStatus=onStatus;this.pendingDeletes=pendingDeletes;this.onDeleteAttempt=onDeleteAttempt;this.onDeleteConfirmed=onDeleteConfirmed;this.stopped=false;this.timer=null;this.deleteTimer=null;this.cookies='';this.failures=0;this.threads=new Map();this.lastFullRefresh=0;this.lastLoginAt=0;this.deleteError=null;}
+  start(){this.poll();this.cleanup();return this;}
+  stop(){this.stopped=true;clearTimeout(this.timer);clearTimeout(this.deleteTimer);}
   async login(){
     const {createHash}=await import('node:crypto');
     const base=this.config.baseUrl.replace(/\/$/,'');
@@ -55,6 +55,33 @@ export class TendaReader {
     let text=new TextDecoder('utf-8',{fatal:true});
     try{return text.decode(raw);}
     catch(error){if(!(error instanceof TypeError))throw error;text=new TextDecoder('gbk');return text.decode(raw);}
+  }
+  async deleteMessages(sender,ids){
+    const base=this.config.baseUrl.replace(/\/$/,'');
+    const {stdout}=await execFileAsync('/usr/bin/curl',['-sS','--max-time','10',`${base}/goform/setModules`,'-X','POST','-H',`Referer: ${base}/index.html`,'-H','X-Requested-With: XMLHttpRequest','-H',`Cookie: ${this.cookies}`,'-H','Content-Type: application/json; charset=UTF-8','-H','Accept: application/json, text/plain, */*','--data-binary',JSON.stringify({delSmsList:{phone:sender,idList:ids}})],{encoding:'utf8',maxBuffer:1024*1024});
+    if(Number(JSON.parse(stdout).errCode)!==0)throw new Error('router-delete-rejected');
+  }
+  async cleanup(){
+    if(this.stopped)return;
+    let pending=false;
+    try{
+      const batch=await this.pendingDeletes(100);
+      pending=batch.length>0;
+      if(batch.length&&this.cookies){
+        const sender=batch[0].sender,items=batch.filter(item=>item.sender===sender);
+        this.onDeleteAttempt(items.map(item=>item.externalId));
+        const before=parseTendaConversation(await this.module({phone:sender,modules:'smsPhoneList'}),sender);
+        const matches=items.filter(item=>before.some(note=>note.routerId===item.routerId&&note.text===item.text&&note.receivedAt===item.receivedAt));
+        const missing=items.filter(item=>!matches.includes(item));
+        if(missing.length)this.onDeleteConfirmed(missing.map(item=>item.externalId));
+        if(matches.length){
+          await this.deleteMessages(sender,matches.map(item=>item.routerId));
+          this.onDeleteConfirmed(matches.map(item=>item.externalId));
+        }
+        this.deleteError=null;
+      }
+    }catch(error){this.deleteError=/^router-[a-z-]+$/.test(error.message)?error.message:'router-delete-failed';}
+    if(!this.stopped)this.deleteTimer=setTimeout(()=>this.cleanup(),pending?500:5000);
   }
   async inbox(){
     const raw=await this.module({currentPage:'1',pageSizes:String(this.config.pageSize),modules:'smsList'});
@@ -82,7 +109,7 @@ export class TendaReader {
       const {records,stats,detailed}=await this.inbox();
       if(stats.emptyResponse&&Date.now()-(this.lastNonempty?.at??0)>30000&&Date.now()-this.lastLoginAt>60000)this.cookies='';
       phase='ingest';
-      if(!this.stopped){const ingestion=await this.onRecords(records,{detailed});this.failures=0;if(records.length)this.lastNonempty={at:Date.now(),...stats};this.onStatus?.({status:'reading',at:Date.now(),count:records.length,stats,inserted:ingestion?.inserted??0,baselined:ingestion?.baselined??0,lastNonempty:this.lastNonempty});}
+      if(!this.stopped){const ingestion=await this.onRecords(records,{detailed});this.failures=0;if(records.length)this.lastNonempty={at:Date.now(),...stats};this.onStatus?.({status:'reading',at:Date.now(),count:records.length,stats,inserted:ingestion?.inserted??0,baselined:ingestion?.baselined??0,lastNonempty:this.lastNonempty,deleteError:this.deleteError});}
     }catch(error){
       if(phase==='inbox')this.cookies='';
       this.failures++;

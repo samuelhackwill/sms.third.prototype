@@ -226,7 +226,7 @@ function render() {
   const live=data.ticker;
   const barthesActive=live?.enabled&&live.mode==='barthes';
   const smsActive=live?.active?.filter(run=>run.source==='router').length??0;
-  $('live-status').textContent=`Always watching · ${live?.routerQueued??0} SMS waiting · ${smsActive} SMS active ${smsActive?'· interrupting current display':''}`;
+  $('live-status').textContent=`Always watching · ${live?.routerQueued??0} SMS waiting · ${smsActive} SMS active · ${live?.routerArchive?.total??0} archived · ${live?.routerArchive?.pending??0} awaiting router cleanup${live?.routerArchive?.missingId?` · ${live.routerArchive.missingId} lack router IDs`:''}`;
   $('barthes-start').disabled=!!barthesActive||!!pairing?.active||!!live?.upgradeRequired?.length||!state.layout.slots.length;
   $('barthes-stop').disabled=!barthesActive;
   $('barthes-status').textContent=live?.upgradeRequired?.length?`Install phone app 2.3 on ${live.upgradeRequired.length} connected phones.`:
@@ -241,7 +241,7 @@ function render() {
   $('curated-status').textContent=curatedActive?`${live.curatedSecondEnabled?'Two priority rows':'First priority row only'} · database messages ${live.curatedInjectionEnabled?'on':'off'} · ${live.curatedSelected} selected · ${live.queued} waiting`:`Stopped · second row ${live?.curatedSecondEnabled?'on':'off'} · database messages ${live?.curatedInjectionEnabled?'on':'off'} · ${live?.curatedSelected??0} selected`;
   if(curatedLoadedCount!==live?.curatedCount||curatedLoadedSelected!==live?.curatedSelected)void loadCurated();
   const router=live?.router;
-  $('reader-status').textContent=live?.upgradeRequired?.length?`Install phone app 2.3 for live playback (${live.upgradeRequired.length} phones need updating).`:router?.status==='reading'&&Date.now()-router.at<15000?router.stats?.emptyResponse?`Tenda polled ${Math.max(0,Math.round((Date.now()-router.at)/1000))}s ago · router returned no inbox · last full inbox ${router.lastNonempty?`${Math.round((Date.now()-router.lastNonempty.at)/60000)} min ago`:'never'}`:`Tenda router connected · polled ${Math.max(0,Math.round((Date.now()-router.at)/1000))}s ago`:router?.status==='error'?`Tenda router error: ${router.code}`:router?.status==='starting'?'Connecting to Tenda router…':'Tenda router is not connected.';
+  $('reader-status').textContent=live?.upgradeRequired?.length?`Install phone app 2.3 for live playback (${live.upgradeRequired.length} phones need updating).`:router?.status==='reading'&&Date.now()-router.at<15000?router.deleteError?`Tenda polled · cleanup error: ${router.deleteError}`:router.stats?.emptyResponse?`Tenda polled ${Math.max(0,Math.round((Date.now()-router.at)/1000))}s ago · router returned no inbox · last full inbox ${router.lastNonempty?`${Math.round((Date.now()-router.lastNonempty.at)/60000)} min ago`:'never'}`:`Tenda router connected · polled ${Math.max(0,Math.round((Date.now()-router.at)/1000))}s ago`:router?.status==='error'?`Tenda router error: ${router.code}`:router?.status==='starting'?'Connecting to Tenda router…':'Tenda router is not connected.';
   if(!testSpeedEdited)$('test-text-speed').value=state.testTextSpeed??240;
   if(!testMessageEdited)$('test-text-message').value=state.testText??defaultTestMessage;
   showTestSpeed();

@@ -164,7 +164,7 @@ export async function createController({
       const result=ticker.ingestRouter(records,options);
       if(result.inserted)tickerTick();
       return result;
-    },onStatus:status=>{routerStatus=status;}}).start();
+    },pendingDeletes:limit=>ticker.pendingRouterDeletes(limit),onDeleteAttempt:ids=>ticker.markRouterDeleteAttempt(ids),onDeleteConfirmed:ids=>ticker.markRouterDeleted(ids),onStatus:status=>{routerStatus=status;}}).start();
   }
   const savedRouter=await readFile(routerFile,'utf8').then(JSON.parse).catch(error=>{if(error.code==='ENOENT')return null;throw error;});
   if(savedRouter)startRouter(savedRouter);

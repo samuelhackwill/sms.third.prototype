@@ -40,6 +40,8 @@ export class LiveTicker {
     this.db.exec(`CREATE TABLE IF NOT EXISTS router_seen(id TEXT PRIMARY KEY);
       CREATE TABLE IF NOT EXISTS router_state(id INTEGER PRIMARY KEY CHECK(id=1),initialized INTEGER NOT NULL);
       INSERT OR IGNORE INTO router_state(id,initialized) VALUES(1,0);
+      CREATE TABLE IF NOT EXISTS router_archive(external_id TEXT PRIMARY KEY,sender TEXT NOT NULL,router_id TEXT,text TEXT NOT NULL,received_at TEXT,archived_at INTEGER NOT NULL,delete_attempt_at INTEGER,deleted_at INTEGER);
+      CREATE INDEX IF NOT EXISTS router_archive_pending ON router_archive(deleted_at,delete_attempt_at,archived_at);
       CREATE TABLE IF NOT EXISTS curated_messages(id TEXT PRIMARY KEY,text TEXT NOT NULL,received_at TEXT,selected INTEGER NOT NULL DEFAULT 0);`);
     if(!this.db.prepare('PRAGMA table_info(curated_messages)').all().some(column=>column.name==='selected'))this.db.exec('ALTER TABLE curated_messages ADD COLUMN selected INTEGER NOT NULL DEFAULT 0');
     if(!this.db.prepare('PRAGMA table_info(router_state)').all().some(column=>column.name==='enabled'))this.db.exec('ALTER TABLE router_state ADD COLUMN enabled INTEGER NOT NULL DEFAULT 0');
@@ -73,21 +75,31 @@ export class LiveTicker {
       const latest=this.db.prepare("SELECT MAX(received_at) AS at FROM ticker_messages WHERE source='router'").get().at;
       const catchupAfter=latest?Date.parse(latest)-10*60*1000:null;
       const seen=this.db.prepare('INSERT OR IGNORE INTO router_seen(id) VALUES(?)');
+      const archive=this.db.prepare('INSERT OR IGNORE INTO router_archive(external_id,sender,router_id,text,received_at,archived_at) VALUES(?,?,?,?,?,?)');
+      const stillOnRouter=this.db.prepare('UPDATE router_archive SET deleted_at=NULL,delete_attempt_at=NULL WHERE external_id=? AND deleted_at IS NOT NULL AND deleted_at<?');
       const insert=this.db.prepare("INSERT OR IGNORE INTO ticker_messages(external_id,text,received_at,source) VALUES(?,?,?,'router')");
       let inserted=0,baselined=0;
       for(const record of records){
         if(typeof record.id!=='string'||!record.id||record.id.length>512||typeof record.text!=='string')throw new Error('invalid-router-record');
         const id='tenda:'+record.id;
+        const sender=typeof record.sender==='string'?record.sender:record.id.split(':')[0];
+        const routerId=record.routerId==null?null:String(record.routerId);
+        const receivedAt=typeof record.receivedAt==='string'?record.receivedAt.slice(0,40):null;
+        archive.run(id,sender,routerId,record.text,receivedAt,Date.now());
+        stillOnRouter.run(id,Date.now()-30000);
         if(!seen.run(id).changes)continue;
         if(!initialized||detailBaseline&&(!catchupAfter||!record.receivedAt||Date.parse(record.receivedAt)<catchupAfter)){baselined++;continue;}
         const message=displayMessage(record.text);
-        if(message)inserted+=insert.run(id,message,typeof record.receivedAt==='string'?record.receivedAt.slice(0,40):null).changes;
+        if(message)inserted+=insert.run(id,message,receivedAt).changes;
       }
       if(!initialized)this.db.prepare('UPDATE router_state SET initialized=1 WHERE id=1').run();
       if(detailBaseline)this.db.prepare('UPDATE router_state SET detail_initialized=1 WHERE id=1').run();
       return {inserted,baselined,baseline:!initialized,detailBaseline};
     });
   }
+  pendingRouterDeletes(limit=100){return this.db.prepare('SELECT external_id AS externalId,sender,router_id AS routerId,text,received_at AS receivedAt FROM router_archive WHERE router_id IS NOT NULL AND deleted_at IS NULL AND (delete_attempt_at IS NULL OR delete_attempt_at<?) ORDER BY archived_at LIMIT ?').all(Date.now()-15000,limit);}
+  markRouterDeleteAttempt(ids){const update=this.db.prepare('UPDATE router_archive SET delete_attempt_at=? WHERE external_id=? AND deleted_at IS NULL');this.store.transaction(()=>{for(const id of ids)update.run(Date.now(),id);});}
+  markRouterDeleted(ids){const update=this.db.prepare('UPDATE router_archive SET deleted_at=? WHERE external_id=? AND deleted_at IS NULL');this.store.transaction(()=>{for(const id of ids)update.run(Date.now(),id);});}
   start(){this.requeue(true);this.db.prepare("DELETE FROM ticker_messages WHERE source='barthes' OR source IN ('custom','curated','curated-click') AND status!='completed'").run();this.db.prepare("UPDATE ticker_settings SET enabled=1,mode='messages' WHERE id=1").run();}
   get customTexts(){const row=this.db.prepare('SELECT custom_a,custom_b FROM ticker_settings WHERE id=1').get();return [row.custom_a,row.custom_b];}
   get curatedInjectionEnabled(){return this.db.prepare('SELECT curated_injection_enabled FROM ticker_settings WHERE id=1').get().curated_injection_enabled===1;}
@@ -294,5 +306,5 @@ export class LiveTicker {
     }
     return false;
   }
-  status(){return {enabled:this.enabled,mode:this.playbackMode,customTexts:this.customTexts,curatedSecondEnabled:this.curatedSecondEnabled,curatedInjectionEnabled:this.curatedInjectionEnabled,curatedCount:this.db.prepare('SELECT COUNT(*) AS n FROM curated_messages').get().n,curatedSelected:this.db.prepare('SELECT COUNT(*) AS n FROM curated_messages WHERE selected=1').get().n,queued:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE status='queued' AND (source=? OR ?='curated' AND source='custom')").get(this.playbackMode,this.playbackMode).n,routerQueued:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source='router' AND status='queued'").get().n,routerSeen:this.db.prepare('SELECT COUNT(*) AS n FROM router_seen').get().n,routerMessages:this.db.prepare("SELECT status,COUNT(*) AS n FROM ticker_messages WHERE source='router' GROUP BY status").all(),active:this.runs(),completed:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source=? AND status='completed'").get(this.playbackMode).n,readers:this.db.prepare('SELECT * FROM ticker_sources').all()};}
+  status(){return {enabled:this.enabled,mode:this.playbackMode,customTexts:this.customTexts,curatedSecondEnabled:this.curatedSecondEnabled,curatedInjectionEnabled:this.curatedInjectionEnabled,curatedCount:this.db.prepare('SELECT COUNT(*) AS n FROM curated_messages').get().n,curatedSelected:this.db.prepare('SELECT COUNT(*) AS n FROM curated_messages WHERE selected=1').get().n,queued:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE status='queued' AND (source=? OR ?='curated' AND source='custom')").get(this.playbackMode,this.playbackMode).n,routerQueued:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source='router' AND status='queued'").get().n,routerSeen:this.db.prepare('SELECT COUNT(*) AS n FROM router_seen').get().n,routerArchive:this.db.prepare('SELECT COUNT(*) AS total,COALESCE(SUM(deleted_at IS NULL AND router_id IS NOT NULL),0) AS pending,COALESCE(SUM(deleted_at IS NULL AND router_id IS NULL),0) AS missingId,COALESCE(SUM(deleted_at IS NOT NULL),0) AS deleted FROM router_archive').get(),routerMessages:this.db.prepare("SELECT status,COUNT(*) AS n FROM ticker_messages WHERE source='router' GROUP BY status").all(),active:this.runs(),completed:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source=? AND status='completed'").get(this.playbackMode).n,readers:this.db.prepare('SELECT * FROM ticker_sources').all()};}
 }

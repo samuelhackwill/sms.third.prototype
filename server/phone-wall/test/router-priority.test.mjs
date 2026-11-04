@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import { mkdtemp,rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createServer } from 'node:http';
 import { Store } from '../store.mjs';
 import { LiveTicker,routerBackground } from '../live-ticker.mjs';
-import { parseTendaInbox,parseTendaConversation } from '../tenda-reader.mjs';
+import { parseTendaInbox,parseTendaConversation,TendaReader } from '../tenda-reader.mjs';
 
 test('router parser includes every incoming note and skips sent notes',()=>{
   const records=parseTendaInbox(JSON.stringify({smsList:{phoneList:[{phone:'123',note:[{id:3,time:30,content:'Third',isSend:false},{id:2,time:20,content:'Second',isSend:0},{id:1,time:10,content:'Sent',isSend:true}]}]}}));
@@ -21,6 +22,57 @@ test('SMS background depends on the sender’s last four digits and stays dark',
     const color=routerBackground(`tenda:06${suffix}:one`);
     assert.match(color,/^hsl\(\d{1,3}, \d{2}%, (1\d|2[01])%\)$/);
   }
+});
+
+test('ten concurrent senders are archived fully before exact router messages are deleted',async t=>{
+  const dir=await mkdtemp(join(tmpdir(),'wall-router-cleanup-'));
+  const store=new Store(join(dir,'controller.sqlite'));
+  t.after(async()=>{store.close();await rm(dir,{recursive:true,force:true});});
+  const ticker=new LiveTicker(store);ticker.enableRouter();ticker.ingestRouter([],{detailed:true});
+  const notes=new Map(),records=[];
+  for(let index=0;index<10;index++){
+    const sender=`061234${String(index).padStart(4,'0')}`,note={id:index+1,time:1800000000,content:'L'.repeat(180),isSend:0};
+    notes.set(sender,[note]);
+    records.push(...parseTendaConversation(JSON.stringify({smsPhoneList:[note]}),sender));
+  }
+  assert.throws(()=>ticker.ingestRouter([...records,{id:null,text:'invalid'}],{detailed:true}),/invalid-router-record/);
+  assert.equal(ticker.status().routerArchive.total,0);
+  assert.equal(ticker.ingestRouter(records,{detailed:true}).inserted,10);
+  assert.equal(ticker.status().routerQueued,10);
+  assert.equal(ticker.status().routerArchive.pending,10);
+  assert.equal(store.db.prepare('SELECT text FROM router_archive LIMIT 1').get().text.length,180);
+  assert.ok(store.db.prepare("SELECT text FROM ticker_messages WHERE source='router' LIMIT 1").get().text.length<180);
+  const deleted=[];
+  const reader=new TendaReader({config:{baseUrl:'http://example.invalid'},onRecords:()=>{},pendingDeletes:limit=>ticker.pendingRouterDeletes(limit),onDeleteAttempt:ids=>ticker.markRouterDeleteAttempt(ids),onDeleteConfirmed:ids=>ticker.markRouterDeleted(ids)});
+  reader.cookies='test';
+  reader.module=async({phone})=>JSON.stringify({smsPhoneList:notes.get(phone)??[]});
+  reader.deleteMessages=async(sender,ids)=>{
+    deleted.push({sender,ids});
+    if(sender===records[0].sender)notes.get(sender).push({id:999,time:1800000001,content:'New during cleanup',isSend:0});
+    notes.set(sender,notes.get(sender).filter(note=>!ids.includes(String(note.id))));
+  };
+  for(let index=0;index<10;index++){await reader.cleanup();clearTimeout(reader.deleteTimer);}
+  reader.stop();
+  assert.equal(deleted.length,10);
+  assert.ok(deleted.every(batch=>batch.ids.length===1));
+  assert.equal(ticker.status().routerArchive.deleted,10);
+  assert.equal(ticker.status().routerQueued,10);
+  assert.equal(notes.get(records[0].sender)[0].id,999);
+});
+
+test('router delete uses the per-message request from the Tenda web UI',async t=>{
+  let request;
+  const server=createServer(async(req,res)=>{
+    let body='';for await(const chunk of req)body+=chunk;
+    request={method:req.method,path:req.url,body:JSON.parse(body)};
+    res.setHeader('content-type','application/json');res.end(JSON.stringify({errCode:0}));
+  });
+  await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+  t.after(()=>new Promise(resolve=>server.close(resolve)));
+  const reader=new TendaReader({config:{baseUrl:`http://127.0.0.1:${server.address().port}`},onRecords:()=>{}});
+  reader.cookies='test';
+  await reader.deleteMessages('0612345678',['12','13']);
+  assert.deepEqual(request,{method:'POST',path:'/goform/setModules',body:{delSmsList:{phone:'0612345678',idList:['12','13']}}});
 });
 
 test('router baseline stays silent; new SMS interrupts Barthes and plays while ambient ticker is paused',async t=>{
