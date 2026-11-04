@@ -340,6 +340,10 @@ export async function createController({
       const enabled=ticker.setCuratedSecond(input.enabled);
       tickerBroadcast();tickerTick();return {enabled};
     }
+    if(input.action==='curated.messages'){
+      ticker.setCuratedTexts(input.messages);
+      tickerBroadcast();tickerTick();return {ok:true};
+    }
     if(input.action==='curated.start'){
       if(pairing.status().active)throw new Error('stop-pairing-before-curated-mode');
       if(liveRows(state.layout).length<2)throw new Error('two-rows-required-for-curated-mode');

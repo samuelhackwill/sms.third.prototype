@@ -119,6 +119,16 @@ export class LiveTicker {
       this.db.prepare("UPDATE ticker_settings SET enabled=1,mode='curated',custom_a=?,custom_b=?,curated_next_at=? WHERE id=1").run(...clean,Date.now()+20000);
     });
   }
+  setCuratedTexts(texts){
+    if(this.playbackMode!=='curated'||!this.enabled)throw new Error('curated-mode-not-running');
+    if(!Array.isArray(texts)||texts.length!==2||texts.some(text=>typeof text!=='string'||text.length>500))throw new Error('invalid-custom-messages');
+    const clean=texts.map(text=>displayMessage(text));
+    this.store.transaction(()=>{
+      this.db.prepare('UPDATE ticker_settings SET custom_a=?,custom_b=? WHERE id=1').run(...clean);
+      this.db.prepare("DELETE FROM ticker_messages WHERE source='custom' AND status!='completed'").run();
+    });
+    return this.customTexts;
+  }
   stopCurated(){
     this.db.prepare("DELETE FROM ticker_messages WHERE source IN ('custom','curated','curated-click') AND status!='completed'").run();
     this.db.prepare("UPDATE ticker_settings SET enabled=0,mode='messages' WHERE id=1").run();

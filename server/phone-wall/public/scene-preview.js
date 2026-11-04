@@ -133,7 +133,10 @@ export function drawLiveText(c, definition, geometry, run, now) {
     },
   };
   drawTestText(c, preview, geometry, now - run.startAtServerMs);
-  return definition.parameters.color === '#00ff00' ? 'Roland Barthes text' : 'Incoming SMS text';
+  if(run.source==='custom')return run.row===0?'Priority digits':'Priority text';
+  if(run.source==='curated')return 'Selected archive text';
+  if(run.source==='router')return 'Incoming SMS';
+  return definition.parameters.color === '#00ff00'?'Roland Barthes text':'Live text';
 }
 export function drawArtwork(
   context,

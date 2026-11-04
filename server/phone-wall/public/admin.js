@@ -234,6 +234,7 @@ function render() {
   const curatedActive=live?.enabled&&live.mode==='curated';
   if(!curatedEdited){$('curated-custom-a').value=live?.customTexts?.[0]??'';$('curated-custom-b').value=live?.customTexts?.[1]??'';}
   $('curated-start').disabled=!!pairing?.active||!state.layout.slots.length||!!live?.upgradeRequired?.length;
+  $('curated-start').textContent=curatedActive?'Apply row messages':'Start Curated Mode';
   $('curated-stop').disabled=!curatedActive;
   $('curated-second-toggle').textContent=live?.curatedSecondEnabled?'Disable second priority row':'Enable second priority row';
   $('curated-db-toggle').textContent=live?.curatedInjectionEnabled?'Disable database messages':'Enable database messages';
@@ -702,9 +703,15 @@ $('pairing-start').onclick=run(()=>api({action:'pairing.start'}));
 $('pairing-stop').onclick=run(()=>api({action:'pairing.stop'}));
 $('barthes-start').onclick=run(()=>api({action:'barthes.start'}));
 $('barthes-stop').onclick=run(()=>api({action:'barthes.stop'}));
-$('curated-start').onclick=run(async()=>{await api({action:'curated.start',messages:curatedTexts()});curatedEdited=false;});
+$('curated-start').onclick=run(async()=>{await api({action:data.ticker?.enabled&&data.ticker.mode==='curated'?'curated.messages':'curated.start',messages:curatedTexts()});curatedEdited=false;});
 $('curated-stop').onclick=run(()=>api({action:'curated.stop'}));
-$('curated-second-toggle').onclick=run(()=>api({action:'curated.second',enabled:!data.ticker.curatedSecondEnabled}));
+$('curated-second-toggle').onclick=run(async()=>{
+  if(curatedEdited&&data.ticker?.enabled&&data.ticker.mode==='curated'){
+    await api({action:'curated.messages',messages:curatedTexts()});
+    curatedEdited=false;
+  }
+  await api({action:'curated.second',enabled:!data.ticker.curatedSecondEnabled});
+});
 $('curated-db-toggle').onclick=run(()=>api({action:'curated.injection',enabled:!data.ticker.curatedInjectionEnabled}));
 $('reset-installation').onclick=run(async()=>{
   if(!confirm('Erase all Phone Wall pairings, wall settings, queued messages and downloaded media, then restart the controller?'))return;

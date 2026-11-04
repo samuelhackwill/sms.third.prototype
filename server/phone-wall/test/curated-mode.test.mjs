@@ -47,8 +47,13 @@ test('priority rows persist while library messages and SMS use lower rows',async
   assert.equal(ticker.runs().find(run=>run.row===0).text,'First custom');
   assert.equal(ticker.runs().find(run=>run.row===1).text,'Second custom');
   assert.equal(ticker.runs().find(run=>run.row===2).text,'Urgent SMS');
+  ticker.setCuratedTexts(['Changed first','Changed second']);
+  ticker.tick(ready,true,4000);
+  assert.equal(ticker.runs().find(run=>run.row===0).text,'Changed first');
+  assert.equal(ticker.runs().find(run=>run.row===1).text,'Changed second');
+  assert.equal(ticker.runs().find(run=>run.row===2).text,'Urgent SMS');
   assert.equal(ticker.status().curatedCount,1);
-  assert.deepEqual(ticker.customTexts,['First custom','Second custom']);
+  assert.deepEqual(ticker.customTexts,['Changed first','Changed second']);
   ticker.stopCurated();assert.equal(ticker.playbackMode,'messages');
   assert.equal(ticker.toggleCurated('imessage:one'),false);
 });
@@ -119,6 +124,9 @@ test('operator can import and select a curated message without displaying it',as
   assert.equal(injection.json().enabled,true);
   const second=await server.app.inject({method:'POST',url:'/phone-wall/api',headers,payload:{action:'curated.second',enabled:true}});
   assert.equal(second.json().enabled,true);
-  assert.equal(server.ticker.playbackMode,'messages');
-  assert.equal(server.ticker.runs().length,0);
+  server.ticker.startCurated(['Before','Before second']);
+  const updated=await server.app.inject({method:'POST',url:'/phone-wall/api',headers,payload:{action:'curated.messages',messages:['After','After second']}});
+  assert.equal(updated.statusCode,200);
+  assert.deepEqual(server.ticker.customTexts,['After','After second']);
+  assert.equal(server.ticker.playbackMode,'curated');
 });
