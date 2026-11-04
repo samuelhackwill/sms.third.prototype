@@ -24,7 +24,7 @@ test('SMS background depends on the sender’s last four digits and stays dark',
   }
 });
 
-test('curated archive replay uses sender color, lower rows, density, and random speed range',async t=>{
+test('selected message rotation and color sweep stack independently',async t=>{
   const dir=await mkdtemp(join(tmpdir(),'wall-archive-replay-'));
   const store=new Store(join(dir,'controller.sqlite'));
   t.after(async()=>{store.close();await rm(dir,{recursive:true,force:true});});
@@ -36,25 +36,26 @@ test('curated archive replay uses sender color, lower rows, density, and random 
   const ticker=new LiveTicker(store);
   store.db.prepare('INSERT INTO router_archive(external_id,sender,router_id,text,archived_at,deleted_at) VALUES(?,?,?,?,?,?)').run('tenda:0612345678:7','0612345678','7','Old SMS',Date.now()-180000,Date.now()-60000);
   store.db.prepare('INSERT INTO router_archive(external_id,sender,router_id,text,archived_at,deleted_at) VALUES(?,?,?,?,?,?)').run('tenda:0612349999:8','0612349999','8','Another old SMS',Date.now()-180000,Date.now()-60000);
-  ticker.setSpeedRange('curated',300,300);ticker.setArchiveDensity(6);ticker.setArchiveReplay(true);
+  ticker.setSpeedRange('curated',300,300);ticker.setArchiveDensity(6);ticker.setArchiveReplay(true);ticker.setCuratedInjection(true);
   ticker.startCurated(['1234567890','']);ticker.tick(new Set(ids),true);
-  assert.equal(ticker.runs().some(run=>run.source==='archive'),false);
+  assert.equal(ticker.runs().some(run=>run.source==='curated'),false);
   assert.equal(ticker.curatedMessages().filter(message=>message.source==='sms').length,2);
   ticker.toggleCurated('sms:tenda:0612345678:7');
   ticker.toggleCurated('sms:tenda:0612349999:8');
   ticker.tick(new Set(ids),true);
-  const replay=ticker.runs().find(run=>run.source==='archive'&&run.text==='Old SMS');
-  assert.ok([2,3].includes(replay?.row));
+  const replay=ticker.runs().find(run=>run.source==='curated'&&run.text==='Old SMS');
+  assert.ok([1,2,3].includes(replay?.row));
   assert.equal(replay?.text,'Old SMS');
   assert.equal(replay?.effect,'sms-sweep');
   assert.equal(replay?.backgroundColor,routerBackground('tenda:0612345678:7'));
   assert.equal(replay?.speed,300);
-  assert.deepEqual(ticker.runs().filter(run=>run.source==='archive').map(run=>run.row).sort(),[2,3]);
+  assert.deepEqual(ticker.runs().filter(run=>run.source==='curated').map(run=>run.row).sort(),[1,2]);
   ticker.toggleCurated('sms:tenda:0612345678:7');
   ticker.tick(new Set(ids),true);
-  assert.equal(ticker.runs().some(run=>run.source==='archive'&&run.text==='Old SMS'),false);
+  assert.equal(ticker.runs().some(run=>run.source==='curated'&&run.text==='Old SMS'),false);
   ticker.setArchiveReplay(false);
-  assert.equal(ticker.runs().some(run=>run.source==='archive'),false);
+  ticker.tick(new Set(ids),true);
+  assert.equal(ticker.runs().find(run=>run.source==='curated')?.effect,undefined);
 });
 
 test('ten concurrent senders are archived fully before exact router messages are deleted',async t=>{

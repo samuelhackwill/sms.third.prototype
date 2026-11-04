@@ -53,11 +53,13 @@ export class LiveTicker {
     for(const [name,definition] of [['custom_a',"TEXT NOT NULL DEFAULT ''"],['custom_b',"TEXT NOT NULL DEFAULT ''"],['curated_next_at','INTEGER NOT NULL DEFAULT 0'],['curated_injection_enabled','INTEGER NOT NULL DEFAULT 0'],['curated_second_enabled','INTEGER NOT NULL DEFAULT 0'],['archive_replay_enabled','INTEGER NOT NULL DEFAULT 0'],['archive_density','INTEGER NOT NULL DEFAULT 1'],['barthes_min_speed','INTEGER NOT NULL DEFAULT 1000'],['barthes_max_speed','INTEGER NOT NULL DEFAULT 6000'],['curated_min_speed','INTEGER NOT NULL DEFAULT 240'],['curated_max_speed','INTEGER NOT NULL DEFAULT 240']])if(!this.db.prepare('PRAGMA table_info(ticker_settings)').all().some(column=>column.name===name))this.db.exec(`ALTER TABLE ticker_settings ADD COLUMN ${name} ${definition}`);
     if(!this.db.prepare('PRAGMA table_info(ticker_messages)').all().some(column=>column.name==='source'))this.db.exec("ALTER TABLE ticker_messages ADD COLUMN source TEXT NOT NULL DEFAULT 'messages'");
     if(!this.db.prepare('PRAGMA table_info(ticker_messages)').all().some(column=>column.name==='target_row'))this.db.exec('ALTER TABLE ticker_messages ADD COLUMN target_row INTEGER');
+    for(const name of ['origin_id','color_seed'])if(!this.db.prepare('PRAGMA table_info(ticker_messages)').all().some(column=>column.name===name))this.db.exec(`ALTER TABLE ticker_messages ADD COLUMN ${name} TEXT`);
+    const first=this.db.prepare('SELECT custom_a FROM ticker_settings WHERE id=1').get().custom_a;
+    if(first.length>10){const digits=first.replace(/\D/g,'');this.db.prepare('UPDATE ticker_settings SET custom_a=? WHERE id=1').run(digits.length>=10?digits.slice(0,10):first.slice(0,10));}
     this.db.prepare("DELETE FROM ticker_messages WHERE source='curated-click'").run();
+    this.db.prepare("DELETE FROM ticker_messages WHERE source IN ('archive','curated') AND status!='completed'").run();
     // Playback acknowledgments from a previous process cannot establish current readiness.
     this.db.prepare("UPDATE ticker_messages SET status='queued',run=NULL WHERE status IN ('preparing','playing')").run();
-    if(!this.curatedInjectionEnabled)this.db.prepare("DELETE FROM ticker_messages WHERE source='curated' AND status!='completed'").run();
-    if(!this.archiveReplayEnabled)this.db.prepare("DELETE FROM ticker_messages WHERE source='archive' AND status!='completed'").run();
     if(!this.curatedSecondEnabled)this.db.prepare("DELETE FROM ticker_messages WHERE source='custom' AND target_row=1 AND status!='completed'").run();
     this.db.prepare("UPDATE ticker_settings SET enabled=1 WHERE mode='messages'").run();
   }
@@ -119,7 +121,7 @@ export class LiveTicker {
   }
   setArchiveReplay(enabled){
     if(typeof enabled!=='boolean')throw new Error('invalid-archive-replay-setting');
-    this.store.transaction(()=>{this.db.prepare('UPDATE ticker_settings SET archive_replay_enabled=? WHERE id=1').run(enabled?1:0);if(!enabled)this.db.prepare("DELETE FROM ticker_messages WHERE source='archive' AND status!='completed'").run();});
+    this.store.transaction(()=>{this.db.prepare('UPDATE ticker_settings SET archive_replay_enabled=? WHERE id=1').run(enabled?1:0);this.db.prepare("UPDATE ticker_messages SET status='queued',run=NULL WHERE source='curated' AND status IN ('preparing','playing')").run();});
     return this.archiveReplayEnabled;
   }
   setArchiveDensity(value){if(!Number.isInteger(value)||value<1||value>6)throw new Error('invalid-archive-density');this.db.prepare('UPDATE ticker_settings SET archive_density=? WHERE id=1').run(value);return this.archiveDensity;}
@@ -130,7 +132,7 @@ export class LiveTicker {
     this.store.transaction(()=>{
       this.db.prepare('UPDATE ticker_settings SET curated_second_enabled=? WHERE id=1').run(enabled?1:0);
       if(!enabled)this.db.prepare("DELETE FROM ticker_messages WHERE source='custom' AND target_row=1 AND status!='completed'").run();
-      if(enabled&&this.playbackMode==='curated')for(const run of this.runs().filter(run=>run.source==='router'&&run.row===1))this.db.prepare("UPDATE ticker_messages SET status='queued',run=NULL WHERE seq=?").run(run.seq);
+      if(enabled&&this.playbackMode==='curated')for(const run of this.runs().filter(run=>run.source!=='custom'&&run.row===1))this.db.prepare("UPDATE ticker_messages SET status='queued',run=NULL WHERE seq=?").run(run.seq);
     });
     return this.curatedSecondEnabled;
   }
@@ -185,11 +187,13 @@ export class LiveTicker {
       const archiveId=id.slice(4);
       if(!this.db.prepare('UPDATE router_archive SET selected=1-selected WHERE external_id=?').run(archiveId).changes)throw new Error('unknown-curated-message');
       const selected=this.db.prepare('SELECT selected,sender FROM router_archive WHERE external_id=?').get(archiveId);
-      if(!selected.selected)this.db.prepare("DELETE FROM ticker_messages WHERE source='archive' AND external_id=?").run(`archive:${selected.sender}:${archiveId}`);
+      if(!selected.selected)this.db.prepare("DELETE FROM ticker_messages WHERE source='curated' AND origin_id=?").run(id);
       return selected.selected===1;
     });
     if(!this.db.prepare('UPDATE curated_messages SET selected=1-selected WHERE id=?').run(id).changes)throw new Error('unknown-curated-message');
-    return this.db.prepare('SELECT selected FROM curated_messages WHERE id=?').get(id).selected===1;
+    const selected=this.db.prepare('SELECT selected FROM curated_messages WHERE id=?').get(id).selected===1;
+    if(!selected)this.db.prepare("DELETE FROM ticker_messages WHERE source='curated' AND origin_id=?").run(`messages:${id}`);
+    return selected;
   }
   startBarthes(){
     sentences();
@@ -229,29 +233,22 @@ export class LiveTicker {
       if(!text||this.db.prepare("SELECT 1 FROM ticker_messages WHERE source='custom' AND target_row=? AND status IN ('queued','preparing','playing') LIMIT 1").get(band.row))continue;
       insert.run('custom:'+randomUUID(),text,'custom',band.row);
     }
-    if(settings.curated_injection_enabled&&now>=settings.curated_next_at){
-      const waiting=this.db.prepare("SELECT 1 FROM ticker_messages WHERE source='curated' AND status IN ('queued','preparing','playing') LIMIT 1").get();
-      const message=this.db.prepare('SELECT text FROM curated_messages WHERE selected=1 ORDER BY RANDOM() LIMIT 1').get();
-      if(message&&!waiting)insert.run('curated:'+randomUUID(),message.text,'curated',null);
-      this.db.prepare('UPDATE ticker_settings SET curated_next_at=? WHERE id=1').run(now+20000+Math.floor(Math.random()*15000));
-    }
-  }
-  refillArchive(){
-    if(!this.enabled||this.playbackMode!=='curated'||!this.archiveReplayEnabled)return;
-    const rows=liveRows(this.store.current().layout).filter(row=>row.row>=2);
-    const limit=this.archiveDensity===6?rows.length:Math.min(this.archiveDensity,rows.length);
-    const occupied=this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source='archive' AND status IN ('queued','preparing','playing')").get().n;
+    if(!settings.curated_injection_enabled)return;
+    const eligible=liveRows(this.store.current().layout).filter(row=>!this.isCuratedPriorityRow(row.row));
+    const limit=this.archiveDensity===6?eligible.length:Math.min(this.archiveDensity,eligible.length);
+    const occupied=this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source='curated' AND status IN ('queued','preparing','playing')").get().n;
     const busy=new Set(this.runs().map(run=>run.row));
-    const target=Math.min(limit,occupied+rows.filter(row=>!busy.has(row.row)).length);
-    const insert=this.db.prepare("INSERT INTO ticker_messages(external_id,text,source) VALUES(?,?,'archive')");
+    const target=Math.min(limit,occupied+eligible.filter(row=>!busy.has(row.row)).length);
+    const queue=this.db.prepare("INSERT INTO ticker_messages(external_id,text,source,origin_id,color_seed) VALUES(?,?,'curated',?,?)");
     const remember=this.db.prepare('INSERT INTO archive_replay_history(external_id,last_queued_at) VALUES(?,?) ON CONFLICT(external_id) DO UPDATE SET last_queued_at=excluded.last_queued_at');
     for(let i=occupied;i<target;i++){
-      const message=this.db.prepare("SELECT a.external_id AS id,a.sender,a.text FROM router_archive a LEFT JOIN archive_replay_history h ON h.external_id=a.external_id WHERE a.selected=1 AND a.deleted_at IS NOT NULL AND a.archived_at<? AND TRIM(a.text)<>'' AND NOT EXISTS (SELECT 1 FROM ticker_messages t WHERE t.external_id='archive:'||a.sender||':'||a.external_id) ORDER BY COALESCE(h.last_queued_at,0),RANDOM() LIMIT 1").get(Date.now()-120000);
+      const message=this.db.prepare("SELECT p.id,p.text,p.seed FROM (SELECT 'messages:'||id AS id,text,id AS seed FROM curated_messages WHERE selected=1 UNION ALL SELECT 'sms:'||external_id AS id,text,sender AS seed FROM router_archive WHERE selected=1 AND deleted_at IS NOT NULL AND archived_at<?) p LEFT JOIN archive_replay_history h ON h.external_id=p.id WHERE NOT EXISTS (SELECT 1 FROM ticker_messages t WHERE t.source='curated' AND t.origin_id=p.id AND t.status IN ('queued','preparing','playing')) ORDER BY COALESCE(h.last_queued_at,0),RANDOM() LIMIT 1").get(now-120000);
       if(!message)break;
       const text=displayMessage(message.text);
       if(!text)break;
-      insert.run(`archive:${message.sender}:${message.id}`,text);
-      remember.run(message.id,Date.now());
+      const seed=message.id.startsWith('sms:')?message.seed:String(createHash('sha256').update(message.id).digest().readUInt16BE(0)%10000).padStart(4,'0');
+      queue.run('curated:'+randomUUID(),text,message.id,seed);
+      remember.run(message.id,now);
     }
   }
   ingest({sourceId,databaseId,expectedRowId,lastRowId,baseline=false,records=[]}) {
@@ -279,11 +276,10 @@ export class LiveTicker {
   tick(ready,allowed=true,now=Date.now()) {
     if(this.enabled&&allowed)this.refillBarthes();
     if(this.enabled&&allowed)this.refillCurated(now);
-    if(this.enabled&&allowed)this.refillArchive();
     const state=this.store.current(),rows=liveRows(state.layout);let changed=false;
     for(const run of this.runs()){
       const row=rows.find(row=>row.row===run.row);
-      if(!row||JSON.stringify(row)!==JSON.stringify(run.band)||run.targets.some(id=>!ready.has(id))||now>=run.deadline||run.source==='router'&&this.isCuratedPriorityRow(run.row)||(run.source!=='router'&&(!this.enabled||!allowed))){
+      if(!row||JSON.stringify(row)!==JSON.stringify(run.band)||run.targets.some(id=>!ready.has(id))||now>=run.deadline||['router','curated'].includes(run.source)&&this.isCuratedPriorityRow(run.row)||(run.source!=='router'&&(!this.enabled||!allowed))){
         this.db.prepare("UPDATE ticker_messages SET status='queued',run=NULL WHERE seq=?").run(run.seq);changed=true;
       }
     }
@@ -299,22 +295,10 @@ export class LiveTicker {
       }
     }
     if(this.enabled&&allowed&&this.playbackMode==='curated'&&this.curatedInjectionEnabled){
-      for(let index=0;index<2;index++){
-        const message=this.db.prepare("SELECT seq,source FROM ticker_messages WHERE source='curated' AND status='queued' ORDER BY seq LIMIT 1").get();
+      for(const band of rows.filter(row=>!this.isCuratedPriorityRow(row.row)&&!busy.has(row.row)&&row.targets.every(id=>ready.has(id)))){
+        const message=this.db.prepare("SELECT seq,color_seed AS colorSeed FROM ticker_messages WHERE source='curated' AND status='queued' ORDER BY seq LIMIT 1").get();
         if(!message)break;
-        const band=rows.find(row=>row.row>=2&&row.targets.every(id=>ready.has(id))&&!active.some(run=>run.row===row.row&&(run.source==='router'||run.source==='curated')));
-        if(!band)break;
-        const interrupted=active.find(run=>run.row===band.row);
-        if(interrupted)this.db.prepare("UPDATE ticker_messages SET status='queued',run=NULL WHERE seq=?").run(interrupted.seq);
-        this.save({seq:message.seq,id:randomUUID(),row:band.row,band,targets:band.targets,ready:{},done:[],phase:'preparing',speed:this.speedFor('curated'),startAtServerMs:null,deadline:now+30000},'preparing');
-        changed=true;active=this.runs();busy=new Set(active.map(run=>run.row));
-      }
-    }
-    if(this.enabled&&allowed&&this.playbackMode==='curated'&&this.archiveReplayEnabled){
-      for(const band of rows.filter(row=>row.row>=2&&!busy.has(row.row)&&row.targets.every(id=>ready.has(id)))){
-        const message=this.db.prepare("SELECT seq,external_id FROM ticker_messages WHERE source='archive' AND status='queued' ORDER BY seq LIMIT 1").get();
-        if(!message)break;
-        this.save({seq:message.seq,id:randomUUID(),row:band.row,band,targets:band.targets,ready:{},done:[],phase:'preparing',effect:'sms-sweep',backgroundColor:routerBackground(message.external_id),speed:this.speedFor('curated'),startAtServerMs:null,deadline:now+30000},'preparing');
+        this.save({seq:message.seq,id:randomUUID(),row:band.row,band,targets:band.targets,ready:{},done:[],phase:'preparing',effect:this.archiveReplayEnabled?'sms-sweep':undefined,backgroundColor:this.archiveReplayEnabled?routerBackground(`tenda:${message.colorSeed??'0000'}`):undefined,speed:this.speedFor('curated'),startAtServerMs:null,deadline:now+30000},'preparing');
         changed=true;active=this.runs();busy=new Set(active.map(run=>run.row));
       }
     }

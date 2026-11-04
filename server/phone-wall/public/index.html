@@ -83,17 +83,17 @@
         <p class="eyebrow">PRIORITY MESSAGES</p>
         <h2>Curated Mode</h2>
         <p>All text in this mode uses sans serif. The first row shows two digits per phone at full height when its message contains enough digits, blinking 0.5 seconds on and 0.2 seconds off. The optional second row scrolls its message. These priority rows are never interrupted. Live and archived SMS fade in from right to left, scroll in white on a dark color chosen from the sender’s last four digits, then fade back to black.</p>
-        <label>First row message<input id="curated-custom-a" type="text" maxlength="500" autocomplete="off" /></label>
+        <label>First row message<input id="curated-custom-a" type="text" maxlength="10" autocomplete="off" /></label>
         <label>Second row message<input id="curated-custom-b" type="text" maxlength="500" autocomplete="off" /></label>
-        <p>Edit either message and choose Apply row messages while this mode is running. The second message displays only when its row is enabled.</p>
+        <p>Edits apply automatically while this mode is running. The second message displays only when its row is enabled.</p>
         <div class="actions"><button id="curated-start" type="button">Start Curated Mode</button><button id="curated-stop" type="button">Stop Curated Mode</button></div>
-        <div class="condition-group"><label class="condition-toggle"><input id="curated-second-toggle" type="checkbox" />Second priority row</label><label class="condition-toggle"><input id="curated-db-toggle" type="checkbox" />Selected database messages</label><label class="condition-toggle"><input id="curated-archive-toggle" type="checkbox" />Replay archived SMS with sender colors</label></div>
+        <div class="condition-group"><label class="condition-toggle"><input id="curated-second-toggle" type="checkbox" />Reserve second row for its text</label><label class="condition-toggle"><input id="curated-db-toggle" type="checkbox" />Rotate selected messages</label><label class="condition-toggle"><input id="curated-archive-toggle" type="checkbox" />Color sweep for selected messages</label></div>
         <div class="speed-controls" data-mode="curated"><label>Minimum scroll speed <output id="curated-min-value">240 px/s</output><input id="curated-min-speed" type="range" min="20" max="6000" step="20" value="240" /></label><label>Maximum scroll speed <output id="curated-max-value">240 px/s</output><input id="curated-max-speed" type="range" min="20" max="6000" step="20" value="240" /></label></div>
         <p>Each scrolling text gets a random speed in this range. Changes apply to the next text.</p>
-        <label class="density-control">Archived SMS in rotation <output id="curated-archive-density-value">1</output><input id="curated-archive-density" type="range" min="1" max="6" step="1" value="1" /><small>At Saturate, add one whenever a lower row is free.</small></label>
+        <label class="density-control">Selected messages at once <output id="curated-archive-density-value">1</output><input id="curated-archive-density" type="range" min="1" max="6" step="1" value="1" /><small>At Saturate, add one whenever an unreserved row is free.</small></label>
         <p id="curated-status" role="status"></p>
         <h3>Messages</h3>
-        <p>Click a message to include it; click again to remove it. Selected Messages archive texts display in red when database messages are enabled. Selected archived SMS replay with sender colors when SMS replay is enabled. Both stay on lower rows.</p>
+        <p>Click a message to include it; click again to remove it. Rotation uses only included messages when enabled. The color sweep is independent: SMS colors come from the sender number; Messages archive texts get a stable color.</p>
         <div id="curated-list-wrap">
           <div id="curated-list" aria-label="Curated messages"></div>
           <div id="curated-selection-rail" aria-hidden="true"></div>

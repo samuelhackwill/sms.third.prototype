@@ -52,7 +52,7 @@ test('priority rows persist while library messages and SMS use lower rows',async
   assert.equal(ticker.runs().find(run=>run.row===0).text,'Changed first');
   assert.equal(ticker.runs().find(run=>run.row===1).text,'Changed second');
   assert.equal(ticker.runs().find(run=>run.row===2).text,'Urgent SMS');
-  assert.equal(ticker.status().curatedCount,1);
+  assert.equal(ticker.status().curatedCount,2);
   assert.deepEqual(ticker.customTexts,['Changed first','Changed second']);
   ticker.stopCurated();assert.equal(ticker.playbackMode,'messages');
   assert.equal(ticker.toggleCurated('imessage:one'),false);
@@ -71,6 +71,11 @@ test('second priority row starts off and can release its row to incoming SMS',as
   ticker.startCurated(['Protected','Optional']);
   ticker.tick(ready,true,1000);
   assert.deepEqual(ticker.runs().map(run=>run.row),[0]);
+  ticker.importCurated([{id:'imessage:row-two',text:'Selected text'}]);
+  ticker.toggleCurated('imessage:row-two');ticker.setCuratedInjection(true);
+  ticker.tick(ready,true,1500);
+  assert.equal(ticker.runs().find(run=>run.source==='curated')?.row,1);
+  ticker.setCuratedInjection(false);
   ticker.enableRouter();ticker.ingestRouter([]);ticker.ingestRouter([{id:'incoming',text:'SMS'}]);
   ticker.tick(ready,true,2000);
   assert.equal(ticker.runs().find(run=>run.source==='router').row,1);

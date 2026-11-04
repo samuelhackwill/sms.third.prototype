@@ -17,6 +17,7 @@ let testSpeedEdited=false;
 let testMessageEdited=false;
 let kissingEdited=false;
 let curatedEdited=false,curatedLoadedCount=-1,curatedLoadedSelected=-1,curatedLoading=false;
+let curatedSaveTimer=null,curatedEditVersion=0;
 let speedDragMode=null,densityDragging=false;
 function speedLabels(mode){
   const min=Number($(`${mode}-min-speed`).value),max=Number($(`${mode}-max-speed`).value);
@@ -24,8 +25,15 @@ function speedLabels(mode){
   $(`${mode}-max-value`).textContent=`${max} px/s`;
 }
 function densityLabel(){$('curated-archive-density-value').textContent=$('curated-archive-density').value==='6'?'Saturate':$('curated-archive-density').value;}
-for(const id of ['curated-custom-a','curated-custom-b'])$(id).oninput=()=>{curatedEdited=true;};
 const curatedTexts=()=>[$('curated-custom-a').value,$('curated-custom-b').value];
+for(const id of ['curated-custom-a','curated-custom-b'])$(id).oninput=()=>{
+  curatedEdited=true;const version=++curatedEditVersion;
+  clearTimeout(curatedSaveTimer);
+  if(data?.ticker?.enabled&&data.ticker.mode==='curated')curatedSaveTimer=setTimeout(async()=>{
+    try{await api({action:'curated.messages',messages:curatedTexts()});if(version===curatedEditVersion)curatedEdited=false;}
+    catch(error){status(error.message);}
+  },500);
+};
 function updateCuratedMarkers(){
   const list=$('curated-list'),rail=$('curated-selection-rail');
   const height=Math.max(1,list.scrollHeight);
@@ -247,7 +255,7 @@ function render() {
   $('curated-second-toggle').checked=!!live?.curatedSecondEnabled;
   $('curated-db-toggle').checked=!!live?.curatedInjectionEnabled;
   $('curated-archive-toggle').checked=!!live?.archiveReplayEnabled;
-  $('curated-status').textContent=curatedActive?`${live.curatedSecondEnabled?'Two priority rows':'First priority row only'} · selected texts ${live.curatedInjectionEnabled?'on':'off'} · archived SMS ${live.archiveReplayEnabled?'on':'off'} · ${live.queued} waiting`:`Stopped · ${live?.curatedSelected??0} selected texts`;
+  $('curated-status').textContent=curatedActive?`${live.curatedSecondEnabled?'Two reserved rows':'First row reserved'} · rotation ${live.curatedInjectionEnabled?'on':'off'} · color sweep ${live.archiveReplayEnabled?'on':'off'} · ${live.queued} waiting`:`Stopped · ${live?.curatedSelected??0} selected texts`;
   for(const mode of ['barthes','curated']){if(speedDragMode!==mode){$(`${mode}-min-speed`).value=live?.speedRanges?.[mode]?.min??(mode==='barthes'?1000:240);$(`${mode}-max-speed`).value=live?.speedRanges?.[mode]?.max??(mode==='barthes'?6000:240);}speedLabels(mode);}
   if(!densityDragging)$('curated-archive-density').value=live?.archiveDensity??1;
   densityLabel();
@@ -715,10 +723,11 @@ $('pairing-start').onclick=run(()=>api({action:'pairing.start'}));
 $('pairing-stop').onclick=run(()=>api({action:'pairing.stop'}));
 $('barthes-start').onclick=run(()=>api({action:'barthes.start'}));
 $('barthes-stop').onclick=run(()=>api({action:'barthes.stop'}));
-$('curated-start').onclick=run(async()=>{await api({action:data.ticker?.enabled&&data.ticker.mode==='curated'?'curated.messages':'curated.start',messages:curatedTexts()});curatedEdited=false;});
+$('curated-start').onclick=run(async()=>{clearTimeout(curatedSaveTimer);await api({action:data.ticker?.enabled&&data.ticker.mode==='curated'?'curated.messages':'curated.start',messages:curatedTexts()});curatedEdited=false;});
 $('curated-stop').onclick=run(()=>api({action:'curated.stop'}));
 $('curated-second-toggle').onchange=run(async()=>{
   if(curatedEdited&&data.ticker?.enabled&&data.ticker.mode==='curated'){
+    clearTimeout(curatedSaveTimer);
     await api({action:'curated.messages',messages:curatedTexts()});
     curatedEdited=false;
   }
