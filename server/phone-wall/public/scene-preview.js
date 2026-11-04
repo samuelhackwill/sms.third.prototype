@@ -42,7 +42,21 @@ function drawTestText(c, definition, g, elapsed) {
           size *= availableWidth / ink.width; ink = metrics(size);
         }
       }
-      return { ...row, width: ink.width, font: `${size}px ${p.fontFamily}`,
+      let digitPair = null;
+      if (p.effect === 'flash' && p.phoneCount) {
+        const digits = text.replace(/\D/g, '');
+        if (digits.length >= p.phoneCount * 2) {
+          const column = Math.max(0, Math.min(p.phoneCount - 1,
+            Math.floor((g.x + g.width / 2 - row.left) / (row.right - row.left) * p.phoneCount)));
+          const pair = digits.slice(column * 2, column * 2 + 2);
+          c.font = `100px ${p.fontFamily}`;
+          const measured = c.measureText(pair);
+          digitPair = {text: pair, width: measured.width,
+            ascent: measured.actualBoundingBoxAscent || 80,
+            descent: measured.actualBoundingBoxDescent || 20};
+        }
+      }
+      return { ...row, width: ink.width, font: `${size}px ${p.fontFamily}`, digitPair,
         baseline: row.top + (row.height - ink.ascent - ink.descent) / 2 + ink.ascent };
     });
     cached = { key, text, rows }; testTextMetrics.set(c, cached);
@@ -56,6 +70,18 @@ function drawTestText(c, definition, g, elapsed) {
   for (const row of cached.rows) {
     const rowElapsed = elapsed - row.delayMs;
     const flashing = p.effect === 'flash';
+    if (flashing && row.digitPair && rowElapsed >= 0) {
+      const pair = row.digitPair;
+      visible = true; inProgress = true;
+      c.save(); c.beginPath(); c.rect(g.x, row.top, g.width, row.height); c.clip();
+      c.translate(g.x + g.width / 2, row.top + row.height / 2);
+      c.scale(g.width * 0.94 / pair.width, row.height * 0.96 / (pair.ascent + pair.descent));
+      c.font = `100px ${p.fontFamily}`; c.fillStyle = p.color;
+      c.globalAlpha = 0.25 + 0.75 * (1 - Math.cos(rowElapsed * Math.PI / 2500)) / 2;
+      c.fillText(pair.text, -pair.width / 2, (pair.ascent - pair.descent) / 2);
+      c.restore();
+      continue;
+    }
     const x = flashing ? row.left + (row.right - row.left - row.width) / 2 : row.right - rowElapsed / 1000 * p.speed;
     if (flashing || rowElapsed < 0 || x + row.width >= row.left) inProgress = true;
     if (rowElapsed < 0 || x > g.x + g.width || x + row.width < g.x) continue;
@@ -81,6 +107,7 @@ export function drawLiveText(c, definition, geometry, run, now) {
       text: run.text,
       speed: run.speed,
       effect: run.effect,
+      phoneCount: run.targets.length,
       rows: [{...run.band, delayMs: 0}],
     },
   };

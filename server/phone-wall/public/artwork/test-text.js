@@ -45,7 +45,21 @@
           ink = metrics(size);
         }
       }
-      return {...row, width: ink.width, font: `${size}px ${parameters.fontFamily}`,
+      let digitPair = null;
+      if (parameters.live && run?.effect === 'flash' && run.targets?.length) {
+        const digits = text.replace(/\D/g, '');
+        if (digits.length >= run.targets.length * 2) {
+          const column = Math.max(0, Math.min(run.targets.length - 1,
+            Math.floor((viewport.x + viewport.width / 2 - row.left) / (row.right - row.left) * run.targets.length)));
+          const pair = digits.slice(column * 2, column * 2 + 2);
+          context.font = `100px ${parameters.fontFamily}`;
+          const measured = context.measureText(pair);
+          digitPair = {text: pair, width: measured.width,
+            ascent: measured.actualBoundingBoxAscent || 80,
+            descent: measured.actualBoundingBoxDescent || 20};
+        }
+      }
+      return {...row, width: ink.width, font: `${size}px ${parameters.fontFamily}`, digitPair,
         baseline: row.top + (row.height - ink.ascent - ink.descent) / 2 + ink.ascent};
     });
   }
@@ -72,6 +86,21 @@
       const elapsed = parameters.live ? Date.now() + state.clockOffsetMs - (run?.startAtServerMs || Infinity) : elapsedSeconds * 1000 - row.delayMs;
       if (elapsed < 0) continue;
       const flashing = parameters.live && run?.effect === 'flash';
+      if (flashing && row.digitPair) {
+        const pair = row.digitPair;
+        context.save();
+        context.beginPath();
+        context.rect(viewport.x, row.top, viewport.width, row.height);
+        context.clip();
+        context.translate(viewport.x + viewport.width / 2, row.top + row.height / 2);
+        context.scale(viewport.width * 0.94 / pair.width, row.height * 0.96 / (pair.ascent + pair.descent));
+        context.font = `100px ${parameters.fontFamily}`;
+        context.fillStyle = parameters.color;
+        context.globalAlpha = 0.25 + 0.75 * (1 - Math.cos(elapsed * Math.PI / 2500)) / 2;
+        context.fillText(pair.text, -pair.width / 2, (pair.ascent - pair.descent) / 2);
+        context.restore();
+        continue;
+      }
       const x = flashing ? row.left + (row.right - row.left - row.width) / 2 : row.right - elapsed / 1000 * (parameters.live ? run.speed : parameters.speed);
       if (parameters.live && !flashing && !state.preview && x + row.width < row.left && Date.now() - lastAck > 2000) { PhoneWall.completeRow(run.id); lastAck = Date.now(); }
       if (x > viewport.x + viewport.width || x + row.width < viewport.x) continue;
