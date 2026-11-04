@@ -22,7 +22,7 @@ export function parseTendaInbox(raw) {
 }
 
 export class TendaReader {
-  constructor({config,onRecords,onStatus}){this.config=config;this.onRecords=onRecords;this.onStatus=onStatus;this.stopped=false;this.timer=null;this.cookies='';}
+  constructor({config,onRecords,onStatus}){this.config=config;this.onRecords=onRecords;this.onStatus=onStatus;this.stopped=false;this.timer=null;this.cookies='';this.failures=0;}
   start(){this.poll();return this;}
   stop(){this.stopped=true;clearTimeout(this.timer);}
   async login(){
@@ -45,12 +45,16 @@ export class TendaReader {
     if(this.stopped)return;
     let phase='login';
     try{
-      await this.login();
+      if(!this.cookies)await this.login();
       phase='inbox';
       const records=await this.inbox();
       phase='ingest';
-      if(!this.stopped){await this.onRecords(records);this.onStatus?.({status:'reading',at:Date.now(),count:records.length});}
-    }catch(error){this.onStatus?.({status:'error',at:Date.now(),code:/^router-[a-z-]+$/.test(error.message)?error.message:`router-${phase}-failed`});}
-    if(!this.stopped)this.timer=setTimeout(()=>this.poll(),Math.max(500,this.config.pollIntervalSeconds*1000));
+      if(!this.stopped){await this.onRecords(records);this.failures=0;this.onStatus?.({status:'reading',at:Date.now(),count:records.length});}
+    }catch(error){
+      if(phase==='inbox')this.cookies='';
+      this.failures++;
+      this.onStatus?.({status:'error',at:Date.now(),code:/^router-[a-z-]+$/.test(error.message)?error.message:`router-${phase}-failed`});
+    }
+    if(!this.stopped)this.timer=setTimeout(()=>this.poll(),this.failures?Math.min(60000,5000*2**Math.min(this.failures-1,4)):Math.max(500,this.config.pollIntervalSeconds*1000));
   }
 }
