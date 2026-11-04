@@ -26,6 +26,15 @@ import UIKit
     private(set) var status = "idle"
     private(set) var restoredOffset = 0.0
     init(host: UIView, library: ArtworkLibrary) { self.host = host; self.library = library }
+    func clearCache() async throws {
+        restoreGeneration += 1
+        cancelCandidate()
+        fadeOld?.stop(); fadeOld = nil
+        active?.view.stop(); active = nil
+        activeReleaseId = nil; status = "idle"
+        blocked.removeAll(); UserDefaults.standard.removeObject(forKey:"failedDeployments")
+        try await library.clearCache()
+    }
     func restore() {
         let generation = restoreGeneration
         task = Task { [weak self] in

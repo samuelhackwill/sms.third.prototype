@@ -38,11 +38,12 @@ test('a failed live artwork asks a phone to clear its cache once before retrying
   assert.equal(start.statusCode,200,start.body);
   await until(()=>messages.some(m=>m.type==='state.snapshot'&&m.payload.artwork?.pending));
   const pending=messages.findLast(m=>m.type==='state.snapshot'&&m.payload.artwork?.pending).payload.artwork.pending;
-  const error=envelope('artwork.status',{deploymentId:pending.deploymentId,releaseId:pending.releaseId,status:'error',code:'artwork-asset-or-storage-unavailable'});
+  const code='artwork-asset-or-storage-unavailable-nscocoaerrordomain-4';
+  const error=envelope('artwork.status',{deploymentId:pending.deploymentId,releaseId:pending.releaseId,status:'error',code});
   ws.send(JSON.stringify(error));
   await until(()=>messages.some(m=>m.type==='command'&&m.payload.name==='clearCache'));
   ws.send(JSON.stringify(error));
-  await until(()=>server.store.errors().filter(e=>e.record.code==='artwork-asset-or-storage-unavailable').length===2);
+  await until(()=>server.store.errors().filter(e=>e.record.code===code).length===2);
   assert.equal(messages.filter(m=>m.type==='command'&&m.payload.name==='clearCache').length,1);
   assert.equal(server.ticker.playbackMode,'barthes');
 });

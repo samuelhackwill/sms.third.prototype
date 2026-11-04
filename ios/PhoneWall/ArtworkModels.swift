@@ -77,7 +77,9 @@ func artworkFailureCode(_ error: Error) -> String {
     if let failure = error as? MediaFailure {
         switch failure { case .checksum:return "artwork-checksum-failed";case .tooLarge:return "artwork-cache-budget-exceeded";case .invalidManifest:return "artwork-media-invalid" }
     }
-    return "artwork-asset-or-storage-unavailable"
+    let detail = error as NSError
+    let domain = detail.domain.lowercased().replacingOccurrences(of:"[^a-z0-9]+",with:"-",options:.regularExpression)
+    return "artwork-asset-or-storage-unavailable-\(domain.prefix(32))-\(detail.code)"
 }
 
 extension UIColor {

@@ -11,6 +11,13 @@ actor ArtworkLibrary {
         if let data = try? Data(contentsOf:root.appendingPathComponent("last-good.json")), let saved = try? JSONDecoder().decode([ActivatedArtwork].self,from:data) { records = saved }
     }
     func history() -> [ActivatedArtwork] { records }
+    func clearCache() async throws {
+        if FileManager.default.fileExists(atPath:root.path) { try FileManager.default.removeItem(at:root) }
+        try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true)
+        records.removeAll()
+        await media.pin([])
+        await media.purge(excluding:nil,all:true)
+    }
     func rejectFailed(_ deploymentId: String) async {
         records.removeAll{$0.deployment.deploymentId == deploymentId}
         if let data = try? JSONEncoder().encode(records) { try? data.write(to:root.appendingPathComponent("last-good.json"),options:[.atomic,.completeFileProtectionUntilFirstUserAuthentication]) }

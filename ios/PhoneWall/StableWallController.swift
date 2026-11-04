@@ -98,7 +98,8 @@ final class StableWallController: UIViewController {
             guard let self = self else { return [:] }
             let batteryState = UIDevice.current.batteryState
             let charging: Any = batteryState == .unknown ? NSNull() : [UIDevice.BatteryState.charging,.full].contains(batteryState)
-            return ["battery":UIDevice.current.batteryLevel,"charging":charging,"thermalState":ProcessInfo.processInfo.thermalState.rawValue,"foreground":UIApplication.shared.applicationState == .active,"lastRevision":self.state.revision,"currentSceneId":self.kissing.enabled ? "kissing-wall" : self.runtime.activeReleaseId ?? "legacy","uptime":ProcessInfo.processInfo.systemUptime-self.boot,"mediaState":self.kissing.enabled ? self.kissing.status : self.runtime.status,"displayLinkFps":self.displayLinkFps,"targetFps":60]
+            let freeDisk = ((try? FileManager.default.attributesOfFileSystem(forPath:NSHomeDirectory()))?[.systemFreeSize] as? NSNumber)?.int64Value ?? 0
+            return ["battery":UIDevice.current.batteryLevel,"charging":charging,"thermalState":ProcessInfo.processInfo.thermalState.rawValue,"foreground":UIApplication.shared.applicationState == .active,"lastRevision":self.state.revision,"currentSceneId":self.kissing.enabled ? "kissing-wall" : self.runtime.activeReleaseId ?? "legacy","uptime":ProcessInfo.processInfo.systemUptime-self.boot,"mediaState":self.kissing.enabled ? self.kissing.status : self.runtime.status,"displayLinkFps":self.displayLinkFps,"targetFps":60,"freeDisk":freeDisk]
         }
         for name in [UIDevice.batteryStateDidChangeNotification,UIDevice.batteryLevelDidChangeNotification] { NotificationCenter.default.addObserver(self,selector:#selector(powerChanged),name:name,object:nil) }
         displayLink = CADisplayLink(target:self,selector:#selector(tick(_:))); displayLink?.preferredFramesPerSecond = 60; displayLink?.add(to:.main,forMode:.common)
@@ -163,7 +164,25 @@ final class StableWallController: UIViewController {
             var completed = UserDefaults.standard.stringArray(forKey:"completedCommands") ?? []
             if completed.contains(id) { connection.send("client.ack",["commandId":id,"result":"duplicate"]); return }
             if ["reload-state","reloadState"].contains(name) { connection.send("state.request",[:]) }
-            else if ["clearCache","purge-expired-media"].contains(name) { Task { await media.purge(excluding:nil,all:name == "clearCache") } }
+            else if name == "clearCache" {
+                completed.append(id); UserDefaults.standard.set(Array(completed.suffix(100)),forKey:"completedCommands")
+                Task { [weak self] in
+                    guard let self = self else { return }
+                    do {
+                        try await self.runtime.clearCache()
+                        self.legacy.isHidden = false
+                        self.lastDebugError = nil; self.refreshDebugOverlay()
+                        self.connection.send("state.request",[:])
+                        self.connection.send("client.ack",["commandId":id,"result":"cache-cleared"])
+                    } catch {
+                        self.showDebugError("cache-clear-failed")
+                        self.connection.send("state.request",[:])
+                        self.connection.send("client.error",["commandId":id,"code":"cache-clear-failed"])
+                    }
+                }
+                return
+            }
+            else if name == "purge-expired-media" { Task { await media.purge(excluding:nil,all:false) } }
             else if name == "query-diagnostics" { connection.send("client.ack",["commandId":id,"result":"diagnostics","diagnostics":["codes":diagnostics.entries]]) }
             else { connection.send("client.error",["commandId":id,"code":"unsupported-command"]); return }
             completed.append(id); UserDefaults.standard.set(Array(completed.suffix(100)),forKey:"completedCommands"); connection.send("client.ack",["commandId":id,"result":"applied"])

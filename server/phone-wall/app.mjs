@@ -83,7 +83,7 @@ export async function createController({
   };
   const phoneError=(id,source,code,details={})=>{
     if(!id||typeof code!=='string'||!code)return;
-    store.event(id,{kind:'error',source,code:code.slice(0,100),appVersion:store.device(id)?.appVersion??'',...details});
+    store.event(id,{kind:'error',source,code:code.slice(0,100),appVersion:store.device(id)?.appVersion??'',freeDisk:store.device(id)?.telemetry?.freeDisk??0,...details});
   };
   const snapshot = (id) => {
     const ws = sessions.get(id),
@@ -726,7 +726,7 @@ export async function createController({
             const attempt=liveAttempts.get(device._id);
             if(attempt?.id===p.deploymentId){
               liveAttempts.set(device._id,{...attempt,at:Date.now(),failures:(attempt.failures??0)+1});
-              if(p.code==='artwork-asset-or-storage-unavailable'&&!cacheRecovery.has(device._id)){
+              if(String(p.code??'').startsWith('artwork-asset-or-storage-unavailable')&&!cacheRecovery.has(device._id)){
                 cacheRecovery.add(device._id);
                 const commandId=randomBytes(16).toString('hex');
                 send(ws,'command',{name:'clearCache',commandId},store.current().revision,commandId);

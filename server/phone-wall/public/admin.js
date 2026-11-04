@@ -141,7 +141,7 @@ function renderErrors() {
   const entries = (data.errors ?? []).map(entry => ({
     at: entry.at, deviceId: entry.deviceId,
     source: entry.record?.source ?? 'phone', code: entry.record?.code ?? entry.record?.result ?? 'error',
-    appVersion: entry.record?.appVersion,
+    appVersion: entry.record?.appVersion, freeDisk: entry.record?.freeDisk,
   }));
   for (const device of data.devices) {
     if (!device.lastError || entries.some(entry => entry.deviceId === device._id && entry.code === device.lastError)) continue;
@@ -152,7 +152,7 @@ function renderErrors() {
   $('error-log-entries').replaceChildren(...entries.slice(0,100).map(entry => {
     const p = document.createElement('p');
     const slot = slots.get(entry.deviceId);
-    p.textContent = `${entry.at ? new Date(entry.at).toLocaleString() : 'Unknown time'} · ${slot == null ? entry.deviceId.slice(0,8) : `Slot ${slot}`} · App ${entry.appVersion ?? '?'} · ${entry.source}: ${entry.code}`;
+    p.textContent = `${entry.at ? new Date(entry.at).toLocaleString() : 'Unknown time'} · ${slot == null ? entry.deviceId.slice(0,8) : `Slot ${slot}`} · App ${entry.appVersion ?? '?'}${entry.freeDisk > 0 ? ` · ${(entry.freeDisk / 1073741824).toFixed(1)} GB free` : ''} · ${entry.source}: ${entry.code}`;
     return p;
   }));
   if (!entries.length) $('error-log-entries').textContent = 'No phone errors recorded.';
