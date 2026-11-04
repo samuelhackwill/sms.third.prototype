@@ -109,7 +109,7 @@ export async function createController({
     if(ticker.enabled&&allowed&&state.layout.slots.length&&(ticker.playbackMode==='barthes'||tickerState.queued||tickerState.active.length)){
       const definition=testTextDefinition(state.layout,{asset:testTextHash,color:ticker.playbackMode==='barthes'?'#00ff00':'#ff0000'});
       definition.artworkId='live-ticker';definition.parameters={...definition.parameters,live:true};
-      definition.artworkVersion=releaseHash({parameters:definition.parameters,elements:definition.elements,canvas:definition.canvas,layout:state.layout});
+      definition.artworkVersion=releaseHash({parameters:definition.parameters,elements:definition.elements,canvas:definition.canvas,layout:state.layout,...(ticker.playbackMode==='barthes'?{startRevision:state.revision}:{})});
       for(const id of state.layout.slots.map(slot=>slot.deviceId)){
         if(!sessions.has(id)||store.device(id)?.capabilities?.liveTicker!==1)continue;
         const art=releases.snapshot(id);
