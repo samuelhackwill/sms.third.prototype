@@ -37,7 +37,7 @@ export function parseTendaConversation(raw,sender){
 
 export class TendaReader {
   constructor({config,onRecords,onStatus,pendingDeletes=()=>[],onDeleteAttempt=()=>{},onDeleteConfirmed=()=>{}}){this.config=config;this.onRecords=onRecords;this.onStatus=onStatus;this.pendingDeletes=pendingDeletes;this.onDeleteAttempt=onDeleteAttempt;this.onDeleteConfirmed=onDeleteConfirmed;this.stopped=false;this.timer=null;this.deleteTimer=null;this.cookies='';this.failures=0;this.threads=new Map();this.lastFullRefresh=0;this.lastLoginAt=0;this.deleteError=null;}
-  start(){this.poll();this.cleanup();return this;}
+  start(){this.poll();return this;}
   stop(){this.stopped=true;clearTimeout(this.timer);clearTimeout(this.deleteTimer);}
   async login(){
     const {createHash}=await import('node:crypto');
