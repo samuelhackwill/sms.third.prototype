@@ -5,13 +5,14 @@
   let text = parameters.text.replace(/[\r\n]+/g, ' ');
   const viewport = state.viewport || state.geometry;
   const canvas = document.createElement('canvas');
-  canvas.setAttribute('aria-label', 'Serif text');
+  canvas.setAttribute('aria-label', 'Wall text');
   canvas.style.cssText = 'display:block;width:100vw;height:100vh';
   document.body.style.cssText = 'margin:0;overflow:hidden;background:#000';
   document.body.appendChild(canvas);
   const context = canvas.getContext('2d');
   if (!context) throw new Error('Test text canvas is unavailable');
   let rows = [], ratio, sx, sy, run = parameters.live && state.preview ? state.liveRun : null, lastAck = 0;
+  const incomingStyle = () => parameters.curatedMode && run?.source === 'router';
   if(run)text=run.text;
   function metrics(size) {
     context.font = `${size}px ${parameters.fontFamily}`;
@@ -76,7 +77,7 @@
   }
   PhoneWall.onFrame(elapsedSeconds => {
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
-    context.fillStyle = '#000000';
+    context.fillStyle = incomingStyle() ? '#0055cc' : '#000000';
     context.fillRect(0, 0, window.innerWidth, window.innerHeight);
     context.setTransform(ratio * sx, 0, 0, ratio * sy, -viewport.x * ratio * sx, -viewport.y * ratio * sy);
     if (parameters.live && run?.phase === 'preparing') {
@@ -97,7 +98,7 @@
         context.translate(viewport.x + viewport.width / 2, row.top + row.height / 2);
         context.scale(viewport.width * 0.94 / pair.width, row.height * 0.96 / (pair.ascent + pair.descent));
         context.font = `100px ${digitFont}`;
-        context.fillStyle = parameters.color;
+        context.fillStyle = incomingStyle() ? '#ffffff' : parameters.color;
         context.fillText(pair.text, -pair.width / 2, (pair.ascent - pair.descent) / 2);
         context.restore();
         continue;
@@ -110,7 +111,7 @@
       context.rect(row.left, row.top, row.right - row.left, row.height);
       context.clip();
       context.font = row.font;
-      context.fillStyle = parameters.color;
+      context.fillStyle = incomingStyle() ? '#ffffff' : parameters.color;
       context.fillText(text, x, row.baseline);
       context.restore();
     }

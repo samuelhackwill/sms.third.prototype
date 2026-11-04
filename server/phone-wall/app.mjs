@@ -116,7 +116,7 @@ export async function createController({
     const urgent=tickerState.routerQueued||tickerState.active.some(run=>run.source==='router');
     if(((ticker.enabled&&allowed)||urgent)&&state.layout.slots.length&&(['barthes','curated'].includes(ticker.playbackMode)||tickerState.queued||tickerState.active.length||tickerState.routerQueued)){
       const definition=testTextDefinition(state.layout,{asset:testTextHash,color:ticker.playbackMode==='barthes'?'#00ff00':'#ff0000'});
-      definition.artworkId='live-ticker';definition.parameters={...definition.parameters,live:true};
+      definition.artworkId='live-ticker';definition.parameters={...definition.parameters,live:true,curatedMode:ticker.playbackMode==='curated',fontFamily:ticker.playbackMode==='curated'?'Arial, Helvetica, sans-serif':definition.parameters.fontFamily};
       definition.artworkVersion=releaseHash({parameters:definition.parameters,elements:definition.elements,canvas:definition.canvas,layout:state.layout,...(ticker.playbackMode==='barthes'?{startRevision:state.revision}:{})});
       const urgentRows=liveRows(state.layout);
       const nextUrgentRow=urgentRows.find(row=>!tickerState.active.some(run=>run.source==='router'&&run.row===row.row)&&row.targets.every(id=>sessions.has(id)&&store.device(id)?.capabilities?.liveTicker===1))??urgentRows[0];

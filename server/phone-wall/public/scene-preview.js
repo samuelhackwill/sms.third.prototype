@@ -95,15 +95,17 @@ function drawTestText(c, definition, g, elapsed) {
   return visible ? 'Displaying test text' : inProgress ? 'Waiting for text to reach this phone' : 'Test finished · send a new test to replay';
 }
 export function drawLiveText(c, definition, geometry, run, now) {
+  const incoming = definition.parameters.curatedMode && run?.source === 'router';
   if (!run || run.phase !== 'playing' || !Number.isFinite(run.startAtServerMs)) {
-    c.fillStyle = '#000';
+    c.fillStyle = incoming ? '#0055cc' : '#000';
     c.fillRect(0, 0, c.canvas.width, c.canvas.height);
     return run ? 'Preparing live text' : 'Waiting for incoming text';
   }
   const preview = {
-    background: '#000',
+    background: incoming ? '#0055cc' : '#000',
     parameters: {
       ...definition.parameters,
+      color: incoming ? '#ffffff' : definition.parameters.color,
       text: run.text,
       speed: run.speed,
       effect: run.effect,
