@@ -612,6 +612,8 @@ export async function createController({
     let device = null,
       alive = Date.now(),
       count = 0,
+      rawCount = 0,
+      lastArtworkError = null,
       windowAt = Date.now();
     const created = Date.now();
     const timer = setInterval(() => {
@@ -640,11 +642,18 @@ export async function createController({
         if (Date.now() - windowAt > 60000) {
           windowAt = Date.now();
           count = 0;
+          rawCount = 0;
         }
         const m = decode(raw.toString()),
           p = m.payload;
         decoded=true;messageType=m.type;
-        if (++count > 120) throw new Error("rate-limit");
+        if (++rawCount > 12000) throw new Error("rate-limit");
+        if(m.type==='artwork.status'&&p.status==='error'){
+          const key=`${p.deploymentId}:${p.releaseId}:${p.code}`;
+          if(lastArtworkError?.key===key&&Date.now()-lastArtworkError.at<5000)return;
+          lastArtworkError={key,at:Date.now()};
+        }
+        if (++count > 600) throw new Error("rate-limit");
         if (!device) {
           if (
             m.type !== "client.hello" ||
@@ -720,6 +729,7 @@ export async function createController({
             telemetryAt:Date.now(),
           });
         } else if (m.type === "artwork.status") {
+          const pendingBefore=releases.snapshot(device._id).pending?.deploymentId===p.deploymentId;
           releases.acknowledge(device._id, p);
           if (p.status === "error") {
             phoneError(device._id,'artwork',String(p.code??'artwork-error'),{deploymentId:String(p.deploymentId??'').slice(0,100)});
@@ -732,7 +742,7 @@ export async function createController({
                 send(ws,'command',{name:'clearCache',commandId},store.current().revision,commandId);
               }
             }
-            broadcast();
+            if(pendingBefore)broadcast();
           } else if(p.status==='displayed'&&liveAttempts.get(device._id)?.id===p.deploymentId){
             cacheRecovery.delete(device._id);
             liveAttempts.delete(device._id);

@@ -42,8 +42,11 @@ test('a failed live artwork asks a phone to clear its cache once before retrying
   const error=envelope('artwork.status',{deploymentId:pending.deploymentId,releaseId:pending.releaseId,status:'error',code});
   ws.send(JSON.stringify(error));
   await until(()=>messages.some(m=>m.type==='command'&&m.payload.name==='clearCache'));
+  const snapshots=messages.filter(m=>m.type==='state.snapshot').length;
   ws.send(JSON.stringify(error));
-  await until(()=>server.store.errors().filter(e=>e.record.code===code).length===2);
+  await new Promise(resolve=>setTimeout(resolve,100));
+  assert.equal(server.store.errors().filter(e=>e.record.code===code).length,1);
+  assert.equal(messages.filter(m=>m.type==='state.snapshot').length,snapshots);
   assert.equal(messages.filter(m=>m.type==='command'&&m.payload.name==='clearCache').length,1);
   assert.equal(server.ticker.playbackMode,'barthes');
 });
