@@ -43,11 +43,14 @@ export class TendaReader {
   }
   async poll(){
     if(this.stopped)return;
+    let phase='login';
     try{
       await this.login();
+      phase='inbox';
       const records=await this.inbox();
+      phase='ingest';
       if(!this.stopped){await this.onRecords(records);this.onStatus?.({status:'reading',at:Date.now(),count:records.length});}
-    }catch(error){this.onStatus?.({status:'error',at:Date.now(),code:/^router-[a-z-]+$/.test(error.message)?error.message:'router-poll-failed'});}
+    }catch(error){this.onStatus?.({status:'error',at:Date.now(),code:/^router-[a-z-]+$/.test(error.message)?error.message:`router-${phase}-failed`});}
     if(!this.stopped)this.timer=setTimeout(()=>this.poll(),Math.max(500,this.config.pollIntervalSeconds*1000));
   }
 }
