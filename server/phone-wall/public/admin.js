@@ -17,6 +17,7 @@ let testSpeedEdited=false;
 let testMessageEdited=false;
 let kissingEdited=false;
 let curatedEdited=false,curatedLoadedCount=-1,curatedLoadedSelected=-1,curatedLoading=false;
+let curatedLoadedGeneration=null;
 let curatedSaveTimer=null,curatedEditVersion=0;
 let speedDragMode=null,densityDragging=false;
 function speedLabels(mode){
@@ -74,6 +75,7 @@ async function loadCurated(){
     requestAnimationFrame(updateCuratedMarkers);
     curatedLoadedCount=messages.length;
     curatedLoadedSelected=messages.filter(message=>message.selected===1).length;
+    curatedLoadedGeneration=data?.ticker?.libraryGeneration??null;
   }catch(error){$('curated-list').textContent=error.message;}
   finally{curatedLoading=false;}
 }
@@ -259,7 +261,7 @@ function render() {
   for(const mode of ['barthes','curated']){if(speedDragMode!==mode){$(`${mode}-min-speed`).value=live?.speedRanges?.[mode]?.min??(mode==='barthes'?1000:240);$(`${mode}-max-speed`).value=live?.speedRanges?.[mode]?.max??(mode==='barthes'?6000:240);}speedLabels(mode);}
   if(!densityDragging)$('curated-archive-density').value=live?.archiveDensity??1;
   densityLabel();
-  if(curatedLoadedCount!==live?.curatedCount||curatedLoadedSelected!==live?.curatedSelected)void loadCurated();
+  if(curatedLoadedCount!==live?.curatedCount||curatedLoadedSelected!==live?.curatedSelected||curatedLoadedGeneration!==live?.libraryGeneration)void loadCurated();
   const router=live?.router;
   $('reader-status').textContent=live?.upgradeRequired?.length?`Install phone app 2.3 for live playback (${live.upgradeRequired.length} phones need updating).`:router?.status==='reading'&&Date.now()-router.at<15000?router.deleteError?`Tenda polled · cleanup error: ${router.deleteError}`:router.stats?.emptyResponse?`Tenda polled ${Math.max(0,Math.round((Date.now()-router.at)/1000))}s ago · router returned no inbox · last full inbox ${router.lastNonempty?`${Math.round((Date.now()-router.lastNonempty.at)/60000)} min ago`:'never'}`:`Tenda router connected · polled ${Math.max(0,Math.round((Date.now()-router.at)/1000))}s ago`:router?.status==='error'?`Tenda router error: ${router.code}`:router?.status==='starting'?'Connecting to Tenda router…':'Tenda router is not connected.';
   if(!testSpeedEdited)$('test-text-speed').value=state.testTextSpeed??240;

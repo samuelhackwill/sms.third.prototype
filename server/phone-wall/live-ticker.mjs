@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { repairArchivedSms } from './sms-encoding.mjs';
 const segmenter=new Intl.Segmenter('und',{granularity:'grapheme'});
 const barthesFile=new URL('./public/artwork/barthes-sentences.ndjson',import.meta.url);
 let barthesSentences;
@@ -31,7 +32,7 @@ export function liveRows(layout) {
 }
 export class LiveTicker {
   constructor(store) {
-    this.store=store;this.db=store.db;
+    this.store=store;this.db=store.db;this.libraryGeneration=randomUUID();
     this.db.exec(`CREATE TABLE IF NOT EXISTS ticker_settings(id INTEGER PRIMARY KEY CHECK(id=1),enabled INTEGER NOT NULL);
       INSERT OR IGNORE INTO ticker_settings(id,enabled) VALUES(1,0);
       CREATE TABLE IF NOT EXISTS ticker_messages(seq INTEGER PRIMARY KEY AUTOINCREMENT,external_id TEXT NOT NULL UNIQUE,text TEXT NOT NULL,received_at TEXT,status TEXT NOT NULL DEFAULT 'queued',run TEXT,completed_at INTEGER);
@@ -54,6 +55,12 @@ export class LiveTicker {
     if(!this.db.prepare('PRAGMA table_info(ticker_messages)').all().some(column=>column.name==='source'))this.db.exec("ALTER TABLE ticker_messages ADD COLUMN source TEXT NOT NULL DEFAULT 'messages'");
     if(!this.db.prepare('PRAGMA table_info(ticker_messages)').all().some(column=>column.name==='target_row'))this.db.exec('ALTER TABLE ticker_messages ADD COLUMN target_row INTEGER');
     for(const name of ['origin_id','color_seed'])if(!this.db.prepare('PRAGMA table_info(ticker_messages)').all().some(column=>column.name===name))this.db.exec(`ALTER TABLE ticker_messages ADD COLUMN ${name} TEXT`);
+    const repairArchive=this.db.prepare('UPDATE router_archive SET text=? WHERE external_id=?');
+    const repairTicker=this.db.prepare("UPDATE ticker_messages SET text=? WHERE source='router' AND external_id=?");
+    for(const row of this.db.prepare('SELECT external_id AS id,text FROM router_archive').all()){
+      const fixed=repairArchivedSms(row.text);
+      if(fixed!==row.text){repairArchive.run(fixed,row.id);repairTicker.run(displayMessage(fixed),row.id);}
+    }
     const first=this.db.prepare('SELECT custom_a FROM ticker_settings WHERE id=1').get().custom_a;
     if(first.length>10){const digits=first.replace(/\D/g,'');this.db.prepare('UPDATE ticker_settings SET custom_a=? WHERE id=1').run(digits.length>=10?digits.slice(0,10):first.slice(0,10));}
     this.db.prepare("DELETE FROM ticker_messages WHERE source='curated-click'").run();
@@ -91,7 +98,8 @@ export class LiveTicker {
         const routerId=record.routerId==null?null:String(record.routerId);
         const receivedAt=typeof record.receivedAt==='string'?record.receivedAt.slice(0,40):null;
         const prior=this.db.prepare('SELECT text,received_at AS receivedAt FROM router_archive WHERE external_id=?').get(baseId);
-        const id=prior&&(prior.text!==record.text||prior.receivedAt!=null&&receivedAt!=null&&prior.receivedAt!==receivedAt)?`${baseId}:${createHash('sha256').update(JSON.stringify([receivedAt,record.text])).digest('hex').slice(0,16)}`:baseId;
+        const exact=routerId===null?null:this.db.prepare('SELECT external_id AS id FROM router_archive WHERE sender=? AND router_id=? AND text=? AND received_at IS ? LIMIT 1').get(sender,routerId,record.text,receivedAt);
+        const id=exact?.id??(prior&&(prior.text!==record.text||prior.receivedAt!=null&&receivedAt!=null&&prior.receivedAt!==receivedAt)?`${baseId}:${createHash('sha256').update(JSON.stringify([receivedAt,record.text])).digest('hex').slice(0,16)}`:baseId);
         archive.run(id,sender,routerId,record.text,receivedAt,Date.now());
         stillOnRouter.run(id,Date.now()-30000);
         if(!seen.run(id).changes)continue;
@@ -340,5 +348,5 @@ export class LiveTicker {
     }
     return false;
   }
-  status(){return {enabled:this.enabled,mode:this.playbackMode,customTexts:this.customTexts,curatedSecondEnabled:this.curatedSecondEnabled,curatedInjectionEnabled:this.curatedInjectionEnabled,archiveReplayEnabled:this.archiveReplayEnabled,archiveDensity:this.archiveDensity,speedRanges:this.speedRanges,archivePlaying:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source='archive' AND status IN ('queued','preparing','playing')").get().n,curatedCount:this.db.prepare('SELECT (SELECT COUNT(*) FROM curated_messages)+(SELECT COUNT(*) FROM router_archive) AS n').get().n,curatedSelected:this.db.prepare('SELECT (SELECT COUNT(*) FROM curated_messages WHERE selected=1)+(SELECT COUNT(*) FROM router_archive WHERE selected=1) AS n').get().n,queued:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE status='queued' AND (source=? OR ?='curated' AND source IN ('custom','archive'))").get(this.playbackMode,this.playbackMode).n,routerQueued:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source='router' AND status='queued'").get().n,routerSeen:this.db.prepare('SELECT COUNT(*) AS n FROM router_seen').get().n,routerArchive:this.db.prepare('SELECT COUNT(*) AS total,COALESCE(SUM(deleted_at IS NULL AND router_id IS NOT NULL),0) AS pending,COALESCE(SUM(deleted_at IS NULL AND router_id IS NULL),0) AS missingId,COALESCE(SUM(deleted_at IS NOT NULL),0) AS deleted FROM router_archive').get(),routerMessages:this.db.prepare("SELECT status,COUNT(*) AS n FROM ticker_messages WHERE source='router' GROUP BY status").all(),active:this.runs(),completed:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source=? AND status='completed'").get(this.playbackMode).n,readers:this.db.prepare('SELECT * FROM ticker_sources').all()};}
+  status(){return {enabled:this.enabled,mode:this.playbackMode,libraryGeneration:this.libraryGeneration,customTexts:this.customTexts,curatedSecondEnabled:this.curatedSecondEnabled,curatedInjectionEnabled:this.curatedInjectionEnabled,archiveReplayEnabled:this.archiveReplayEnabled,archiveDensity:this.archiveDensity,speedRanges:this.speedRanges,archivePlaying:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source='archive' AND status IN ('queued','preparing','playing')").get().n,curatedCount:this.db.prepare('SELECT (SELECT COUNT(*) FROM curated_messages)+(SELECT COUNT(*) FROM router_archive) AS n').get().n,curatedSelected:this.db.prepare('SELECT (SELECT COUNT(*) FROM curated_messages WHERE selected=1)+(SELECT COUNT(*) FROM router_archive WHERE selected=1) AS n').get().n,queued:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE status='queued' AND (source=? OR ?='curated' AND source IN ('custom','archive'))").get(this.playbackMode,this.playbackMode).n,routerQueued:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source='router' AND status='queued'").get().n,routerSeen:this.db.prepare('SELECT COUNT(*) AS n FROM router_seen').get().n,routerArchive:this.db.prepare('SELECT COUNT(*) AS total,COALESCE(SUM(deleted_at IS NULL AND router_id IS NOT NULL),0) AS pending,COALESCE(SUM(deleted_at IS NULL AND router_id IS NULL),0) AS missingId,COALESCE(SUM(deleted_at IS NOT NULL),0) AS deleted FROM router_archive').get(),routerMessages:this.db.prepare("SELECT status,COUNT(*) AS n FROM ticker_messages WHERE source='router' GROUP BY status").all(),active:this.runs(),completed:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source=? AND status='completed'").get(this.playbackMode).n,readers:this.db.prepare('SELECT * FROM ticker_sources').all()};}
 }

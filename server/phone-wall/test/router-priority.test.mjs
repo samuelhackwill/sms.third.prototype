@@ -144,6 +144,21 @@ test('a reused router ID with different content becomes a new message',async t=>
   assert.equal(ticker.status().routerArchive.total,2);
 });
 
+test('repairing an archived emoji does not enqueue the same router SMS again',async t=>{
+  const dir=await mkdtemp(join(tmpdir(),'wall-router-emoji-'));
+  const store=new Store(join(dir,'controller.sqlite'));
+  t.after(async()=>{store.close();await rm(dir,{recursive:true,force:true});});
+  const ticker=new LiveTicker(store);ticker.enableRouter();ticker.ingestRouter([],{detailed:true});
+  const sender='0612345678',record=parseTendaConversation(JSON.stringify({smsPhoneList:[{id:5,time:1800000000,content:'🐭',isSend:0}]}),sender)[0];
+  const oldId=`tenda:${sender}:5:oldhash`,corrupted=new TextDecoder('gbk').decode(Buffer.from('eda0bdedb0ad','hex'));
+  store.db.prepare('INSERT INTO router_archive(external_id,sender,router_id,text,received_at,archived_at) VALUES(?,?,?,?,?,?)').run(oldId,sender,'5',corrupted,record.receivedAt,Date.now());
+  store.db.prepare('INSERT INTO router_seen(id) VALUES(?)').run(oldId);
+  new LiveTicker(store);
+  assert.equal(store.db.prepare('SELECT text FROM router_archive WHERE external_id=?').get(oldId).text,'🐭');
+  assert.equal(ticker.ingestRouter([record],{detailed:true}).inserted,0);
+  assert.equal(ticker.status().routerArchive.total,1);
+});
+
 test('router delete uses the per-message request from the Tenda web UI',async t=>{
   let request;
   const server=createServer(async(req,res)=>{

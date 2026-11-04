@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { decodeTendaResponse } from './sms-encoding.mjs';
 
 const execFileAsync=promisify(execFile);
 const outgoing=note=>[true,1,'1','true'].includes(note.isSend);
@@ -52,9 +53,7 @@ export class TendaReader {
     const query=new URLSearchParams({rand:String(Date.now()),...parameters});
     const {stdout}=await execFileAsync('/usr/bin/curl',['-sS','--max-time','20',`${base}/goform/getModules?${query}`,'-H',`Referer: ${base}/index.html`,'-H','X-Requested-With: XMLHttpRequest','-H',`Cookie: ${this.cookies}`,'-H','User-Agent: Mozilla/5.0','-H','Accept: application/json, text/plain, */*'],{encoding:'buffer',maxBuffer:4*1024*1024});
     const raw=Buffer.isBuffer(stdout)?stdout:Buffer.from(stdout);
-    let text=new TextDecoder('utf-8',{fatal:true});
-    try{return text.decode(raw);}
-    catch(error){if(!(error instanceof TypeError))throw error;text=new TextDecoder('gbk');return text.decode(raw);}
+    return decodeTendaResponse(raw);
   }
   async deleteMessages(sender,ids){
     const base=this.config.baseUrl.replace(/\/$/,'');
