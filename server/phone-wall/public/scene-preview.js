@@ -14,6 +14,7 @@ export function hasTestTextPreview(definition) {
 }
 
 const testTextMetrics = new WeakMap();
+const digitFont = 'Arial, Helvetica, sans-serif';
 // Match artwork/test-text.js in logical wall coordinates, without a WebView per tile.
 function drawTestText(c, definition, g, elapsed) {
   const p = definition.parameters;
@@ -49,7 +50,7 @@ function drawTestText(c, definition, g, elapsed) {
           const column = Math.max(0, Math.min(p.phoneCount - 1,
             Math.floor((g.x + g.width / 2 - row.left) / (row.right - row.left) * p.phoneCount)));
           const pair = digits.slice(column * 2, column * 2 + 2);
-          c.font = `100px ${p.fontFamily}`;
+          c.font = `100px ${digitFont}`;
           const measured = c.measureText(pair);
           digitPair = {text: pair, width: measured.width,
             ascent: measured.actualBoundingBoxAscent || 80,
@@ -77,7 +78,7 @@ function drawTestText(c, definition, g, elapsed) {
       c.save(); c.beginPath(); c.rect(g.x, row.top, g.width, row.height); c.clip();
       c.translate(g.x + g.width / 2, row.top + row.height / 2);
       c.scale(g.width * 0.94 / pair.width, row.height * 0.96 / (pair.ascent + pair.descent));
-      c.font = `100px ${p.fontFamily}`; c.fillStyle = p.color;
+      c.font = `100px ${digitFont}`; c.fillStyle = p.color;
       c.fillText(pair.text, -pair.width / 2, (pair.ascent - pair.descent) / 2);
       c.restore();
       continue;

@@ -1,6 +1,7 @@
 (() => {
   const state = window.PHONE_WALL;
   const parameters = state.parameters;
+  const digitFont = 'Arial, Helvetica, sans-serif';
   let text = parameters.text.replace(/[\r\n]+/g, ' ');
   const viewport = state.viewport || state.geometry;
   const canvas = document.createElement('canvas');
@@ -52,7 +53,7 @@
           const column = Math.max(0, Math.min(run.targets.length - 1,
             Math.floor((viewport.x + viewport.width / 2 - row.left) / (row.right - row.left) * run.targets.length)));
           const pair = digits.slice(column * 2, column * 2 + 2);
-          context.font = `100px ${parameters.fontFamily}`;
+          context.font = `100px ${digitFont}`;
           const measured = context.measureText(pair);
           digitPair = {text: pair, width: measured.width,
             ascent: measured.actualBoundingBoxAscent || 80,
@@ -95,7 +96,7 @@
         context.clip();
         context.translate(viewport.x + viewport.width / 2, row.top + row.height / 2);
         context.scale(viewport.width * 0.94 / pair.width, row.height * 0.96 / (pair.ascent + pair.descent));
-        context.font = `100px ${parameters.fontFamily}`;
+        context.font = `100px ${digitFont}`;
         context.fillStyle = parameters.color;
         context.fillText(pair.text, -pair.width / 2, (pair.ascent - pair.descent) / 2);
         context.restore();
