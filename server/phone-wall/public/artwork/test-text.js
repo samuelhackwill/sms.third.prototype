@@ -11,7 +11,7 @@
   document.body.appendChild(canvas);
   const context = canvas.getContext('2d');
   if (!context) throw new Error('Test text canvas is unavailable');
-  let rows = [], ratio, sx, sy, run = parameters.live && state.preview ? state.liveRun : null, lastAck = 0;
+  let rows = [], ratio, sx, sy, run = parameters.live && state.preview ? state.liveRun : null, lastAck = 0, edgeBlue = 0, lastFrame = Date.now();
   const incomingStyle = () => parameters.curatedMode && run?.source === 'router';
   if(run)text=run.text;
   function metrics(size) {
@@ -72,13 +72,38 @@
       const next = snapshot.enabled ? snapshot.runs[0] || null : null;
       const changed = next?.id !== run?.id;
       run = next;
-      if (changed) { text = run?.text || ''; lastAck = 0; resize(); }
+      if (changed) { text = run?.text || ''; lastAck = 0; edgeBlue = 0; resize(); }
     });
   }
   PhoneWall.onFrame(elapsedSeconds => {
+    const now = Date.now();
+    const frameMs = Math.max(0, Math.min(100, now - lastFrame));
+    lastFrame = now;
+    const incoming = incomingStyle();
+    let edgePhone = false;
+    if (incoming && run.phase === 'playing' && rows[0] && run.targets?.length > 1) {
+      const row = rows[0], count = run.targets.length;
+      const elapsed = now + state.clockOffsetMs - run.startAtServerMs;
+      if (elapsed >= 0) {
+        const x = row.right - elapsed / 1000 * run.speed;
+        if (x < row.right && x + row.width > row.left) {
+          const column = edge => Math.max(0, Math.min(count - 1, Math.floor((edge - row.left) / (row.right - row.left) * count)));
+          const phone = column(viewport.x + viewport.width / 2);
+          edgePhone = phone === column(x) || phone === column(x + row.width);
+        }
+      }
+    }
+    edgeBlue = edgePhone ? Math.min(1, edgeBlue + frameMs / 180) : 0;
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
-    context.fillStyle = incomingStyle() ? '#0055cc' : '#000000';
+    context.fillStyle = incoming ? run.backgroundColor || '#15202b' : '#000000';
     context.fillRect(0, 0, window.innerWidth, window.innerHeight);
+    if (edgeBlue > 0) {
+      context.save();
+      context.globalAlpha = edgeBlue;
+      context.fillStyle = '#003f9e';
+      context.fillRect(0, 0, window.innerWidth, window.innerHeight);
+      context.restore();
+    }
     context.setTransform(ratio * sx, 0, 0, ratio * sy, -viewport.x * ratio * sx, -viewport.y * ratio * sy);
     if (parameters.live && run?.phase === 'preparing') {
       if (!state.preview && rows[0] && Date.now() - lastAck > 2000) { PhoneWall.readyRow(run.id,rows[0].width); lastAck = Date.now(); }

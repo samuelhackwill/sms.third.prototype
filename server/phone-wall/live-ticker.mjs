@@ -11,6 +11,11 @@ function sentences() {
   return barthesSentences;
 }
 const barthesSpeed=()=>1000+Math.floor(Math.random()*5001);
+export function routerBackground(externalId){
+  const sender=String(externalId).replace(/^tenda:/,'').split(':')[0];
+  const seed=Number(sender.replace(/\D/g,'').slice(-4).padStart(4,'0'));
+  return `hsl(${seed*137%360}, ${45+seed%16}%, ${14+Math.floor(seed/16)%8}%)`;
+}
 export function displayMessage(text) {
   if(typeof text!=='string')throw new Error('invalid-message-text');
   const clean=text.replace(/[\r\n]+/g,' ').replace(/[\p{Cc}\uFFFC]/gu,'').trim();
@@ -215,13 +220,13 @@ export class LiveTicker {
       }
     }
     let active=this.runs(),busy=new Set(active.map(run=>run.row));
-    const urgent=this.db.prepare("SELECT seq FROM ticker_messages WHERE source='router' AND status='queued' ORDER BY seq DESC LIMIT 1").get();
+    const urgent=this.db.prepare("SELECT seq,external_id FROM ticker_messages WHERE source='router' AND status='queued' ORDER BY seq DESC LIMIT 1").get();
     if(urgent){
       const band=rows.find(row=>!this.isCuratedPriorityRow(row.row)&&!active.some(run=>run.row===row.row&&run.source==='router')&&row.targets.every(id=>ready.has(id)));
       if(band){
         const interrupted=active.find(run=>run.row===band.row);
         if(interrupted)this.db.prepare("UPDATE ticker_messages SET status='queued',run=NULL WHERE seq=?").run(interrupted.seq);
-        this.save({seq:urgent.seq,id:randomUUID(),row:band.row,band,targets:band.targets,ready:{},done:[],phase:'preparing',speed:state.testTextSpeed??240,startAtServerMs:null,deadline:now+30000},'preparing');
+        this.save({seq:urgent.seq,id:randomUUID(),row:band.row,band,targets:band.targets,ready:{},done:[],phase:'preparing',backgroundColor:routerBackground(urgent.external_id),speed:state.testTextSpeed??240,startAtServerMs:null,deadline:now+30000},'preparing');
         changed=true;active=this.runs();busy=new Set(active.map(run=>run.row));
       }
     }

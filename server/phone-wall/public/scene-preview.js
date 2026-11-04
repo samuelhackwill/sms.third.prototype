@@ -67,6 +67,15 @@ function drawTestText(c, definition, g, elapsed) {
   c.save();
   c.scale(c.canvas.width / g.width, c.canvas.height / g.height);
   c.fillStyle = definition.background; c.fillRect(0, 0, g.width, g.height);
+  if (p.edgeAccent && p.phoneCount > 1 && cached.rows[0] && elapsed >= 0) {
+    const row = cached.rows[0], x = row.right - elapsed / 1000 * p.speed;
+    const column = edge => Math.max(0, Math.min(p.phoneCount - 1, Math.floor((edge - row.left) / (row.right - row.left) * p.phoneCount)));
+    const phone = column(g.x + g.width / 2);
+    if (x < row.right && x + row.width > row.left && (phone === column(x) || phone === column(x + row.width))) {
+      c.save(); c.globalAlpha = Math.min(1, elapsed / 180);
+      c.fillStyle = '#003f9e'; c.fillRect(0, 0, g.width, g.height); c.restore();
+    }
+  }
   c.translate(-g.x, -g.y); c.textBaseline = 'alphabetic';
   for (const row of cached.rows) {
     const rowElapsed = elapsed - row.delayMs;
@@ -97,18 +106,19 @@ function drawTestText(c, definition, g, elapsed) {
 export function drawLiveText(c, definition, geometry, run, now) {
   const incoming = definition.parameters.curatedMode && run?.source === 'router';
   if (!run || run.phase !== 'playing' || !Number.isFinite(run.startAtServerMs)) {
-    c.fillStyle = incoming ? '#0055cc' : '#000';
+    c.fillStyle = incoming ? run.backgroundColor || '#15202b' : '#000';
     c.fillRect(0, 0, c.canvas.width, c.canvas.height);
     return run ? 'Preparing live text' : 'Waiting for incoming text';
   }
   const preview = {
-    background: incoming ? '#0055cc' : '#000',
+    background: incoming ? run.backgroundColor || '#15202b' : '#000',
     parameters: {
       ...definition.parameters,
       color: incoming ? '#ffffff' : definition.parameters.color,
       text: run.text,
       speed: run.speed,
       effect: run.effect,
+      edgeAccent: incoming,
       phoneCount: run.targets.length,
       rows: [{...run.band, delayMs: 0}],
     },
