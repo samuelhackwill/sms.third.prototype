@@ -206,7 +206,7 @@ export class LiveTicker {
       for(let index=0;index<2;index++){
         const message=this.db.prepare("SELECT seq,source FROM ticker_messages WHERE source='curated' AND status='queued' ORDER BY seq LIMIT 1").get();
         if(!message)break;
-        const band=rows.slice(0,2).find(row=>row.targets.every(id=>ready.has(id))&&!active.some(run=>run.row===row.row&&(run.source==='router'||run.source==='curated')));
+        const band=rows.find(row=>row.row>=2&&row.targets.every(id=>ready.has(id))&&!active.some(run=>run.row===row.row&&(run.source==='router'||run.source==='curated')));
         if(!band)break;
         const interrupted=active.find(run=>run.row===band.row);
         if(interrupted)this.db.prepare("UPDATE ticker_messages SET status='queued',run=NULL WHERE seq=?").run(interrupted.seq);
@@ -220,7 +220,7 @@ export class LiveTicker {
         if(band.row>1||!this.enabled||!allowed)continue;
         const message=this.db.prepare("SELECT seq FROM ticker_messages WHERE source='custom' AND target_row=? AND status='queued' ORDER BY seq LIMIT 1").get(band.row);
         if(!message)continue;
-        this.save({seq:message.seq,id:randomUUID(),row:band.row,band,targets:band.targets,ready:{},done:[],phase:'preparing',speed:state.testTextSpeed??240,startAtServerMs:null,deadline:now+30000},'preparing');
+        this.save({seq:message.seq,id:randomUUID(),row:band.row,band,targets:band.targets,ready:{},done:[],phase:'preparing',effect:band.row===0?'flash':undefined,speed:state.testTextSpeed??240,startAtServerMs:null,deadline:now+30000},'preparing');
         busy.add(band.row);changed=true;continue;
       }
       const message=this.db.prepare("SELECT seq,source FROM ticker_messages WHERE status='queued' AND (source='router' OR (source=? AND ?)) ORDER BY CASE WHEN source='router' THEN 0 ELSE 1 END,seq LIMIT 1").get(this.playbackMode,this.enabled&&allowed?1:0);
@@ -239,11 +239,11 @@ export class LiveTicker {
       run.ready[deviceId]=width;
       if(run.targets.every(id=>run.ready[id])){
         run.phase='playing';run.startAtServerMs=now+1000;
-        run.deadline=run.startAtServerMs+(run.band.right-run.band.left+Math.max(...Object.values(run.ready)))/run.speed*1000+30000;
+        run.deadline=run.effect==='flash'?Number.MAX_SAFE_INTEGER:run.startAtServerMs+(run.band.right-run.band.left+Math.max(...Object.values(run.ready)))/run.speed*1000+30000;
       }
       this.save(run,run.phase);return true;
     }
-    if(type==='ticker.done'&&run.phase==='playing'){
+    if(type==='ticker.done'&&run.phase==='playing'&&run.effect!=='flash'){
       const earliest=run.startAtServerMs+(run.band.right-run.band.left+run.ready[deviceId])/run.speed*1000-500;
       if(now<earliest)return false;
       if(!run.done.includes(deviceId))run.done.push(deviceId);

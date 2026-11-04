@@ -4,7 +4,7 @@
   let text = parameters.text.replace(/[\r\n]+/g, ' ');
   const viewport = state.viewport || state.geometry;
   const canvas = document.createElement('canvas');
-  canvas.setAttribute('aria-label', 'Scrolling serif text');
+  canvas.setAttribute('aria-label', 'Serif text');
   canvas.style.cssText = 'display:block;width:100vw;height:100vh';
   document.body.style.cssText = 'margin:0;overflow:hidden;background:#000';
   document.body.appendChild(canvas);
@@ -64,8 +64,9 @@
     for (const row of rows) {
       const elapsed = parameters.live ? Date.now() + state.clockOffsetMs - (run?.startAtServerMs || Infinity) : elapsedSeconds * 1000 - row.delayMs;
       if (elapsed < 0) continue;
-      const x = row.right - elapsed / 1000 * (parameters.live ? run.speed : parameters.speed);
-      if (parameters.live && !state.preview && x + row.width < row.left && Date.now() - lastAck > 2000) { PhoneWall.completeRow(run.id); lastAck = Date.now(); }
+      const flashing = parameters.live && run?.effect === 'flash';
+      const x = flashing ? row.left + (row.right - row.left - row.width) / 2 : row.right - elapsed / 1000 * (parameters.live ? run.speed : parameters.speed);
+      if (parameters.live && !flashing && !state.preview && x + row.width < row.left && Date.now() - lastAck > 2000) { PhoneWall.completeRow(run.id); lastAck = Date.now(); }
       if (x > viewport.x + viewport.width || x + row.width < viewport.x) continue;
       context.save();
       context.beginPath();
@@ -73,6 +74,7 @@
       context.clip();
       context.font = row.font;
       context.fillStyle = parameters.color;
+      if (flashing) context.globalAlpha = 0.25 + 0.75 * (1 - Math.cos(elapsed * Math.PI / 2500)) / 2;
       context.fillText(text, x, row.baseline);
       context.restore();
     }

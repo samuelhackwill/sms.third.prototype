@@ -48,12 +48,16 @@ function drawTestText(c, definition, g, elapsed) {
   c.fillStyle = definition.background; c.fillRect(0, 0, g.width, g.height);
   c.translate(-g.x, -g.y); c.textBaseline = 'alphabetic';
   for (const row of cached.rows) {
-    const rowElapsed = elapsed - row.delayMs, x = row.right - rowElapsed / 1000 * p.speed;
-    if (rowElapsed < 0 || x + row.width >= row.left) inProgress = true;
+    const rowElapsed = elapsed - row.delayMs;
+    const flashing = p.effect === 'flash';
+    const x = flashing ? row.left + (row.right - row.left - row.width) / 2 : row.right - rowElapsed / 1000 * p.speed;
+    if (flashing || rowElapsed < 0 || x + row.width >= row.left) inProgress = true;
     if (rowElapsed < 0 || x > g.x + g.width || x + row.width < g.x) continue;
     visible = true;
     c.save(); c.beginPath(); c.rect(row.left, row.top, row.right - row.left, row.height); c.clip();
-    c.font = row.font; c.fillStyle = p.color; c.fillText(cached.text, x, row.baseline); c.restore();
+    c.font = row.font; c.fillStyle = p.color;
+    if (flashing) c.globalAlpha = 0.25 + 0.75 * (1 - Math.cos(rowElapsed * Math.PI / 2500)) / 2;
+    c.fillText(cached.text, x, row.baseline); c.restore();
   }
   c.restore();
   return visible ? 'Displaying test text' : inProgress ? 'Waiting for text to reach this phone' : 'Test finished · send a new test to replay';
@@ -70,6 +74,7 @@ export function drawLiveText(c, definition, geometry, run, now) {
       ...definition.parameters,
       text: run.text,
       speed: run.speed,
+      effect: run.effect,
       rows: [{...run.band, delayMs: 0}],
     },
   };

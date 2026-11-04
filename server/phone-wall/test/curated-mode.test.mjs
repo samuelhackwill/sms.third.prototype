@@ -21,13 +21,18 @@ test('two custom rows repeat, selection controls occasional messages, and incomi
   ticker.startCurated(['First custom','Second custom']);
   ticker.tick(ready,true,1000);
   assert.deepEqual(ticker.runs().map(run=>[run.row,run.text]),[[0,'First custom'],[1,'Second custom']]);
+  const first=ticker.runs().find(run=>run.row===0);
+  assert.equal(first.effect,'flash');
+  for(const id of first.targets)ticker.acknowledge(id,{type:'ticker.ready',runId:first.id,width:300},1100);
+  assert.equal(ticker.runs().find(run=>run.row===0).deadline,Number.MAX_SAFE_INTEGER);
   assert.equal(ticker.status().curatedSelected,0);
   assert.equal(ticker.toggleCurated('imessage:one'),true);
   assert.deepEqual(ticker.runs().map(run=>run.text),['First custom','Second custom']);
   store.db.prepare('UPDATE ticker_settings SET curated_next_at=0 WHERE id=1').run();
   ticker.tick(ready,true,2000);
-  assert.equal(ticker.runs().find(run=>run.row===0).text,'Library one');
+  assert.equal(ticker.runs().find(run=>run.row===0).text,'First custom');
   assert.equal(ticker.runs().find(run=>run.row===1).text,'Second custom');
+  assert.equal(ticker.runs().find(run=>run.row===2).text,'Library one');
   ticker.enableRouter();ticker.ingestRouter([]);ticker.ingestRouter([{id:'incoming',text:'Urgent SMS'}]);
   ticker.tick(ready,true,3000);
   assert.equal(ticker.runs().find(run=>run.row===0).text,'Urgent SMS');
@@ -37,13 +42,13 @@ test('two custom rows repeat, selection controls occasional messages, and incomi
   assert.equal(ticker.toggleCurated('imessage:one'),false);
 });
 
-test('scheduled library interruption uses a curated message on one of the first two rows',async t=>{
+test('scheduled library message uses a lower row',async t=>{
   const dir=await mkdtemp(join(tmpdir(),'wall-curated-timer-'));
   const store=new Store(join(dir,'controller.sqlite'));
   t.after(async()=>{store.close();await rm(dir,{recursive:true,force:true});});
-  const ids=['curated-timer-0','curated-timer-1'];
+  const ids=['curated-timer-0','curated-timer-1','curated-timer-2'];
   ids.forEach(id=>store.register({deviceId:id,token:id+'x'.repeat(64),bootSessionId:'curated-fixture-0002'}));
-  const state=store.current();state.mode='exhibition';state.layout.rows=2;state.layout.columns=1;
+  const state=store.current();state.mode='exhibition';state.layout.rows=3;state.layout.columns=1;
   state.layout.slots=ids.map((deviceId,i)=>({deviceId,slotIndex:i,geometry:{x:0,y:i*667,width:375,height:667}}));
   store.commit(state,state.revision);
   const ticker=new LiveTicker(store);ticker.importCurated([{id:'imessage:timed',text:'Occasional'}]);
@@ -51,7 +56,7 @@ test('scheduled library interruption uses a curated message on one of the first 
   ticker.startCurated(['One','Two']);
   store.db.prepare('UPDATE ticker_settings SET curated_next_at=0 WHERE id=1').run();
   ticker.tick(new Set(ids),true,1000);
-  assert.ok(ticker.runs().some(run=>run.text==='Occasional'&&run.row<2));
+  assert.ok(ticker.runs().some(run=>run.text==='Occasional'&&run.row===2));
 });
 
 test('operator can import and select a curated message without displaying it',async t=>{
