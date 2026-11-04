@@ -122,6 +122,7 @@ export async function createController({
       const nextUrgentRow=urgentRows.find(row=>!tickerState.active.some(run=>run.source==='router'&&run.row===row.row)&&row.targets.every(id=>sessions.has(id)&&store.device(id)?.capabilities?.liveTicker===1))??urgentRows[0];
       const targetIds=ticker.enabled&&allowed&&ticker.playbackMode==='barthes'?state.layout.slots.map(slot=>slot.deviceId):tickerState.routerQueued?nextUrgentRow?.targets??[]:urgent?tickerState.active.filter(run=>run.source==='router').flatMap(run=>run.targets):state.layout.slots.map(slot=>slot.deviceId);
       for(const id of targetIds){
+        if(tickerState.active.some(run=>run.source==='router'&&run.targets.includes(id)))continue;
         if(!sessions.has(id)||store.device(id)?.capabilities?.liveTicker!==1)continue;
         const art=releases.snapshot(id);
         if(art.pending)continue;

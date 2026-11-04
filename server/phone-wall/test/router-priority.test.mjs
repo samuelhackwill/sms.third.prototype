@@ -50,3 +50,26 @@ test('router baseline stays silent; new SMS interrupts Barthes and plays while a
   assert.equal(catchup.baselined,1);
   assert.equal(ticker.ingestRouter([{id:'missed',text:'Missed in same conversation'}],{detailed:true}).inserted,0);
 });
+
+test('new SMS waits when every row already shows SMS, so the first message is not restarted',async t=>{
+  const dir=await mkdtemp(join(tmpdir(),'wall-router-repeat-'));
+  const store=new Store(join(dir,'controller.sqlite'));
+  t.after(async()=>{store.close();await rm(dir,{recursive:true,force:true});});
+  const ids=['sms-phone-0','sms-phone-1'];
+  ids.forEach(id=>store.register({deviceId:id,token:id+'x'.repeat(64),bootSessionId:'router-fixture-0002'}));
+  const state=store.current();state.mode='exhibition';state.layout.rows=1;state.layout.columns=2;
+  state.layout.slots=ids.map((deviceId,index)=>({deviceId,slotIndex:index,geometry:{x:index*375,y:0,width:375,height:667}}));
+  store.commit(state,state.revision);
+  const ticker=new LiveTicker(store);ticker.enableRouter();ticker.ingestRouter([]);
+  ticker.ingestRouter([{id:'first',text:'First'}]);
+  ticker.tick(new Set(ids),true,1000);
+  const first=ticker.runs()[0];
+  ticker.ingestRouter([{id:'second',text:'Second'}]);
+  ticker.tick(new Set(ids),true,2000);
+  assert.equal(ticker.runs()[0].id,first.id);
+  assert.equal(ticker.status().routerQueued,1);
+  for(const id of ids)ticker.acknowledge(id,{type:'ticker.ready',runId:first.id,width:100},3000);
+  for(const id of ids)ticker.acknowledge(id,{type:'ticker.done',runId:first.id},100000);
+  ticker.tick(new Set(ids),true,100000);
+  assert.equal(ticker.runs()[0].text,'Second');
+});

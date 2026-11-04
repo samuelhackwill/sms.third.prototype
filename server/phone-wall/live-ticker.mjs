@@ -138,11 +138,7 @@ export class LiveTicker {
     let active=this.runs(),busy=new Set(active.map(run=>run.row));
     const urgent=this.db.prepare("SELECT seq FROM ticker_messages WHERE source='router' AND status='queued' ORDER BY seq DESC LIMIT 1").get();
     if(urgent){
-      let band=rows.find(row=>!active.some(run=>run.row===row.row&&run.source==='router')&&row.targets.every(id=>ready.has(id)));
-      if(!band&&!rows.some(row=>!active.some(run=>run.row===row.row&&run.source==='router'))){
-        const oldest=active.filter(run=>run.source==='router'&&run.seq<urgent.seq&&run.targets.every(id=>ready.has(id))).sort((a,b)=>a.seq-b.seq)[0];
-        band=rows.find(row=>row.row===oldest?.row);
-      }
+      const band=rows.find(row=>!active.some(run=>run.row===row.row&&run.source==='router')&&row.targets.every(id=>ready.has(id)));
       if(band){
         const interrupted=active.find(run=>run.row===band.row);
         if(interrupted)this.db.prepare("UPDATE ticker_messages SET status='queued',run=NULL WHERE seq=?").run(interrupted.seq);
