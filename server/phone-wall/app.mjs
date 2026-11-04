@@ -13,7 +13,8 @@ import { validateScene } from "./config.mjs";
 import { Releases } from "./releases.mjs";
 import { PairingSession } from './pairing.mjs';
 import { testTextDefinition } from './test-text.mjs';
-import { LiveTicker } from './live-ticker.mjs';
+import { LiveTicker,liveRows } from './live-ticker.mjs';
+import { TendaReader } from './tenda-reader.mjs';
 import { KissingWall } from './kissing-wall.mjs';
 import { releaseHash } from './scenes.mjs';
 import { requestInstallationReset } from './reset.mjs';
@@ -64,6 +65,8 @@ export async function createController({
   store.db.prepare('INSERT OR IGNORE INTO assets VALUES(?,?,?)').run(testTextHash,'text/javascript',testTextScript.length);
   const releases = new Releases(store, pixiHash);
   const ticker=new LiveTicker(store);
+  const routerFile=join(dataDir,'router.json');
+  let routerReader=null,routerStatus={status:'unconfigured'};
   const app = Fastify({
     logger,
     bodyLimit: 65536,
@@ -75,6 +78,7 @@ export async function createController({
   const kissing=new KissingWall(store,mediaDir,{...kissingOptions,onChange:()=>broadcast()});
   await kissing.initialize();
   const liveAttempts=new Map();
+  const interruptedArtwork=new Map();
   const pairing=new PairingSession(store);
   const wss = new WebSocketServer({ noServer: true, maxPayload: 65536 });
   const send = (ws, type, payload, revision = 0, id) => {
@@ -88,29 +92,36 @@ export async function createController({
   const snapshot = (id) => {
     const ws = sessions.get(id),
       state = store.snapshot(id);
-    if (ws && state)
+    if (ws && state){
+      const urgent=ticker.snapshot(id).runs.some(run=>run.source==='router');
+      const kissingState=kissing.snapshot(id);
       send(
         ws,
         "state.snapshot",
-        { ...state, artwork: releases.snapshot(id), kissing:kissing.snapshot(id) },
+        { ...state, ...(urgent?{mode:'exhibition'}:{}), artwork: releases.snapshot(id), kissing:{...kissingState,enabled:kissingState.enabled&&!urgent} },
         state.revision,
       );
+    }
   };
   const broadcast = () => {
     for (const id of sessions.keys()) snapshot(id);
   };
   const pairingState=(id)=>{const ws=sessions.get(id);if(ws)send(ws,'pairing.state',pairing.status(id));};
   const broadcastPairing=()=>{for(const id of sessions.keys())pairingState(id);};
-  const tickerBroadcast=()=>{for(const [id,ws] of sessions)send(ws,'ticker.snapshot',ticker.snapshot(id));};
+  const tickerBroadcast=()=>{for(const [id,ws] of sessions){snapshot(id);send(ws,'ticker.snapshot',ticker.snapshot(id));}};
   const pauseTicker=()=>{ticker.pause();tickerBroadcast();};
   function tickerTick(){
     const state=store.current(),allowed=state.mode==='exhibition'&&!pairing.status().active&&!kissing.settings.enabled;
     const tickerState=ticker.status();
-    if(ticker.enabled&&allowed&&state.layout.slots.length&&(ticker.playbackMode==='barthes'||tickerState.queued||tickerState.active.length)){
+    const urgent=tickerState.routerQueued||tickerState.active.some(run=>run.source==='router');
+    if(((ticker.enabled&&allowed)||urgent)&&state.layout.slots.length&&(ticker.playbackMode==='barthes'||tickerState.queued||tickerState.active.length||tickerState.routerQueued)){
       const definition=testTextDefinition(state.layout,{asset:testTextHash,color:ticker.playbackMode==='barthes'?'#00ff00':'#ff0000'});
       definition.artworkId='live-ticker';definition.parameters={...definition.parameters,live:true};
       definition.artworkVersion=releaseHash({parameters:definition.parameters,elements:definition.elements,canvas:definition.canvas,layout:state.layout,...(ticker.playbackMode==='barthes'?{startRevision:state.revision}:{})});
-      for(const id of state.layout.slots.map(slot=>slot.deviceId)){
+      const urgentRows=liveRows(state.layout);
+      const nextUrgentRow=urgentRows.find(row=>!tickerState.active.some(run=>run.source==='router'&&run.row===row.row)&&row.targets.every(id=>sessions.has(id)&&store.device(id)?.capabilities?.liveTicker===1))??urgentRows[0];
+      const targetIds=ticker.enabled&&allowed&&ticker.playbackMode==='barthes'?state.layout.slots.map(slot=>slot.deviceId):tickerState.routerQueued?nextUrgentRow?.targets??[]:urgent?tickerState.active.filter(run=>run.source==='router').flatMap(run=>run.targets):state.layout.slots.map(slot=>slot.deviceId);
+      for(const id of targetIds){
         if(!sessions.has(id)||store.device(id)?.capabilities?.liveTicker!==1)continue;
         const art=releases.snapshot(id);
         if(art.pending)continue;
@@ -119,6 +130,7 @@ export async function createController({
         if(attempt?.layoutRevision===state.layoutRevision&&(attempt.failed||['failed','cancelled'].includes(releases.deployment(attempt.id).phase))&&Date.now()-attempt.at<retryMs)continue;
         if(art.active?.release.definition.artworkId==='live-ticker'&&art.active.release.definition.artworkVersion===definition.artworkVersion)continue;
         try{
+          if(urgent&&art.active?.release.definition.artworkId!=='live-ticker'&&art.active?.releaseId&&!interruptedArtwork.has(id))interruptedArtwork.set(id,art.active.releaseId);
           const release=releases.create(definition),deployment=releases.deploy(release.id,[id],{delayMs:1000});
           liveAttempts.set(id,{id:deployment.id,layoutRevision:state.layoutRevision,at:Date.now(),failures:attempt?.failures??0});snapshot(id);
         }catch{liveAttempts.set(id,{failed:true,layoutRevision:state.layoutRevision,at:Date.now(),failures:(attempt?.failures??0)+1});store.updateDevice(id,{lastError:'live-ticker-prepare-failed'});phoneError(id,'ticker','live-ticker-prepare-failed');}
@@ -126,10 +138,34 @@ export async function createController({
     }
     const ready=new Set([...sessions.keys()].filter(id=>{
       const art=releases.snapshot(id),status=store.device(id)?.artworkStatus;
-      return store.device(id)?.capabilities?.liveTicker===1&&store.snapshot(id)?.mode==='exhibition'&&!art.pending&&art.active?.release.definition.artworkId==='live-ticker'&&status?.releaseId===art.active.releaseId&&status.status==='displayed';
+      return store.device(id)?.capabilities?.liveTicker===1&&!!store.snapshot(id)&&!art.pending&&art.active?.release.definition.artworkId==='live-ticker'&&status?.releaseId===art.active.releaseId&&status.status==='displayed';
     }));
     if(ticker.tick(ready,allowed))tickerBroadcast();
+    if(!ticker.status().routerQueued&&!ticker.runs().some(run=>run.source==='router')){
+      for(const [id,releaseId] of interruptedArtwork){
+        const art=releases.snapshot(id);
+        if(art.pending)continue;
+        interruptedArtwork.delete(id);
+        if(art.active?.release.definition.artworkId!=='live-ticker')continue;
+        try{releases.deploy(releaseId,[id],{delayMs:1000});snapshot(id);}
+        catch{phoneError(id,'ticker','router-artwork-restore-failed');}
+      }
+    }
   }
+  function startRouter(config){
+    routerReader?.stop();
+    ticker.enableRouter();
+    tickerBroadcast();
+    tickerTick();
+    routerStatus={status:'starting'};
+    routerReader=new TendaReader({config,onRecords:records=>{
+      const result=ticker.ingestRouter(records);
+      if(result.inserted)tickerTick();
+    },onStatus:status=>{routerStatus=status;}}).start();
+  }
+  const savedRouter=await readFile(routerFile,'utf8').then(JSON.parse).catch(error=>{if(error.code==='ENOENT')return null;throw error;});
+  if(savedRouter)startRouter(savedRouter);
+  app.addHook('onClose',async()=>routerReader?.stop());
   const bearer = (req) =>
     req.headers.authorization?.replace(/^Bearer /, "") ?? "";
   const operator = (req) => equal(bearer(req), adminToken);
@@ -155,6 +191,15 @@ export async function createController({
     reply.sendFile("index.html"),
   );
   app.get("/health", async () => ({ ok: true, protocol: 1 }));
+  app.post('/phone-wall/router',{preHandler:authorize},async(req)=>{
+    const input=req.body??{};
+    const baseUrl=String(input.baseUrl??'');
+    if(!/^https?:\/\/[a-z0-9.:-]+$/i.test(baseUrl)||typeof input.username!=='string'||typeof input.password!=='string'||!input.password||!Number.isFinite(input.pollIntervalSeconds)||input.pollIntervalSeconds<0.5||input.pollIntervalSeconds>60||!Number.isInteger(input.pageSize)||input.pageSize<1||input.pageSize>1000)throw new Error('invalid-router-config');
+    const config={baseUrl,username:input.username||'admin',password:input.password,pollIntervalSeconds:input.pollIntervalSeconds,pageSize:input.pageSize};
+    await writeFile(routerFile,JSON.stringify(config),{mode:0o600});
+    startRouter(config);
+    return {ok:true};
+  });
   app.post('/phone-wall/reset',{preHandler:authorize},async(req,reply)=>{
     if(!requestReset)return reply.code(503).send({error:'installation-reset-unavailable'});
     await requestInstallationReset(dataDir);
@@ -182,7 +227,7 @@ export async function createController({
       state,
       pairing:pairing.status(),
       kissing:{...kissing.status(),upgradeRequired:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.kissingWall!==1).map(slot=>slot.deviceId)},
-      ticker:{...ticker.status(),upgradeRequired:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.liveTicker!==1).map(slot=>slot.deviceId)},
+      ticker:{...ticker.status(),router:routerStatus,upgradeRequired:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.liveTicker!==1).map(slot=>slot.deviceId)},
       serverTimeMs: Date.now(),
       history: store.history(),
       errors: store.errors(),

@@ -32,6 +32,10 @@ export class LiveTicker {
       CREATE TABLE IF NOT EXISTS ticker_messages(seq INTEGER PRIMARY KEY AUTOINCREMENT,external_id TEXT NOT NULL UNIQUE,text TEXT NOT NULL,received_at TEXT,status TEXT NOT NULL DEFAULT 'queued',run TEXT,completed_at INTEGER);
       CREATE INDEX IF NOT EXISTS ticker_waiting ON ticker_messages(status,seq);
       CREATE TABLE IF NOT EXISTS ticker_sources(id TEXT PRIMARY KEY,database_id TEXT,row_id INTEGER,status TEXT,last_seen INTEGER,error TEXT);`);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS router_seen(id TEXT PRIMARY KEY);
+      CREATE TABLE IF NOT EXISTS router_state(id INTEGER PRIMARY KEY CHECK(id=1),initialized INTEGER NOT NULL);
+      INSERT OR IGNORE INTO router_state(id,initialized) VALUES(1,0);`);
+    if(!this.db.prepare('PRAGMA table_info(router_state)').all().some(column=>column.name==='enabled'))this.db.exec('ALTER TABLE router_state ADD COLUMN enabled INTEGER NOT NULL DEFAULT 0');
     if(!this.db.prepare('PRAGMA table_info(ticker_settings)').all().some(column=>column.name==='mode'))this.db.exec("ALTER TABLE ticker_settings ADD COLUMN mode TEXT NOT NULL DEFAULT 'messages'");
     if(!this.db.prepare('PRAGMA table_info(ticker_settings)').all().some(column=>column.name==='barthes_cursor'))this.db.exec('ALTER TABLE ticker_settings ADD COLUMN barthes_cursor INTEGER NOT NULL DEFAULT 0');
     if(!this.db.prepare('PRAGMA table_info(ticker_messages)').all().some(column=>column.name==='source'))this.db.exec("ALTER TABLE ticker_messages ADD COLUMN source TEXT NOT NULL DEFAULT 'messages'");
@@ -41,20 +45,43 @@ export class LiveTicker {
   }
   get enabled(){return this.db.prepare('SELECT enabled FROM ticker_settings WHERE id=1').get().enabled===1;}
   get playbackMode(){return this.db.prepare('SELECT mode FROM ticker_settings WHERE id=1').get().mode;}
-  get messagesEnabled(){return true;}
-  start(){this.requeue();this.db.prepare("UPDATE ticker_settings SET enabled=1,mode='messages' WHERE id=1").run();}
+  get messagesEnabled(){return this.db.prepare('SELECT enabled FROM router_state WHERE id=1').get().enabled===0;}
+  enableRouter(){
+    this.db.prepare('UPDATE router_state SET enabled=1 WHERE id=1').run();
+    this.db.prepare("DELETE FROM ticker_messages WHERE source='messages' AND status!='completed'").run();
+    this.db.prepare("UPDATE ticker_sources SET status='disabled',error=NULL").run();
+  }
+  ingestRouter(records){
+    if(!Array.isArray(records)||records.length>1000)throw new Error('invalid-router-batch');
+    return this.store.transaction(()=>{
+      const initialized=this.db.prepare('SELECT initialized FROM router_state WHERE id=1').get().initialized===1;
+      const seen=this.db.prepare('INSERT OR IGNORE INTO router_seen(id) VALUES(?)');
+      const insert=this.db.prepare("INSERT OR IGNORE INTO ticker_messages(external_id,text,received_at,source) VALUES(?,?,?,'router')");
+      let inserted=0;
+      for(const record of records){
+        if(typeof record.id!=='string'||!record.id||record.id.length>512||typeof record.text!=='string')throw new Error('invalid-router-record');
+        const id='tenda:'+record.id;
+        if(!seen.run(id).changes||!initialized)continue;
+        const message=displayMessage(record.text);
+        if(message)inserted+=insert.run(id,message,typeof record.receivedAt==='string'?record.receivedAt.slice(0,40):null).changes;
+      }
+      if(!initialized)this.db.prepare('UPDATE router_state SET initialized=1 WHERE id=1').run();
+      return {inserted,baseline:!initialized};
+    });
+  }
+  start(){this.requeue(true);this.db.prepare("UPDATE ticker_settings SET enabled=1,mode='messages' WHERE id=1").run();}
   startBarthes(){
     sentences();
     this.store.transaction(()=>{
-      this.requeue();
+      this.requeue(true);
       this.db.prepare("DELETE FROM ticker_messages WHERE source='barthes'").run();
       this.db.prepare("UPDATE ticker_settings SET enabled=1,mode='barthes',barthes_cursor=0 WHERE id=1").run();
     });
     this.refillBarthes();
   }
   stopBarthes(){if(this.playbackMode==='barthes')this.store.transaction(()=>{this.db.prepare("DELETE FROM ticker_messages WHERE source='barthes'").run();this.db.prepare("UPDATE ticker_settings SET enabled=0,mode='messages',barthes_cursor=0 WHERE id=1").run();});}
-  pause(){this.db.prepare('UPDATE ticker_settings SET enabled=0 WHERE id=1').run();return this.requeue();}
-  requeue(){return this.db.prepare("UPDATE ticker_messages SET status='queued',run=NULL WHERE status IN ('preparing','playing')").run().changes>0;}
+  pause(){this.db.prepare('UPDATE ticker_settings SET enabled=0 WHERE id=1').run();return this.requeue(true);}
+  requeue(ambientOnly=false){return this.db.prepare(`UPDATE ticker_messages SET status='queued',run=NULL WHERE status IN ('preparing','playing') ${ambientOnly?"AND source!='router'":''}`).run().changes>0;}
   source(id){return this.db.prepare('SELECT * FROM ticker_sources WHERE id=?').get(id)??null;}
   reader(id,status='connected',error=null){this.db.prepare('INSERT INTO ticker_sources(id,status,last_seen,error) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET status=excluded.status,last_seen=excluded.last_seen,error=excluded.error').run(id,status,Date.now(),error);return {enabled:this.messagesEnabled,cursor:this.source(id)};}
   refillBarthes(){
@@ -89,25 +116,38 @@ export class LiveTicker {
       return {inserted,cursor:lastRowId};
     });
   }
-  runs(){return this.db.prepare("SELECT seq,text,run FROM ticker_messages WHERE source=? AND status IN ('preparing','playing') ORDER BY seq").all(this.playbackMode).map(row=>({...JSON.parse(row.run),seq:row.seq,text:row.text}));}
-  snapshot(deviceId){return {enabled:this.enabled,runs:this.runs().filter(run=>run.targets.includes(deviceId))};}
+  runs(){return this.db.prepare("SELECT seq,text,source,run FROM ticker_messages WHERE status IN ('preparing','playing') ORDER BY seq").all().map(row=>({...JSON.parse(row.run),seq:row.seq,text:row.text,source:row.source}));}
+  snapshot(deviceId){const runs=this.runs().filter(run=>run.targets.includes(deviceId));return {enabled:this.enabled||runs.some(run=>run.source==='router'),runs};}
   save(run,status){const {seq,text,...data}=run;this.db.prepare('UPDATE ticker_messages SET status=?,run=? WHERE seq=?').run(status,JSON.stringify(data),seq);}
   tick(ready,allowed=true,now=Date.now()) {
-    if(!this.enabled||!allowed)return this.requeue();
-    this.refillBarthes();
+    if(this.enabled&&allowed)this.refillBarthes();
     const state=this.store.current(),rows=liveRows(state.layout);let changed=false;
     for(const run of this.runs()){
       const row=rows.find(row=>row.row===run.row);
-      if(!row||JSON.stringify(row)!==JSON.stringify(run.band)||run.targets.some(id=>!ready.has(id))||now>=run.deadline){
+      if(!row||JSON.stringify(row)!==JSON.stringify(run.band)||run.targets.some(id=>!ready.has(id))||now>=run.deadline||(run.source!=='router'&&(!this.enabled||!allowed))){
         this.db.prepare("UPDATE ticker_messages SET status='queued',run=NULL WHERE seq=?").run(run.seq);changed=true;
       }
     }
-    const busy=new Set(this.runs().map(run=>run.row));
+    let active=this.runs(),busy=new Set(active.map(run=>run.row));
+    const urgent=this.db.prepare("SELECT seq FROM ticker_messages WHERE source='router' AND status='queued' ORDER BY seq DESC LIMIT 1").get();
+    if(urgent){
+      let band=rows.find(row=>!active.some(run=>run.row===row.row&&run.source==='router')&&row.targets.every(id=>ready.has(id)));
+      if(!band&&!rows.some(row=>!active.some(run=>run.row===row.row&&run.source==='router'))){
+        const oldest=active.filter(run=>run.source==='router'&&run.seq<urgent.seq&&run.targets.every(id=>ready.has(id))).sort((a,b)=>a.seq-b.seq)[0];
+        band=rows.find(row=>row.row===oldest?.row);
+      }
+      if(band){
+        const interrupted=active.find(run=>run.row===band.row);
+        if(interrupted)this.db.prepare("UPDATE ticker_messages SET status='queued',run=NULL WHERE seq=?").run(interrupted.seq);
+        this.save({seq:urgent.seq,id:randomUUID(),row:band.row,band,targets:band.targets,ready:{},done:[],phase:'preparing',speed:state.testTextSpeed??240,startAtServerMs:null,deadline:now+30000},'preparing');
+        changed=true;active=this.runs();busy=new Set(active.map(run=>run.row));
+      }
+    }
     for(const band of rows){
       if(busy.has(band.row)||!band.targets.every(id=>ready.has(id)))continue;
-      const message=this.db.prepare("SELECT seq FROM ticker_messages WHERE source=? AND status='queued' ORDER BY seq LIMIT 1").get(this.playbackMode);
+      const message=this.db.prepare("SELECT seq,source FROM ticker_messages WHERE status='queued' AND (source='router' OR (source=? AND ?)) ORDER BY CASE WHEN source='router' THEN 0 ELSE 1 END,seq LIMIT 1").get(this.playbackMode,this.enabled&&allowed?1:0);
       if(!message)break;
-      this.save({seq:message.seq,id:randomUUID(),row:band.row,band,targets:band.targets,ready:{},done:[],phase:'preparing',speed:this.playbackMode==='barthes'?barthesSpeed():state.testTextSpeed??240,startAtServerMs:null,deadline:now+30000},'preparing');
+      this.save({seq:message.seq,id:randomUUID(),row:band.row,band,targets:band.targets,ready:{},done:[],phase:'preparing',speed:message.source==='barthes'?barthesSpeed():state.testTextSpeed??240,startAtServerMs:null,deadline:now+30000},'preparing');
       busy.add(band.row);changed=true;
     }
     if(changed)this.refillBarthes();
@@ -135,5 +175,5 @@ export class LiveTicker {
     }
     return false;
   }
-  status(){return {enabled:this.enabled,mode:this.playbackMode,queued:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source=? AND status='queued'").get(this.playbackMode).n,active:this.runs(),completed:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source=? AND status='completed'").get(this.playbackMode).n,readers:this.db.prepare('SELECT * FROM ticker_sources').all()};}
+  status(){return {enabled:this.enabled,mode:this.playbackMode,queued:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source=? AND status='queued'").get(this.playbackMode).n,routerQueued:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source='router' AND status='queued'").get().n,active:this.runs(),completed:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source=? AND status='completed'").get(this.playbackMode).n,readers:this.db.prepare('SELECT * FROM ticker_sources').all()};}
 }
