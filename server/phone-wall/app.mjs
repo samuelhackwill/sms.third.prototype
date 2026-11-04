@@ -138,7 +138,8 @@ export async function createController({
     }
     const ready=new Set([...sessions.keys()].filter(id=>{
       const art=releases.snapshot(id),status=store.device(id)?.artworkStatus;
-      return store.device(id)?.capabilities?.liveTicker===1&&!!store.snapshot(id)&&!art.pending&&art.active?.release.definition.artworkId==='live-ticker'&&status?.releaseId===art.active.releaseId&&status.status==='displayed';
+      const activeStatus=art.active&&releases.deployment(art.active.deploymentId).targets[id]?.status;
+      return store.device(id)?.capabilities?.liveTicker===1&&!!store.snapshot(id)&&!art.pending&&art.active?.release.definition.artworkId==='live-ticker'&&(activeStatus==='displayed'||status?.deploymentId===art.active.deploymentId&&status.status==='displayed');
     }));
     if(ticker.tick(ready,allowed))tickerBroadcast();
     if(!ticker.status().routerQueued&&!ticker.runs().some(run=>run.source==='router')){
