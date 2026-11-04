@@ -235,8 +235,9 @@ function render() {
   if(!curatedEdited){$('curated-custom-a').value=live?.customTexts?.[0]??'';$('curated-custom-b').value=live?.customTexts?.[1]??'';}
   $('curated-start').disabled=!!pairing?.active||!state.layout.slots.length||!!live?.upgradeRequired?.length;
   $('curated-stop').disabled=!curatedActive;
+  $('curated-second-toggle').textContent=live?.curatedSecondEnabled?'Disable second priority row':'Enable second priority row';
   $('curated-db-toggle').textContent=live?.curatedInjectionEnabled?'Disable database messages':'Enable database messages';
-  $('curated-status').textContent=curatedActive?`Playing on the first two rows · database messages ${live.curatedInjectionEnabled?'on':'off'} · ${live.curatedSelected} selected · ${live.queued} waiting`:`Stopped · database messages ${live?.curatedInjectionEnabled?'on':'off'} · ${live?.curatedSelected??0} selected`;
+  $('curated-status').textContent=curatedActive?`${live.curatedSecondEnabled?'Two priority rows':'First priority row only'} · database messages ${live.curatedInjectionEnabled?'on':'off'} · ${live.curatedSelected} selected · ${live.queued} waiting`:`Stopped · second row ${live?.curatedSecondEnabled?'on':'off'} · database messages ${live?.curatedInjectionEnabled?'on':'off'} · ${live?.curatedSelected??0} selected`;
   if(curatedLoadedCount!==live?.curatedCount||curatedLoadedSelected!==live?.curatedSelected)void loadCurated();
   const router=live?.router;
   $('reader-status').textContent=live?.upgradeRequired?.length?`Install phone app 2.3 for live playback (${live.upgradeRequired.length} phones need updating).`:router?.status==='reading'&&Date.now()-router.at<15000?router.stats?.emptyResponse?`Tenda polled ${Math.max(0,Math.round((Date.now()-router.at)/1000))}s ago · router returned no inbox · last full inbox ${router.lastNonempty?`${Math.round((Date.now()-router.lastNonempty.at)/60000)} min ago`:'never'}`:`Tenda router connected · polled ${Math.max(0,Math.round((Date.now()-router.at)/1000))}s ago`:router?.status==='error'?`Tenda router error: ${router.code}`:router?.status==='starting'?'Connecting to Tenda router…':'Tenda router is not connected.';
@@ -703,6 +704,7 @@ $('barthes-start').onclick=run(()=>api({action:'barthes.start'}));
 $('barthes-stop').onclick=run(()=>api({action:'barthes.stop'}));
 $('curated-start').onclick=run(async()=>{await api({action:'curated.start',messages:curatedTexts()});curatedEdited=false;});
 $('curated-stop').onclick=run(()=>api({action:'curated.stop'}));
+$('curated-second-toggle').onclick=run(()=>api({action:'curated.second',enabled:!data.ticker.curatedSecondEnabled}));
 $('curated-db-toggle').onclick=run(()=>api({action:'curated.injection',enabled:!data.ticker.curatedInjectionEnabled}));
 $('reset-installation').onclick=run(async()=>{
   if(!confirm('Erase all Phone Wall pairings, wall settings, queued messages and downloaded media, then restart the controller?'))return;

@@ -7,7 +7,7 @@ import { Store } from '../store.mjs';
 import { LiveTicker } from '../live-ticker.mjs';
 import { createController } from '../app.mjs';
 
-test('two custom rows repeat, selection controls occasional messages, and incoming SMS stays first',async t=>{
+test('priority rows persist while library messages and SMS use lower rows',async t=>{
   const dir=await mkdtemp(join(tmpdir(),'wall-curated-'));
   const store=new Store(join(dir,'controller.sqlite'));
   t.after(async()=>{store.close();await rm(dir,{recursive:true,force:true});});
@@ -18,6 +18,8 @@ test('two custom rows repeat, selection controls occasional messages, and incomi
   store.commit(state,state.revision);
   const ticker=new LiveTicker(store),ready=new Set(ids);
   assert.equal(ticker.importCurated([{id:'imessage:one',text:'Library one'},{id:'imessage:one',text:'Library one'}]).inserted,1);
+  assert.equal(ticker.curatedSecondEnabled,false);
+  ticker.setCuratedSecond(true);
   ticker.startCurated(['First custom','Second custom']);
   assert.equal(ticker.curatedInjectionEnabled,false);
   ticker.tick(ready,true,1000);
@@ -42,11 +44,38 @@ test('two custom rows repeat, selection controls occasional messages, and incomi
   assert.equal(ticker.runs().some(run=>run.source==='curated'),false);
   ticker.enableRouter();ticker.ingestRouter([]);ticker.ingestRouter([{id:'incoming',text:'Urgent SMS'}]);
   ticker.tick(ready,true,3000);
-  assert.equal(ticker.runs().find(run=>run.row===0).text,'Urgent SMS');
+  assert.equal(ticker.runs().find(run=>run.row===0).text,'First custom');
+  assert.equal(ticker.runs().find(run=>run.row===1).text,'Second custom');
+  assert.equal(ticker.runs().find(run=>run.row===2).text,'Urgent SMS');
   assert.equal(ticker.status().curatedCount,1);
   assert.deepEqual(ticker.customTexts,['First custom','Second custom']);
   ticker.stopCurated();assert.equal(ticker.playbackMode,'messages');
   assert.equal(ticker.toggleCurated('imessage:one'),false);
+});
+
+test('second priority row starts off and can release its row to incoming SMS',async t=>{
+  const dir=await mkdtemp(join(tmpdir(),'wall-curated-second-'));
+  const store=new Store(join(dir,'controller.sqlite'));
+  t.after(async()=>{store.close();await rm(dir,{recursive:true,force:true});});
+  const ids=['priority-0','priority-1','priority-2'];
+  ids.forEach(id=>store.register({deviceId:id,token:id+'x'.repeat(64),bootSessionId:'curated-second-fixture'}));
+  const state=store.current();state.mode='exhibition';state.layout.rows=3;state.layout.columns=1;
+  state.layout.slots=ids.map((deviceId,i)=>({deviceId,slotIndex:i,geometry:{x:0,y:i*667,width:375,height:667}}));
+  store.commit(state,state.revision);
+  const ticker=new LiveTicker(store),ready=new Set(ids);
+  ticker.startCurated(['Protected','Optional']);
+  ticker.tick(ready,true,1000);
+  assert.deepEqual(ticker.runs().map(run=>run.row),[0]);
+  ticker.enableRouter();ticker.ingestRouter([]);ticker.ingestRouter([{id:'incoming',text:'SMS'}]);
+  ticker.tick(ready,true,2000);
+  assert.equal(ticker.runs().find(run=>run.source==='router').row,1);
+  assert.equal(ticker.runs().find(run=>run.row===0).text,'Protected');
+  ticker.setCuratedSecond(true);
+  ticker.tick(ready,true,3000);
+  assert.equal(ticker.runs().find(run=>run.row===1).text,'Optional');
+  assert.equal(ticker.runs().find(run=>run.source==='router').row,2);
+  ticker.setCuratedSecond(false);
+  assert.equal(ticker.runs().some(run=>run.source==='custom'&&run.row===1),false);
 });
 
 test('scheduled library message uses a lower row',async t=>{
@@ -87,6 +116,8 @@ test('operator can import and select a curated message without displaying it',as
   assert.equal(clicked.json().selected,true);
   const injection=await server.app.inject({method:'POST',url:'/phone-wall/api',headers,payload:{action:'curated.injection',enabled:true}});
   assert.equal(injection.json().enabled,true);
+  const second=await server.app.inject({method:'POST',url:'/phone-wall/api',headers,payload:{action:'curated.second',enabled:true}});
+  assert.equal(second.json().enabled,true);
   assert.equal(server.ticker.playbackMode,'messages');
   assert.equal(server.ticker.runs().length,0);
 });

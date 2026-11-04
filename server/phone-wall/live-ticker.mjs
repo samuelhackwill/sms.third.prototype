@@ -41,13 +41,14 @@ export class LiveTicker {
     if(!this.db.prepare('PRAGMA table_info(router_state)').all().some(column=>column.name==='detail_initialized'))this.db.exec('ALTER TABLE router_state ADD COLUMN detail_initialized INTEGER NOT NULL DEFAULT 0');
     if(!this.db.prepare('PRAGMA table_info(ticker_settings)').all().some(column=>column.name==='mode'))this.db.exec("ALTER TABLE ticker_settings ADD COLUMN mode TEXT NOT NULL DEFAULT 'messages'");
     if(!this.db.prepare('PRAGMA table_info(ticker_settings)').all().some(column=>column.name==='barthes_cursor'))this.db.exec('ALTER TABLE ticker_settings ADD COLUMN barthes_cursor INTEGER NOT NULL DEFAULT 0');
-    for(const [name,definition] of [['custom_a',"TEXT NOT NULL DEFAULT ''"],['custom_b',"TEXT NOT NULL DEFAULT ''"],['curated_next_at','INTEGER NOT NULL DEFAULT 0'],['curated_injection_enabled','INTEGER NOT NULL DEFAULT 0']])if(!this.db.prepare('PRAGMA table_info(ticker_settings)').all().some(column=>column.name===name))this.db.exec(`ALTER TABLE ticker_settings ADD COLUMN ${name} ${definition}`);
+    for(const [name,definition] of [['custom_a',"TEXT NOT NULL DEFAULT ''"],['custom_b',"TEXT NOT NULL DEFAULT ''"],['curated_next_at','INTEGER NOT NULL DEFAULT 0'],['curated_injection_enabled','INTEGER NOT NULL DEFAULT 0'],['curated_second_enabled','INTEGER NOT NULL DEFAULT 0']])if(!this.db.prepare('PRAGMA table_info(ticker_settings)').all().some(column=>column.name===name))this.db.exec(`ALTER TABLE ticker_settings ADD COLUMN ${name} ${definition}`);
     if(!this.db.prepare('PRAGMA table_info(ticker_messages)').all().some(column=>column.name==='source'))this.db.exec("ALTER TABLE ticker_messages ADD COLUMN source TEXT NOT NULL DEFAULT 'messages'");
     if(!this.db.prepare('PRAGMA table_info(ticker_messages)').all().some(column=>column.name==='target_row'))this.db.exec('ALTER TABLE ticker_messages ADD COLUMN target_row INTEGER');
     this.db.prepare("DELETE FROM ticker_messages WHERE source='curated-click'").run();
     // Playback acknowledgments from a previous process cannot establish current readiness.
     this.db.prepare("UPDATE ticker_messages SET status='queued',run=NULL WHERE status IN ('preparing','playing')").run();
     if(!this.curatedInjectionEnabled)this.db.prepare("DELETE FROM ticker_messages WHERE source='curated' AND status!='completed'").run();
+    if(!this.curatedSecondEnabled)this.db.prepare("DELETE FROM ticker_messages WHERE source='custom' AND target_row=1 AND status!='completed'").run();
     this.db.prepare("UPDATE ticker_settings SET enabled=1 WHERE mode='messages'").run();
   }
   get enabled(){return this.db.prepare('SELECT enabled FROM ticker_settings WHERE id=1').get().enabled===1;}
@@ -85,6 +86,17 @@ export class LiveTicker {
   start(){this.requeue(true);this.db.prepare("DELETE FROM ticker_messages WHERE source='barthes' OR source IN ('custom','curated','curated-click') AND status!='completed'").run();this.db.prepare("UPDATE ticker_settings SET enabled=1,mode='messages' WHERE id=1").run();}
   get customTexts(){const row=this.db.prepare('SELECT custom_a,custom_b FROM ticker_settings WHERE id=1').get();return [row.custom_a,row.custom_b];}
   get curatedInjectionEnabled(){return this.db.prepare('SELECT curated_injection_enabled FROM ticker_settings WHERE id=1').get().curated_injection_enabled===1;}
+  get curatedSecondEnabled(){return this.db.prepare('SELECT curated_second_enabled FROM ticker_settings WHERE id=1').get().curated_second_enabled===1;}
+  isCuratedPriorityRow(row){return this.playbackMode==='curated'&&(row===0||row===1&&this.curatedSecondEnabled);}
+  setCuratedSecond(enabled){
+    if(typeof enabled!=='boolean')throw new Error('invalid-curated-second-setting');
+    this.store.transaction(()=>{
+      this.db.prepare('UPDATE ticker_settings SET curated_second_enabled=? WHERE id=1').run(enabled?1:0);
+      if(!enabled)this.db.prepare("DELETE FROM ticker_messages WHERE source='custom' AND target_row=1 AND status!='completed'").run();
+      if(enabled&&this.playbackMode==='curated')for(const run of this.runs().filter(run=>run.source==='router'&&run.row===1))this.db.prepare("UPDATE ticker_messages SET status='queued',run=NULL WHERE seq=?").run(run.seq);
+    });
+    return this.curatedSecondEnabled;
+  }
   setCuratedInjection(enabled){
     if(typeof enabled!=='boolean')throw new Error('invalid-curated-injection-setting');
     this.store.transaction(()=>{
@@ -158,6 +170,7 @@ export class LiveTicker {
     const settings=this.db.prepare('SELECT custom_a,custom_b,curated_next_at,curated_injection_enabled FROM ticker_settings WHERE id=1').get();
     const insert=this.db.prepare('INSERT INTO ticker_messages(external_id,text,source,target_row) VALUES(?,?,?,?)');
     for(const band of rows){
+      if(band.row===1&&!this.curatedSecondEnabled)continue;
       const text=band.row===0?settings.custom_a:settings.custom_b;
       if(!text||this.db.prepare("SELECT 1 FROM ticker_messages WHERE source='custom' AND target_row=? AND status IN ('queued','preparing','playing') LIMIT 1").get(band.row))continue;
       insert.run('custom:'+randomUUID(),text,'custom',band.row);
@@ -197,14 +210,14 @@ export class LiveTicker {
     const state=this.store.current(),rows=liveRows(state.layout);let changed=false;
     for(const run of this.runs()){
       const row=rows.find(row=>row.row===run.row);
-      if(!row||JSON.stringify(row)!==JSON.stringify(run.band)||run.targets.some(id=>!ready.has(id))||now>=run.deadline||(run.source!=='router'&&(!this.enabled||!allowed))){
+      if(!row||JSON.stringify(row)!==JSON.stringify(run.band)||run.targets.some(id=>!ready.has(id))||now>=run.deadline||run.source==='router'&&this.isCuratedPriorityRow(run.row)||(run.source!=='router'&&(!this.enabled||!allowed))){
         this.db.prepare("UPDATE ticker_messages SET status='queued',run=NULL WHERE seq=?").run(run.seq);changed=true;
       }
     }
     let active=this.runs(),busy=new Set(active.map(run=>run.row));
     const urgent=this.db.prepare("SELECT seq FROM ticker_messages WHERE source='router' AND status='queued' ORDER BY seq DESC LIMIT 1").get();
     if(urgent){
-      const band=rows.find(row=>!active.some(run=>run.row===row.row&&run.source==='router')&&row.targets.every(id=>ready.has(id)));
+      const band=rows.find(row=>!this.isCuratedPriorityRow(row.row)&&!active.some(run=>run.row===row.row&&run.source==='router')&&row.targets.every(id=>ready.has(id)));
       if(band){
         const interrupted=active.find(run=>run.row===band.row);
         if(interrupted)this.db.prepare("UPDATE ticker_messages SET status='queued',run=NULL WHERE seq=?").run(interrupted.seq);
@@ -227,7 +240,7 @@ export class LiveTicker {
     for(const band of rows){
       if(busy.has(band.row)||!band.targets.every(id=>ready.has(id)))continue;
       if(this.playbackMode==='curated'){
-        if(band.row>1||!this.enabled||!allowed)continue;
+        if(band.row>1||band.row===1&&!this.curatedSecondEnabled||!this.enabled||!allowed)continue;
         const message=this.db.prepare("SELECT seq FROM ticker_messages WHERE source='custom' AND target_row=? AND status='queued' ORDER BY seq LIMIT 1").get(band.row);
         if(!message)continue;
         this.save({seq:message.seq,id:randomUUID(),row:band.row,band,targets:band.targets,ready:{},done:[],phase:'preparing',effect:band.row===0?'flash':undefined,speed:state.testTextSpeed??240,startAtServerMs:null,deadline:now+30000},'preparing');
@@ -266,5 +279,5 @@ export class LiveTicker {
     }
     return false;
   }
-  status(){return {enabled:this.enabled,mode:this.playbackMode,customTexts:this.customTexts,curatedInjectionEnabled:this.curatedInjectionEnabled,curatedCount:this.db.prepare('SELECT COUNT(*) AS n FROM curated_messages').get().n,curatedSelected:this.db.prepare('SELECT COUNT(*) AS n FROM curated_messages WHERE selected=1').get().n,queued:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE status='queued' AND (source=? OR ?='curated' AND source='custom')").get(this.playbackMode,this.playbackMode).n,routerQueued:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source='router' AND status='queued'").get().n,routerSeen:this.db.prepare('SELECT COUNT(*) AS n FROM router_seen').get().n,routerMessages:this.db.prepare("SELECT status,COUNT(*) AS n FROM ticker_messages WHERE source='router' GROUP BY status").all(),active:this.runs(),completed:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source=? AND status='completed'").get(this.playbackMode).n,readers:this.db.prepare('SELECT * FROM ticker_sources').all()};}
+  status(){return {enabled:this.enabled,mode:this.playbackMode,customTexts:this.customTexts,curatedSecondEnabled:this.curatedSecondEnabled,curatedInjectionEnabled:this.curatedInjectionEnabled,curatedCount:this.db.prepare('SELECT COUNT(*) AS n FROM curated_messages').get().n,curatedSelected:this.db.prepare('SELECT COUNT(*) AS n FROM curated_messages WHERE selected=1').get().n,queued:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE status='queued' AND (source=? OR ?='curated' AND source='custom')").get(this.playbackMode,this.playbackMode).n,routerQueued:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source='router' AND status='queued'").get().n,routerSeen:this.db.prepare('SELECT COUNT(*) AS n FROM router_seen').get().n,routerMessages:this.db.prepare("SELECT status,COUNT(*) AS n FROM ticker_messages WHERE source='router' GROUP BY status").all(),active:this.runs(),completed:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source=? AND status='completed'").get(this.playbackMode).n,readers:this.db.prepare('SELECT * FROM ticker_sources').all()};}
 }
