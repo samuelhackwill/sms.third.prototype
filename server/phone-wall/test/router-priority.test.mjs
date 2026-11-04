@@ -49,15 +49,31 @@ test('ten concurrent senders are archived fully before exact router messages are
   reader.deleteMessages=async(sender,ids)=>{
     deleted.push({sender,ids});
     if(sender===records[0].sender)notes.get(sender).push({id:999,time:1800000001,content:'New during cleanup',isSend:0});
-    notes.set(sender,notes.get(sender).filter(note=>!ids.includes(String(note.id))));
+    notes.set(sender,notes.get(sender).filter(note=>!ids.includes(note.id)));
   };
   for(let index=0;index<10;index++){await reader.cleanup();clearTimeout(reader.deleteTimer);}
   reader.stop();
   assert.equal(deleted.length,10);
   assert.ok(deleted.every(batch=>batch.ids.length===1));
+  assert.ok(deleted.every(batch=>typeof batch.ids[0]==='number'));
   assert.equal(ticker.status().routerArchive.deleted,10);
   assert.equal(ticker.status().routerQueued,10);
   assert.equal(notes.get(records[0].sender)[0].id,999);
+});
+
+test('router success response does not count as deleted while the message remains',async t=>{
+  const dir=await mkdtemp(join(tmpdir(),'wall-router-confirm-'));
+  const store=new Store(join(dir,'controller.sqlite'));
+  t.after(async()=>{store.close();await rm(dir,{recursive:true,force:true});});
+  const ticker=new LiveTicker(store);ticker.enableRouter();ticker.ingestRouter([],{detailed:true});
+  const sender='0612345678',note={id:5,time:1800000000,content:'Still there',isSend:0};
+  ticker.ingestRouter(parseTendaConversation(JSON.stringify({smsPhoneList:[note]}),sender),{detailed:true});
+  const reader=new TendaReader({config:{baseUrl:'http://example.invalid'},onRecords:()=>{},pendingDeletes:limit=>ticker.pendingRouterDeletes(limit),onDeleteAttempt:ids=>ticker.markRouterDeleteAttempt(ids),onDeleteConfirmed:ids=>ticker.markRouterDeleted(ids)});
+  reader.cookies='test';reader.module=async()=>JSON.stringify({smsPhoneList:[note]});reader.deleteMessages=async()=>{};
+  await reader.cleanup();reader.stop();
+  assert.equal(ticker.status().routerArchive.pending,1);
+  assert.equal(ticker.status().routerArchive.deleted,0);
+  assert.equal(reader.deleteError,'router-delete-unconfirmed');
 });
 
 test('router delete uses the per-message request from the Tenda web UI',async t=>{
@@ -71,8 +87,8 @@ test('router delete uses the per-message request from the Tenda web UI',async t=
   t.after(()=>new Promise(resolve=>server.close(resolve)));
   const reader=new TendaReader({config:{baseUrl:`http://127.0.0.1:${server.address().port}`},onRecords:()=>{}});
   reader.cookies='test';
-  await reader.deleteMessages('0612345678',['12','13']);
-  assert.deepEqual(request,{method:'POST',path:'/goform/setModules',body:{delSmsList:{phone:'0612345678',idList:['12','13']}}});
+  await reader.deleteMessages('0612345678',[12,13]);
+  assert.deepEqual(request,{method:'POST',path:'/goform/setModules',body:{delSmsList:{phone:'0612345678',idList:[12,13]}}});
 });
 
 test('router baseline stays silent; new SMS interrupts Barthes and plays while ambient ticker is paused',async t=>{

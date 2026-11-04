@@ -6,7 +6,7 @@ const outgoing=note=>[true,1,'1','true'].includes(note.isSend);
 function record(sender,note){
   const body=String(note.content??''),stamp=Number(note.time)||0;
   const key=note.id!=null?`${sender}:${note.id}`:`${sender}:${stamp}:${body}`;
-  return {id:key,sender,routerId:note.id!=null?String(note.id):null,text:body,receivedAt:stamp>0?new Date(stamp*1000).toISOString():null,stamp};
+  return {id:key,sender,routerId:note.id!=null?String(note.id):null,routerIdRaw:note.id??null,text:body,receivedAt:stamp>0?new Date(stamp*1000).toISOString():null,stamp};
 }
 
 export function parseTendaInboxDetailed(raw) {
@@ -71,12 +71,15 @@ export class TendaReader {
         const sender=batch[0].sender,items=batch.filter(item=>item.sender===sender);
         this.onDeleteAttempt(items.map(item=>item.externalId));
         const before=parseTendaConversation(await this.module({phone:sender,modules:'smsPhoneList'}),sender);
-        const matches=items.filter(item=>before.some(note=>note.routerId===item.routerId&&note.text===item.text&&note.receivedAt===item.receivedAt));
-        const missing=items.filter(item=>!matches.includes(item));
+        const matches=items.map(item=>({item,note:before.find(note=>note.routerId===item.routerId&&note.text===item.text&&note.receivedAt===item.receivedAt)})).filter(match=>match.note);
+        const missing=items.filter(item=>!matches.some(match=>match.item===item));
         if(missing.length)this.onDeleteConfirmed(missing.map(item=>item.externalId));
         if(matches.length){
-          await this.deleteMessages(sender,matches.map(item=>item.routerId));
-          this.onDeleteConfirmed(matches.map(item=>item.externalId));
+          await this.deleteMessages(sender,matches.map(match=>match.note.routerIdRaw));
+          const after=parseTendaConversation(await this.module({phone:sender,modules:'smsPhoneList'}),sender);
+          const confirmed=matches.filter(({item})=>!after.some(note=>note.routerId===item.routerId&&note.text===item.text&&note.receivedAt===item.receivedAt));
+          if(confirmed.length)this.onDeleteConfirmed(confirmed.map(({item})=>item.externalId));
+          if(confirmed.length!==matches.length)throw new Error('router-delete-unconfirmed');
         }
         this.deleteError=null;
       }
@@ -98,7 +101,7 @@ export class TendaReader {
     records.sort((a,b)=>a.stamp-b.stamp);
     for(const entry of changed)this.threads.set(String(entry.phone),JSON.stringify(entry.note??[]));
     if(fullRefresh)this.lastFullRefresh=Date.now();
-    return {records,stats:{emptyResponse:false,threads:entries.length,overviewNotes:overview.stats.notes,detailThreads:changed.length,detailNotes:records.length,incoming:records.length,uniqueIds:new Set(records.map(item=>item.id)).size,blankBodies:records.filter(item=>!item.text.trim()).length},detailed:true};
+    return {records,stats:{emptyResponse:false,threads:entries.length,overviewNotes:overview.stats.notes,detailThreads:changed.length,detailNotes:records.length,incoming:records.length,uniqueIds:new Set(records.map(item=>item.id)).size,blankBodies:records.filter(item=>!item.text.trim()).length,idTypes:{number:records.filter(item=>typeof item.routerIdRaw==='number').length,string:records.filter(item=>typeof item.routerIdRaw==='string').length}},detailed:true};
   }
   async poll(){
     if(this.stopped)return;
