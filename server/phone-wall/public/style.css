@@ -37,6 +37,9 @@
 .operator-step h2 { font-size: clamp(32px,5vw,52px); margin: 12px 0; }
 .operator-step button { padding: 16px 24px; font-size: 20px; }
 .operator-step [role="status"] { color: var(--muted); }
+#curated-list { max-height: 420px; overflow-y: auto; border: 1px solid var(--line); }
+#curated-list button { display: block; width: 100%; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 10px 12px; background: transparent; color: var(--ink); text-align: left; font: 14px/1.4 Georgia, serif; overflow-wrap: anywhere; }
+#curated-list button:hover, #curated-list button:focus-visible { background: var(--ink); color: white; }
 #test-text-speed { width: 100%; padding: 0; accent-color: var(--ink); }
 #test-text-message { width: 100%; }
 #test-text-speed-value { font-variant-numeric: tabular-nums; }

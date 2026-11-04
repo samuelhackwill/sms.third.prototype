@@ -114,7 +114,7 @@ export async function createController({
     const state=store.current(),allowed=state.mode==='exhibition'&&!pairing.status().active&&!kissing.settings.enabled;
     const tickerState=ticker.status();
     const urgent=tickerState.routerQueued||tickerState.active.some(run=>run.source==='router');
-    if(((ticker.enabled&&allowed)||urgent)&&state.layout.slots.length&&(ticker.playbackMode==='barthes'||tickerState.queued||tickerState.active.length||tickerState.routerQueued)){
+    if(((ticker.enabled&&allowed)||urgent)&&state.layout.slots.length&&(['barthes','curated'].includes(ticker.playbackMode)||tickerState.queued||tickerState.active.length||tickerState.routerQueued)){
       const definition=testTextDefinition(state.layout,{asset:testTextHash,color:ticker.playbackMode==='barthes'?'#00ff00':'#ff0000'});
       definition.artworkId='live-ticker';definition.parameters={...definition.parameters,live:true};
       definition.artworkVersion=releaseHash({parameters:definition.parameters,elements:definition.elements,canvas:definition.canvas,layout:state.layout,...(ticker.playbackMode==='barthes'?{startRevision:state.revision}:{})});
@@ -194,6 +194,8 @@ export async function createController({
     reply.sendFile("index.html"),
   );
   app.get("/health", async () => ({ ok: true, protocol: 1 }));
+  app.get('/phone-wall/curated',{preHandler:authorize},async()=>({messages:ticker.curatedMessages()}));
+  app.post('/phone-wall/curated/import',{preHandler:authorize,bodyLimit:128000},async(req)=>ticker.importCurated(req.body?.records));
   app.post('/phone-wall/router',{preHandler:authorize},async(req)=>{
     const input=req.body??{};
     const baseUrl=String(input.baseUrl??'');
@@ -329,6 +331,23 @@ export async function createController({
       kissing.configure({enabled:false});liveAttempts.clear();cacheRecovery.clear();ticker.start();store.commit({...state,mode:'exhibition',schedule:null,overrides:{}},previous.revision);broadcast();tickerTick();return {ok:true};
     }
     if(input.action==='live.pause')return {ok:true};
+    if(input.action==='curated.start'||input.action==='curated.show'){
+      if(pairing.status().active)throw new Error('stop-pairing-before-curated-mode');
+      if(liveRows(state.layout).length<2)throw new Error('two-rows-required-for-curated-mode');
+      if(state.layout.slots.some(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.liveTicker!==1))throw new Error('phone-app-2.3-required-for-curated-mode');
+      const starting=ticker.playbackMode!=='curated'||!ticker.enabled||input.action==='curated.start';
+      if(starting){
+        kissing.configure({enabled:false});liveAttempts.clear();cacheRecovery.clear();
+        ticker.startCurated(input.action==='curated.start'?input.messages:undefined);
+        store.commit({...state,mode:'exhibition',schedule:null,overrides:{}},previous.revision);
+        store.db.prepare('DELETE FROM previews').run();
+      }
+      if(input.action==='curated.show')ticker.showCurated(input.id);
+      broadcast();tickerBroadcast();tickerTick();return {ok:true};
+    }
+    if(input.action==='curated.stop'){
+      ticker.stopCurated();ticker.start();tickerBroadcast();tickerTick();return {ok:true};
+    }
     if(input.action==='debug'){
       if(typeof input.enabled!=='boolean')throw new Error('invalid-debug-setting');
       store.commit({...state,debugEnabled:input.enabled},previous.revision);
@@ -353,7 +372,7 @@ export async function createController({
       ticker.stopBarthes();ticker.start();liveAttempts.clear();tickerBroadcast();tickerTick();return {ok:true};
     }
     if(kissing.settings.enabled&&['test.text','release.deploy','rollback','scene','preview'].includes(input.action)){kissing.configure({enabled:false});ticker.start();broadcast();}
-    if(ticker.playbackMode==='barthes'&&['test.text','release.deploy','rollback','scene','preview'].includes(input.action)){ticker.stopBarthes();ticker.start();tickerBroadcast();}
+    if(['barthes','curated'].includes(ticker.playbackMode)&&['test.text','release.deploy','rollback','scene','preview'].includes(input.action)){if(ticker.playbackMode==='barthes')ticker.stopBarthes();else ticker.stopCurated();ticker.start();tickerBroadcast();}
     if(input.action==='pairing.start'||input.action==='pairing.stop') {
       const result=input.action==='pairing.start'?pairing.start():pairing.stop();
       broadcast();broadcastPairing();

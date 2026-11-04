@@ -16,6 +16,31 @@ let testDeployment = null, testOffline = 0, sendingTest = false;
 let testSpeedEdited=false;
 let testMessageEdited=false;
 let kissingEdited=false;
+let curatedEdited=false,curatedLoadedCount=-1,curatedLoading=false;
+for(const id of ['curated-custom-a','curated-custom-b'])$(id).oninput=()=>{curatedEdited=true;};
+const curatedTexts=()=>[$('curated-custom-a').value,$('curated-custom-b').value];
+async function loadCurated(){
+  if(curatedLoading||!token)return;
+  curatedLoading=true;
+  try{
+    const response=await fetch('/phone-wall/curated',{headers:{Authorization:`Bearer ${token}`}});
+    if(!response.ok)throw new Error('curated-library-unavailable');
+    const {messages}=await response.json();
+    const items=messages.map(message=>{
+      const button=document.createElement('button');
+      button.type='button';button.textContent=message.text;
+      button.onclick=run(async()=>{
+        if(curatedEdited||data?.ticker?.mode!=='curated'||!data?.ticker?.enabled){await api({action:'curated.start',messages:curatedTexts()});curatedEdited=false;}
+        await api({action:'curated.show',id:message.id});
+      });
+      return button;
+    });
+    $('curated-list').replaceChildren(...items);
+    if(!items.length)$('curated-list').textContent='No Messages texts imported yet.';
+    curatedLoadedCount=messages.length;
+  }catch(error){$('curated-list').textContent=error.message;}
+  finally{curatedLoading=false;}
+}
 for(const id of ['kissing-trim','kissing-before','kissing-after','kissing-in','kissing-out'])$(id).oninput=()=>{kissingEdited=true;};
 const defaultTestMessage=$('test-text-message').value;
 $('test-text-message').oninput=()=>{testMessageEdited=true;};
@@ -186,6 +211,12 @@ function render() {
   $('barthes-stop').disabled=!barthesActive;
   $('barthes-status').textContent=live?.upgradeRequired?.length?`Install phone app 2.3 on ${live.upgradeRequired.length} connected phones.`:
     barthesActive?`${state.mode==='exhibition'?'PLAYING':'WAITING'} · ${live.queued} queued · ${live.active.length} active rows · ${live.completed} completed`:'Stopped';
+  const curatedActive=live?.enabled&&live.mode==='curated';
+  if(!curatedEdited){$('curated-custom-a').value=live?.customTexts?.[0]??'';$('curated-custom-b').value=live?.customTexts?.[1]??'';}
+  $('curated-start').disabled=!!pairing?.active||!state.layout.slots.length||!!live?.upgradeRequired?.length;
+  $('curated-stop').disabled=!curatedActive;
+  $('curated-status').textContent=curatedActive?`Playing on the first two rows · ${live.curatedCount} library messages · ${live.queued} waiting`:`Stopped · ${live?.curatedCount??0} library messages`;
+  if(curatedLoadedCount!==live?.curatedCount)void loadCurated();
   const router=live?.router;
   $('reader-status').textContent=live?.upgradeRequired?.length?`Install phone app 2.3 for live playback (${live.upgradeRequired.length} phones need updating).`:router?.status==='reading'&&Date.now()-router.at<15000?`Tenda router connected · polled ${Math.max(0,Math.round((Date.now()-router.at)/1000))}s ago`:router?.status==='error'?`Tenda router error: ${router.code}`:router?.status==='starting'?'Connecting to Tenda router…':'Tenda router is not connected.';
   if(!testSpeedEdited)$('test-text-speed').value=state.testTextSpeed??240;
@@ -649,6 +680,8 @@ $('pairing-start').onclick=run(()=>api({action:'pairing.start'}));
 $('pairing-stop').onclick=run(()=>api({action:'pairing.stop'}));
 $('barthes-start').onclick=run(()=>api({action:'barthes.start'}));
 $('barthes-stop').onclick=run(()=>api({action:'barthes.stop'}));
+$('curated-start').onclick=run(async()=>{await api({action:'curated.start',messages:curatedTexts()});curatedEdited=false;});
+$('curated-stop').onclick=run(()=>api({action:'curated.stop'}));
 $('reset-installation').onclick=run(async()=>{
   if(!confirm('Erase all Phone Wall pairings, wall settings, queued messages and downloaded media, then restart the controller?'))return;
   const button=$('reset-installation'),before=data?.state?.installationId;

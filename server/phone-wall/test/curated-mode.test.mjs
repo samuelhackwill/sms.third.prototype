@@ -1,0 +1,70 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp,rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { Store } from '../store.mjs';
+import { LiveTicker } from '../live-ticker.mjs';
+import { createController } from '../app.mjs';
+
+test('two custom rows repeat, library click interrupts them, and incoming SMS stays first',async t=>{
+  const dir=await mkdtemp(join(tmpdir(),'wall-curated-'));
+  const store=new Store(join(dir,'controller.sqlite'));
+  t.after(async()=>{store.close();await rm(dir,{recursive:true,force:true});});
+  const ids=Array.from({length:6},(_,i)=>`curated-phone-${i}`);
+  ids.forEach(id=>store.register({deviceId:id,token:id+'x'.repeat(64),bootSessionId:'curated-fixture-0001'}));
+  const state=store.current();state.mode='exhibition';state.layout.rows=3;state.layout.columns=2;
+  state.layout.slots=ids.map((deviceId,i)=>({deviceId,slotIndex:i,geometry:{x:i%2*375,y:Math.floor(i/2)*667,width:375,height:667}}));
+  store.commit(state,state.revision);
+  const ticker=new LiveTicker(store),ready=new Set(ids);
+  assert.equal(ticker.importCurated([{id:'imessage:one',text:'Library one'},{id:'imessage:one',text:'Library one'}]).inserted,1);
+  ticker.startCurated(['First custom','Second custom']);
+  ticker.tick(ready,true,1000);
+  assert.deepEqual(ticker.runs().map(run=>[run.row,run.text]),[[0,'First custom'],[1,'Second custom']]);
+  ticker.showCurated('imessage:one');
+  ticker.tick(ready,true,2000);
+  assert.equal(ticker.runs().find(run=>run.row===0).text,'Library one');
+  assert.equal(ticker.runs().find(run=>run.row===1).text,'Second custom');
+  ticker.enableRouter();ticker.ingestRouter([]);ticker.ingestRouter([{id:'incoming',text:'Urgent SMS'}]);
+  ticker.tick(ready,true,3000);
+  assert.equal(ticker.runs().find(run=>run.row===0).text,'Urgent SMS');
+  assert.equal(ticker.status().curatedCount,1);
+  assert.deepEqual(ticker.customTexts,['First custom','Second custom']);
+  ticker.stopCurated();assert.equal(ticker.playbackMode,'messages');
+});
+
+test('scheduled library interruption uses a curated message on one of the first two rows',async t=>{
+  const dir=await mkdtemp(join(tmpdir(),'wall-curated-timer-'));
+  const store=new Store(join(dir,'controller.sqlite'));
+  t.after(async()=>{store.close();await rm(dir,{recursive:true,force:true});});
+  const ids=['curated-timer-0','curated-timer-1'];
+  ids.forEach(id=>store.register({deviceId:id,token:id+'x'.repeat(64),bootSessionId:'curated-fixture-0002'}));
+  const state=store.current();state.mode='exhibition';state.layout.rows=2;state.layout.columns=1;
+  state.layout.slots=ids.map((deviceId,i)=>({deviceId,slotIndex:i,geometry:{x:0,y:i*667,width:375,height:667}}));
+  store.commit(state,state.revision);
+  const ticker=new LiveTicker(store);ticker.importCurated([{id:'imessage:timed',text:'Occasional'}]);
+  ticker.startCurated(['One','Two']);
+  store.db.prepare('UPDATE ticker_settings SET curated_next_at=0 WHERE id=1').run();
+  ticker.tick(new Set(ids),true,1000);
+  assert.ok(ticker.runs().some(run=>run.text==='Occasional'&&run.row<2));
+});
+
+test('operator can import and click a curated message through the minimal API',async t=>{
+  const dir=await mkdtemp(join(tmpdir(),'wall-curated-api-'));
+  const key='curated-test-operator-key-0000000000000000';
+  const server=await createController({dataDir:dir,adminToken:key});
+  t.after(async()=>{await server.app.close();await rm(dir,{recursive:true,force:true});});
+  const ids=['curated-api-0','curated-api-1'];
+  ids.forEach(id=>server.store.register({deviceId:id,token:id+'x'.repeat(64),bootSessionId:'curated-api-fixture'}));
+  const state=server.store.current();state.layout.rows=2;state.layout.columns=1;
+  state.layout.slots=ids.map((deviceId,i)=>({deviceId,slotIndex:i,geometry:{x:0,y:i*667,width:375,height:667}}));
+  server.store.commit(state,state.revision);
+  const headers={authorization:`Bearer ${key}`};
+  const imported=await server.app.inject({method:'POST',url:'/phone-wall/curated/import',headers,payload:{records:[{id:'imessage:fixture',text:'Click me'}]}});
+  assert.equal(imported.statusCode,200);
+  const library=await server.app.inject({url:'/phone-wall/curated',headers});
+  assert.deepEqual(library.json().messages.map(row=>row.text),['Click me']);
+  const clicked=await server.app.inject({method:'POST',url:'/phone-wall/api',headers,payload:{action:'curated.show',id:'imessage:fixture'}});
+  assert.equal(clicked.statusCode,200);
+  assert.equal(server.ticker.playbackMode,'curated');
+});

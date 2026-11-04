@@ -78,6 +78,17 @@
         <p>Requires phone app 2.4 once. Settings apply to the next clip without reinstalling. Set each phone's speaker volume using its volume buttons.</p>
       </section>
       <section class="operator-step">
+        <p class="eyebrow">TWO-ROW MESSAGES</p>
+        <h2>Curated Mode</h2>
+        <p>Each of the first two rows repeats its own message. A message from the library appears about every 20–35 seconds. Incoming SMS still take priority.</p>
+        <label>First row message<input id="curated-custom-a" type="text" maxlength="500" autocomplete="off" /></label>
+        <label>Second row message<input id="curated-custom-b" type="text" maxlength="500" autocomplete="off" /></label>
+        <div class="actions"><button id="curated-start" type="button">Start Curated Mode</button><button id="curated-stop" type="button">Stop Curated Mode</button></div>
+        <p id="curated-status" role="status"></p>
+        <h3>Messages</h3>
+        <div id="curated-list" aria-label="Curated messages"></div>
+      </section>
+      <section class="operator-step">
         <p class="eyebrow">06 / DIAGNOSTICS</p>
         <h2>Phone Debug Display</h2>
         <p>Show the app version, connection state and last error code on each phone.</p>
