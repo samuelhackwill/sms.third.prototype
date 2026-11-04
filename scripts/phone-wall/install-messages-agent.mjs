@@ -6,9 +6,9 @@ import { spawnSync } from 'node:child_process';
 import { escapeXml } from './daemon-config.mjs';
 
 export function messagesAgentPlist(home,root='/Library/Application Support/PhoneWall') {
-  const app=join(root,'app'),label='org.museum.phonewall.messages';
+  const app=join(root,'source'),label='org.museum.phonewall.messages';
   return `<?xml version="1.0"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict>
-<key>Label</key><string>${label}</string><key>ProgramArguments</key><array><string>${escapeXml(join(app,'runtime/bin/node'))}</string><string>${escapeXml(join(app,'scripts/phone-wall/supervise.mjs'))}</string></array>
+<key>Label</key><string>${label}</string><key>ProgramArguments</key><array><string>${escapeXml(join(root,'app/runtime/bin/node'))}</string><string>${escapeXml(join(root,'app/scripts/phone-wall/supervise.mjs'))}</string></array>
 <key>WorkingDirectory</key><string>${escapeXml(join(app,'server/phone-wall'))}</string><key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>10</integer><key>LimitLoadToSessionType</key><string>Aqua</string>
 <key>EnvironmentVariables</key><dict><key>PHONE_WALL_CONFIG_FILE</key><string>${escapeXml(join(root,'config.json'))}</string><key>PHONE_WALL_ENTRY</key><string>${escapeXml(join(app,'server/phone-wall/messages-reader.mjs'))}</string><key>PHONE_WALL_LOG_DIR</key><string>${escapeXml(join(home,'Library/Logs/PhoneWallReader'))}</string></dict></dict></plist>\n`;
 }

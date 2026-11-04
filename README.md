@@ -4,9 +4,9 @@ See [Architecture](ARCHITECTURE.md), [Deployment](DEPLOYMENT.md), [Staff Guide](
 
 The [runtime 2.0 artwork contract](RUNTIME.md) documents declarative scenes, cached offline rendering, staged prepare/activate publication, WebView recovery, rollback and the boundary between artwork updates and IPA updates.
 
-The default dashboard is **Control**: Pair / Position, Send Test Text and Live iMessages. Existing functionality remains in **Advanced**. The Mac mini uses a Node LaunchDaemon and a headless GitHub polling updater; see [Deployment](DEPLOYMENT.md#mac-mini-node-daemon-and-browser-dashboard). Existing 2.1 phone apps support the test-text scene; Live iMessages requires the one-time native app 2.3 upgrade. Later supported artwork changes need no IPA redeployment.
+The default dashboard is **Control**: Pair / Position, Send Test Text and Live iMessages. Existing functionality remains in **Advanced**. The Mac mini uses a Node LaunchDaemon and a Git checkout and pull-and-restart command; see [Deployment](DEPLOYMENT.md#mac-mini-node-daemon-and-browser-dashboard). Existing 2.1 phone apps support the test-text scene; Live iMessages requires the one-time native app 2.3 upgrade. Later supported artwork changes need no IPA redeployment.
 
-For the **Mac mini**, the Node controller runs at boot and serves the browser dashboard directly. Existing installations migrate with one headless setup command; routine pushes are fetched automatically. macOS Bonjour advertises the Phone Wall service using the Mac's current hostname and selected port, without claiming a hostname separately.
+For the **Mac mini**, the Node controller runs at boot and serves the browser dashboard directly. Existing installations migrate with one headless setup command; a pull command deploys pushed changes. macOS Bonjour advertises the Phone Wall service using the Mac's current hostname and selected port, without claiming a hostname separately.
 
 The following commands are for **development**, not museum operation:
 

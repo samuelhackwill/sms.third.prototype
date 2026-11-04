@@ -1,56 +1,69 @@
-import { copyFile,readFile,writeFile,rename,rm,stat } from 'node:fs/promises';
-import { spawnSync } from 'node:child_process';
+import { readFile,writeFile,rename,rm,mkdir,readdir,lstat,chown,chmod } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { escapeXml } from './daemon-config.mjs';
+import { daemonPlist } from './daemon-config.mjs';
+import { messagesAgentPlist } from './install-messages-agent.mjs';
+import { root,source,run,revision,writeBuildInfo,healthy,stop,start,serviceActive } from './pull-and-restart.mjs';
 
-const root='/Library/Application Support/PhoneWall';
-const label='org.museum.phonewall.update';
+const label='org.museum.phonewall';
+const updateLabel=label+'.update';
+const readerLabel=label+'.messages';
 
-export function updaterPlist(base=root) {
-  const app=join(base,'app');
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict>
-<key>Label</key><string>${label}</string>
-<key>ProgramArguments</key><array><string>${escapeXml(join(app,'runtime/bin/node'))}</string><string>${escapeXml(join(app,'scripts/phone-wall/supervise.mjs'))}</string></array>
-<key>WorkingDirectory</key><string>${escapeXml(join(app,'server/phone-wall'))}</string>
-<key>EnvironmentVariables</key><dict><key>PHONE_WALL_ENTRY</key><string>${escapeXml(join(app,'scripts/phone-wall/update-from-github.mjs'))}</string><key>PHONE_WALL_LOG_DIR</key><string>/Library/Logs/PhoneWall</string></dict>
-<key>RunAtLoad</key><true/><key>StartInterval</key><integer>300</integer><key>ProcessType</key><string>Background</string>
-</dict></plist>\n`;
-}
-
-function run(command,args) {
-  const result=spawnSync(command,args,{encoding:'utf8',timeout:30000});
-  if(result.error||result.status!==0)throw new Error(`${command} failed: ${result.error?.message??result.stderr?.trim()??result.status}`);
-  return result.stdout.trim();
-}
-
-async function removeLauncher(path,identifier) {
-  const plist=join(path,'Contents/Info.plist');
-  if(!await stat(plist).then(value=>value.isFile()).catch(()=>false))return;
-  if(run('/usr/libexec/PlistBuddy',['-c','Print :CFBundleIdentifier',plist])!==identifier)throw new Error(`Refusing to remove an unrelated app at ${path}`);
-  await rm(path,{recursive:true});
-}
-
-async function setup() {
-  if(process.platform!=='darwin'||process.getuid?.()!==0)throw new Error('Run headless setup once as administrator');
-  const app=join(root,'app'),daemon='/Library/LaunchDaemons/'+label+'.plist';
-  for(const name of ['runtime/bin/node','scripts/phone-wall/supervise.mjs','server/phone-wall/index.mjs']){
-    if(!await stat(join(app,name)).then(value=>value.isFile()).catch(()=>false))throw new Error(`Existing Node controller missing ${name}`);
+async function moveReaders(){
+  for(const entry of await readdir('/Users',{withFileTypes:true})){
+    if(!entry.isDirectory())continue;
+    const home=join('/Users',entry.name),file=join(home,'Library/LaunchAgents',readerLabel+'.plist');
+    const info=await lstat(file).catch(()=>null);
+    if(!info?.isFile())continue;
+    const old=await readFile(file,'utf8');
+    if(!old.includes('/Library/Application Support/PhoneWall/app/runtime/bin/node'))continue;
+    const domain=`gui/${info.uid}`;
+    const active=serviceActive(readerLabel,domain);
+    if(active)stop(readerLabel,domain);
+    try{
+      const temp=file+'.next';
+      await writeFile(temp,messagesAgentPlist(home),{mode:0o600});
+      await chown(temp,info.uid,info.gid);await chmod(temp,0o600);
+      await rename(temp,file);
+      if(active)start(readerLabel,domain,file);
+    }catch(error){
+      await writeFile(file,old,{mode:0o600});
+      await chown(file,info.uid,info.gid);
+      if(active&&!serviceActive(readerLabel,domain))start(readerLabel,domain,file);
+      throw error;
+    }
   }
-  const config=JSON.parse(await readFile(join(root,'config.json'),'utf8'));
-  if(!Number.isInteger(config.port)||config.port<1||config.port>65535)throw new Error('Invalid controller port');
-  const response=await fetch(`http://127.0.0.1:${config.port}/health`,{signal:AbortSignal.timeout(5000)});
-  if(!response.ok||(await response.json()).ok!==true)throw new Error('Controller must be healthy before migration');
-  const source=fileURLToPath(new URL('./update-from-github.mjs',import.meta.url));
-  await copyFile(source,join(app,'scripts/phone-wall/update-from-github.mjs'));
-  await writeFile(daemon+'.next',updaterPlist(),{mode:0o644});
-  run('/usr/bin/plutil',['-lint',daemon+'.next']);
-  if(spawnSync('/bin/launchctl',['print','system/'+label],{stdio:'ignore'}).status===0)run('/bin/launchctl',['bootout','system/'+label]);
-  await rename(daemon+'.next',daemon);
-  run('/bin/launchctl',['bootstrap','system',daemon]);
-  await removeLauncher('/Applications/Phone Wall Dashboard.app','org.museum.phonewall.dashboard');
-  await removeLauncher('/Applications/Update Phone Wall.app','org.museum.phonewall.updater');
-  console.log(`Node controller stays on at boot. Dashboard: http://127.0.0.1:${config.port}/admin/phone-wall. GitHub updates are checked every five minutes.`);
 }
-
+async function setup(){
+  if(process.platform!=='darwin'||process.getuid?.()!==0)throw new Error('Run setup as administrator');
+  const config=JSON.parse(await readFile(join(root,'config.json'),'utf8'));
+  if(!Number.isInteger(config.port))throw new Error('Invalid controller port');
+  if(!await healthy(config.port))throw new Error('Existing controller is not healthy');
+  if(!await lstat(source).catch(()=>null)){
+    run('/usr/bin/git',['clone','--branch','phone-wall-runtime-2','--single-branch','https://github.com/samuelhackwill/sms.third.prototype.git',source],{timeout:180000});
+  }
+  if(run('/usr/bin/git',['-C',source,'branch','--show-current'])!=='phone-wall-runtime-2')throw new Error('Unexpected deployment branch');
+  await writeBuildInfo(revision());
+  run('/usr/local/bin/node',['/usr/local/lib/node_modules/npm/bin/npm-cli.js','ci','--omit=dev','--ignore-scripts','--prefix',join(source,'server/phone-wall')],{timeout:180000});
+  const daemon=`/Library/LaunchDaemons/${label}.plist`;
+  const old=await readFile(daemon,'utf8');
+  const next=daemonPlist(root,join(root,'config.json'),'/Library/Logs/PhoneWall');
+  await writeFile(daemon+'.next',next,{mode:0o644});
+  run('/usr/bin/plutil',['-lint',daemon+'.next']);
+  stop(updateLabel);
+  await rm(`/Library/LaunchDaemons/${updateLabel}.plist`,{force:true});
+  stop(label);
+  try{
+    await rename(daemon+'.next',daemon);
+    start(label);
+    if(!await healthy(config.port))throw new Error('Checkout controller did not become healthy');
+  }catch(error){
+    stop(label);
+    await writeFile(daemon,old,{mode:0o644});
+    start(label);
+    throw error;
+  }
+  try{await moveReaders();}catch(error){console.warn(`Messages reader migration needs attention: ${error.message}`);}
+  console.log(`Controller now runs from ${source} at ${revision().slice(0,8)}. Pull changes with sudo /usr/local/bin/node ${join(source,'scripts/phone-wall/pull-and-restart.mjs')}. GitHub polling is off.`);
+}
 if(process.argv[1]===fileURLToPath(import.meta.url))await setup();

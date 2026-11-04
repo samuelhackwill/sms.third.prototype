@@ -7,9 +7,9 @@ import { fileURLToPath } from 'node:url';
 export const serviceLabel='org.museum.phonewall';
 export function escapeXml(value){return String(value).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');}
 export function daemonPlist(root,configFile,logDir) {
-  const app=join(root,'app');
+  const app=join(root,'source');
   return `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict>
-<key>Label</key><string>${serviceLabel}</string><key>ProgramArguments</key><array><string>${escapeXml(join(app,'runtime/bin/node'))}</string><string>${escapeXml(join(app,'scripts/phone-wall/supervise.mjs'))}</string></array>
+<key>Label</key><string>${serviceLabel}</string><key>ProgramArguments</key><array><string>${escapeXml('/usr/local/bin/node')}</string><string>${escapeXml(join(app,'scripts/phone-wall/supervise.mjs'))}</string></array>
 <key>UserName</key><string>_phonewall</string><key>GroupName</key><string>_phonewall</string><key>WorkingDirectory</key><string>${escapeXml(join(app,'server/phone-wall'))}</string>
 <key>EnvironmentVariables</key><dict><key>PHONE_WALL_CONFIG_FILE</key><string>${escapeXml(configFile)}</string><key>PHONE_WALL_ENTRY</key><string>${escapeXml(join(app,'server/phone-wall/index.mjs'))}</string><key>PHONE_WALL_LOG_DIR</key><string>${escapeXml(logDir)}</string></dict>
 <key>RunAtLoad</key><true/><key>KeepAlive</key><true/><key>ThrottleInterval</key><integer>10</integer><key>ProcessType</key><string>Background</string>

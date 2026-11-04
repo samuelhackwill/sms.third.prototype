@@ -6,7 +6,7 @@ Use this guide after an installer has paired and tested all screens.
 
 ## Connection recovery and installation reset
 
-Updating the controller restarts its WebSocket listener and Bonjour registration. On the first start of each installed build, it clears saved connection diagnostics and heartbeat readings, then phones reconnect with fresh telemetry. Pairings, wall settings, media and the live-message queue remain in place. The updater reports the number of connected phones before and after the update; a lower count calls for checking the dashboard and service log.
+Updating the controller restarts its WebSocket listener and Bonjour registration. On the first start of each installed build, it clears saved connection diagnostics and heartbeat readings, then phones reconnect with fresh telemetry. Pairings, wall settings, media and the live-message queue remain in place. Check the connected phone count after the pull; a lower count calls for checking the dashboard and service log.
 
 For a full reset, open **Advanced > Installation Reset > Reset Installation Data**. Confirm to erase the controller's pairings, wall settings, queue and downloaded media. The controller sends `clearCache` to currently connected phones, restarts, and shows a new installation in the dashboard. Pair the phones again. Offline phones cannot receive the cache command; their saved controller URL and device identity remain on the phone. The controller log remains available for diagnosis.
 
@@ -20,7 +20,7 @@ Use the **Text speed** slider (20–1000 logical pixels/second) before sending a
 
 Native app **2.2 (build 5)** requests **60 frames/second**; older 2.1 apps requested 30. Install this IPA once for the smoother native renderer; GitHub server updates cannot change native code. **Advanced** phone cards show sampled display-callback rate and target after a heartbeat. This is a useful slowdown diagnostic, not proof every frame reached the screen. Actual sustained performance, thermals and battery behavior must be checked on the iPhone 6s. Speed and frame rate are independent. The browser's 30-screen preview remains approximate and capped around 30 fps; video and experimental WebView frame rates depend on their own playback/render loop.
 
-Push a server update to `phone-wall-runtime-2`; the Mac checks for new commits every five minutes and updates itself. Normal playback remains local once the update has downloaded. Artwork-only changes do not require an IPA update.
+Push a server update to `phone-wall-runtime-2`; run the Mac pull-and-restart command to fetch and restart. Normal playback remains local once the update has downloaded. Artwork-only changes do not require an IPA update.
 
 ## Independent Kissing Wall
 
