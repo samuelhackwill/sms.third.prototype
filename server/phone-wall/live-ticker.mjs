@@ -35,7 +35,8 @@ export class LiveTicker {
     this.db.exec(`CREATE TABLE IF NOT EXISTS router_seen(id TEXT PRIMARY KEY);
       CREATE TABLE IF NOT EXISTS router_state(id INTEGER PRIMARY KEY CHECK(id=1),initialized INTEGER NOT NULL);
       INSERT OR IGNORE INTO router_state(id,initialized) VALUES(1,0);
-      CREATE TABLE IF NOT EXISTS curated_messages(id TEXT PRIMARY KEY,text TEXT NOT NULL,received_at TEXT);`);
+      CREATE TABLE IF NOT EXISTS curated_messages(id TEXT PRIMARY KEY,text TEXT NOT NULL,received_at TEXT,selected INTEGER NOT NULL DEFAULT 0);`);
+    if(!this.db.prepare('PRAGMA table_info(curated_messages)').all().some(column=>column.name==='selected'))this.db.exec('ALTER TABLE curated_messages ADD COLUMN selected INTEGER NOT NULL DEFAULT 0');
     if(!this.db.prepare('PRAGMA table_info(router_state)').all().some(column=>column.name==='enabled'))this.db.exec('ALTER TABLE router_state ADD COLUMN enabled INTEGER NOT NULL DEFAULT 0');
     if(!this.db.prepare('PRAGMA table_info(router_state)').all().some(column=>column.name==='detail_initialized'))this.db.exec('ALTER TABLE router_state ADD COLUMN detail_initialized INTEGER NOT NULL DEFAULT 0');
     if(!this.db.prepare('PRAGMA table_info(ticker_settings)').all().some(column=>column.name==='mode'))this.db.exec("ALTER TABLE ticker_settings ADD COLUMN mode TEXT NOT NULL DEFAULT 'messages'");
@@ -43,6 +44,7 @@ export class LiveTicker {
     for(const [name,definition] of [['custom_a',"TEXT NOT NULL DEFAULT ''"],['custom_b',"TEXT NOT NULL DEFAULT ''"],['curated_next_at','INTEGER NOT NULL DEFAULT 0']])if(!this.db.prepare('PRAGMA table_info(ticker_settings)').all().some(column=>column.name===name))this.db.exec(`ALTER TABLE ticker_settings ADD COLUMN ${name} ${definition}`);
     if(!this.db.prepare('PRAGMA table_info(ticker_messages)').all().some(column=>column.name==='source'))this.db.exec("ALTER TABLE ticker_messages ADD COLUMN source TEXT NOT NULL DEFAULT 'messages'");
     if(!this.db.prepare('PRAGMA table_info(ticker_messages)').all().some(column=>column.name==='target_row'))this.db.exec('ALTER TABLE ticker_messages ADD COLUMN target_row INTEGER');
+    this.db.prepare("DELETE FROM ticker_messages WHERE source='curated-click'").run();
     // Playback acknowledgments from a previous process cannot establish current readiness.
     this.db.prepare("UPDATE ticker_messages SET status='queued',run=NULL WHERE status IN ('preparing','playing')").run();
     this.db.prepare("UPDATE ticker_settings SET enabled=1 WHERE mode='messages'").run();
@@ -107,11 +109,11 @@ export class LiveTicker {
       return {inserted};
     });
   }
-  curatedMessages(){return this.db.prepare('SELECT id,text,received_at AS receivedAt FROM curated_messages ORDER BY received_at DESC,id DESC LIMIT 2000').all();}
-  showCurated(id){
-    const message=this.db.prepare('SELECT text FROM curated_messages WHERE id=?').get(id);
-    if(!message)throw new Error('unknown-curated-message');
-    this.db.prepare("INSERT INTO ticker_messages(external_id,text,source) VALUES(?,?,'curated-click')").run('curated-click:'+randomUUID(),message.text);
+  curatedMessages(){return this.db.prepare('SELECT id,text,received_at AS receivedAt,selected FROM curated_messages ORDER BY received_at DESC,id DESC LIMIT 2000').all();}
+  toggleCurated(id){
+    if(typeof id!=='string'||!id||id.length>512)throw new Error('invalid-curated-id');
+    if(!this.db.prepare('UPDATE curated_messages SET selected=1-selected WHERE id=?').run(id).changes)throw new Error('unknown-curated-message');
+    return this.db.prepare('SELECT selected FROM curated_messages WHERE id=?').get(id).selected===1;
   }
   startBarthes(){
     sentences();
@@ -152,7 +154,7 @@ export class LiveTicker {
     }
     if(now>=settings.curated_next_at){
       const waiting=this.db.prepare("SELECT 1 FROM ticker_messages WHERE source='curated' AND status IN ('queued','preparing','playing') LIMIT 1").get();
-      const message=this.db.prepare('SELECT text FROM curated_messages ORDER BY RANDOM() LIMIT 1').get();
+      const message=this.db.prepare('SELECT text FROM curated_messages WHERE selected=1 ORDER BY RANDOM() LIMIT 1').get();
       if(message&&!waiting)insert.run('curated:'+randomUUID(),message.text,'curated',null);
       this.db.prepare('UPDATE ticker_settings SET curated_next_at=? WHERE id=1').run(now+20000+Math.floor(Math.random()*15000));
     }
@@ -202,9 +204,9 @@ export class LiveTicker {
     }
     if(this.enabled&&allowed&&this.playbackMode==='curated'){
       for(let index=0;index<2;index++){
-        const message=this.db.prepare("SELECT seq,source FROM ticker_messages WHERE source IN ('curated-click','curated') AND status='queued' ORDER BY CASE WHEN source='curated-click' THEN 0 ELSE 1 END,seq LIMIT 1").get();
+        const message=this.db.prepare("SELECT seq,source FROM ticker_messages WHERE source='curated' AND status='queued' ORDER BY seq LIMIT 1").get();
         if(!message)break;
-        const band=rows.slice(0,2).find(row=>row.targets.every(id=>ready.has(id))&&!active.some(run=>run.row===row.row&&(run.source==='router'||run.source==='curated-click'||message.source!=='curated-click'&&run.source==='curated')));
+        const band=rows.slice(0,2).find(row=>row.targets.every(id=>ready.has(id))&&!active.some(run=>run.row===row.row&&(run.source==='router'||run.source==='curated')));
         if(!band)break;
         const interrupted=active.find(run=>run.row===band.row);
         if(interrupted)this.db.prepare("UPDATE ticker_messages SET status='queued',run=NULL WHERE seq=?").run(interrupted.seq);
@@ -254,5 +256,5 @@ export class LiveTicker {
     }
     return false;
   }
-  status(){return {enabled:this.enabled,mode:this.playbackMode,customTexts:this.customTexts,curatedCount:this.db.prepare('SELECT COUNT(*) AS n FROM curated_messages').get().n,queued:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE status='queued' AND (source=? OR ?='curated' AND source IN ('custom','curated-click'))").get(this.playbackMode,this.playbackMode).n,routerQueued:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source='router' AND status='queued'").get().n,routerSeen:this.db.prepare('SELECT COUNT(*) AS n FROM router_seen').get().n,routerMessages:this.db.prepare("SELECT status,COUNT(*) AS n FROM ticker_messages WHERE source='router' GROUP BY status").all(),active:this.runs(),completed:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source=? AND status='completed'").get(this.playbackMode).n,readers:this.db.prepare('SELECT * FROM ticker_sources').all()};}
+  status(){return {enabled:this.enabled,mode:this.playbackMode,customTexts:this.customTexts,curatedCount:this.db.prepare('SELECT COUNT(*) AS n FROM curated_messages').get().n,curatedSelected:this.db.prepare('SELECT COUNT(*) AS n FROM curated_messages WHERE selected=1').get().n,queued:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE status='queued' AND (source=? OR ?='curated' AND source='custom')").get(this.playbackMode,this.playbackMode).n,routerQueued:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source='router' AND status='queued'").get().n,routerSeen:this.db.prepare('SELECT COUNT(*) AS n FROM router_seen').get().n,routerMessages:this.db.prepare("SELECT status,COUNT(*) AS n FROM ticker_messages WHERE source='router' GROUP BY status").all(),active:this.runs(),completed:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source=? AND status='completed'").get(this.playbackMode).n,readers:this.db.prepare('SELECT * FROM ticker_sources').all()};}
 }

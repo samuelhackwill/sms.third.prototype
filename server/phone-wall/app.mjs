@@ -331,18 +331,15 @@ export async function createController({
       kissing.configure({enabled:false});liveAttempts.clear();cacheRecovery.clear();ticker.start();store.commit({...state,mode:'exhibition',schedule:null,overrides:{}},previous.revision);broadcast();tickerTick();return {ok:true};
     }
     if(input.action==='live.pause')return {ok:true};
-    if(input.action==='curated.start'||input.action==='curated.show'){
+    if(input.action==='curated.toggle')return {selected:ticker.toggleCurated(input.id)};
+    if(input.action==='curated.start'){
       if(pairing.status().active)throw new Error('stop-pairing-before-curated-mode');
       if(liveRows(state.layout).length<2)throw new Error('two-rows-required-for-curated-mode');
       if(state.layout.slots.some(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.liveTicker!==1))throw new Error('phone-app-2.3-required-for-curated-mode');
-      const starting=ticker.playbackMode!=='curated'||!ticker.enabled||input.action==='curated.start';
-      if(starting){
-        kissing.configure({enabled:false});liveAttempts.clear();cacheRecovery.clear();
-        ticker.startCurated(input.action==='curated.start'?input.messages:undefined);
-        store.commit({...state,mode:'exhibition',schedule:null,overrides:{}},previous.revision);
-        store.db.prepare('DELETE FROM previews').run();
-      }
-      if(input.action==='curated.show')ticker.showCurated(input.id);
+      kissing.configure({enabled:false});liveAttempts.clear();cacheRecovery.clear();
+      ticker.startCurated(input.messages);
+      store.commit({...state,mode:'exhibition',schedule:null,overrides:{}},previous.revision);
+      store.db.prepare('DELETE FROM previews').run();
       broadcast();tickerBroadcast();tickerTick();return {ok:true};
     }
     if(input.action==='curated.stop'){

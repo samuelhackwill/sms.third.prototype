@@ -16,7 +16,7 @@ let testDeployment = null, testOffline = 0, sendingTest = false;
 let testSpeedEdited=false;
 let testMessageEdited=false;
 let kissingEdited=false;
-let curatedEdited=false,curatedLoadedCount=-1,curatedLoading=false;
+let curatedEdited=false,curatedLoadedCount=-1,curatedLoadedSelected=-1,curatedLoading=false;
 for(const id of ['curated-custom-a','curated-custom-b'])$(id).oninput=()=>{curatedEdited=true;};
 const curatedTexts=()=>[$('curated-custom-a').value,$('curated-custom-b').value];
 async function loadCurated(){
@@ -29,15 +29,17 @@ async function loadCurated(){
     const items=messages.map(message=>{
       const button=document.createElement('button');
       button.type='button';button.textContent=message.text;
+      button.setAttribute('aria-pressed',String(message.selected===1));
       button.onclick=run(async()=>{
-        if(curatedEdited||data?.ticker?.mode!=='curated'||!data?.ticker?.enabled){await api({action:'curated.start',messages:curatedTexts()});curatedEdited=false;}
-        await api({action:'curated.show',id:message.id});
+        const result=await api({action:'curated.toggle',id:message.id});
+        button.setAttribute('aria-pressed',String(result.selected));
       });
       return button;
     });
     $('curated-list').replaceChildren(...items);
     if(!items.length)$('curated-list').textContent='No Messages texts imported yet.';
     curatedLoadedCount=messages.length;
+    curatedLoadedSelected=messages.filter(message=>message.selected===1).length;
   }catch(error){$('curated-list').textContent=error.message;}
   finally{curatedLoading=false;}
 }
@@ -215,8 +217,8 @@ function render() {
   if(!curatedEdited){$('curated-custom-a').value=live?.customTexts?.[0]??'';$('curated-custom-b').value=live?.customTexts?.[1]??'';}
   $('curated-start').disabled=!!pairing?.active||!state.layout.slots.length||!!live?.upgradeRequired?.length;
   $('curated-stop').disabled=!curatedActive;
-  $('curated-status').textContent=curatedActive?`Playing on the first two rows · ${live.curatedCount} library messages · ${live.queued} waiting`:`Stopped · ${live?.curatedCount??0} library messages`;
-  if(curatedLoadedCount!==live?.curatedCount)void loadCurated();
+  $('curated-status').textContent=curatedActive?`Playing on the first two rows · ${live.curatedSelected} of ${live.curatedCount} library messages included · ${live.queued} waiting`:`Stopped · ${live?.curatedSelected??0} of ${live?.curatedCount??0} library messages included`;
+  if(curatedLoadedCount!==live?.curatedCount||curatedLoadedSelected!==live?.curatedSelected)void loadCurated();
   const router=live?.router;
   $('reader-status').textContent=live?.upgradeRequired?.length?`Install phone app 2.3 for live playback (${live.upgradeRequired.length} phones need updating).`:router?.status==='reading'&&Date.now()-router.at<15000?`Tenda router connected · polled ${Math.max(0,Math.round((Date.now()-router.at)/1000))}s ago`:router?.status==='error'?`Tenda router error: ${router.code}`:router?.status==='starting'?'Connecting to Tenda router…':'Tenda router is not connected.';
   if(!testSpeedEdited)$('test-text-speed').value=state.testTextSpeed??240;
