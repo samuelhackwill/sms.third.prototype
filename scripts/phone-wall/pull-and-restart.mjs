@@ -90,4 +90,20 @@ async function pull(){
     }
   }finally{await rm(lock,{recursive:true,force:true});}
 }
-if(process.argv[1]===fileURLToPath(import.meta.url))await pull();
+async function main(){
+  const requestFile=join(root,'requests/pull.json');
+  const statusFile=join(root,'pull-status.json');
+  let request;
+  for(let attempt=0;attempt<5;attempt++){
+    try{request=JSON.parse(await readFile(requestFile,'utf8'));break;}
+    catch{await new Promise(resolve=>setTimeout(resolve,100));}
+  }
+  const id=/^[a-f0-9-]{36}$/.test(request?.id??'')?request.id:null;
+  const status=await readFile(statusFile,'utf8').then(JSON.parse).catch(()=>null);
+  if(id&&status?.id===id)return;
+  const report=async(state,detail)=>{if(id)await writeFile(statusFile,JSON.stringify({id,state,detail,at:new Date().toISOString()})+'\n',{mode:0o644});};
+  await report('running',null);
+  try{await pull();await report('complete',revision());}
+  catch(error){await report('error',error.message);throw error;}
+}
+if(process.argv[1]===fileURLToPath(import.meta.url))await main();

@@ -6,13 +6,13 @@ The controller runs at boot as the `_phonewall` LaunchDaemon and serves the brow
 
 For the existing installation, run `sudo /usr/local/bin/node scripts/phone-wall/headless-setup.mjs` once from this checkout. It creates `/Library/Application Support/PhoneWall/source` as a dedicated Git checkout, installs production Node dependencies, points the controller and Messages reader at that source, and removes the five-minute updater daemon. It retains SQLite data, media, pairing, operator key and the Messages reader's Full Disk Access-authorized Node binary.
 
-To deploy a pushed change, run on the Mac mini:
+Run `sudo /usr/local/bin/node scripts/phone-wall/install-pull-helper.mjs ingestor` once to install the root-owned pull helper. Thereafter deploy a pushed change from the Mac mini without `sudo`:
 
 ```sh
-sudo /usr/local/bin/node '/Library/Application Support/PhoneWall/source/scripts/phone-wall/pull-and-restart.mjs'
+/usr/local/bin/node '/Library/Application Support/PhoneWall/bin/request-pull.mjs'
 ```
 
-This fetches `phone-wall-runtime-2`, fast-forwards the deployment checkout, installs dependencies only if its lockfile changed, restarts the controller and checks `/health`. It restarts the Messages reader too. A failed start restores the previous commit and restarts the previous controller. GitHub pushes alone do not reach the private Mac; the pull command is the deployment trigger. There is no polling, GitHub Actions build, package, or `.app` launcher. Use `sudo` only for the pull command; the controller itself runs as `_phonewall`.
+This fetches `phone-wall-runtime-2`, fast-forwards the deployment checkout, installs dependencies only if its lockfile changed, restarts the controller and checks `/health`. It restarts the Messages reader too. A failed start restores the previous commit and restarts the previous controller. GitHub pushes alone do not reach the private Mac; the pull command is the deployment trigger. There is no polling, GitHub Actions build, package, or `.app` launcher. The helper accepts only a pull request marker from the logged-in Mac user; its code and the deployment checkout are root-owned. The controller itself runs as `_phonewall`.
 
 The controller and dashboard work before login. The Messages reader runs under the logged-in Messages user, so that account must be logged in for iMessage ingestion. Logs remain in `/Library/Logs/PhoneWall/server.log` and `~/Library/Logs/PhoneWallReader/server.log`. A pull briefly restarts phone WebSockets; message queue data remains in SQLite. Native iPhone code updates still require a signed IPA installation.
 
