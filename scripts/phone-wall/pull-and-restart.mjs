@@ -21,7 +21,12 @@ export function stop(name,domain='system'){
   if(serviceActive(name,domain))run('/bin/launchctl',['bootout',`${domain}/${name}`]);
 }
 export function start(name,domain='system',file=`/Library/LaunchDaemons/${name}.plist`){
-  run('/bin/launchctl',['bootstrap',domain,file]);
+  let last;
+  for(let attempt=0;attempt<6;attempt++){
+    try{return run('/bin/launchctl',['bootstrap',domain,file]);}
+    catch(error){last=error;spawnSync('/bin/sleep',['1']);}
+  }
+  throw last;
 }
 export async function healthy(port){
   for(let attempt=0;attempt<45;attempt++){
