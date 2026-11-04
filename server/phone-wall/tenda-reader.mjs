@@ -101,7 +101,7 @@ export class TendaReader {
     records.sort((a,b)=>a.stamp-b.stamp);
     for(const entry of changed)this.threads.set(String(entry.phone),JSON.stringify(entry.note??[]));
     if(fullRefresh)this.lastFullRefresh=Date.now();
-    return {records,stats:{emptyResponse:false,threads:entries.length,overviewNotes:overview.stats.notes,detailThreads:changed.length,detailNotes:records.length,incoming:records.length,uniqueIds:new Set(records.map(item=>item.id)).size,blankBodies:records.filter(item=>!item.text.trim()).length,idTypes:{number:records.filter(item=>typeof item.routerIdRaw==='number').length,string:records.filter(item=>typeof item.routerIdRaw==='string').length}},detailed:true};
+    return {records,stats:{emptyResponse:false,threads:entries.length,overviewNotes:overview.stats.notes,overviewIncoming:overview.stats.incoming,overviewOutgoing:overview.stats.notes-overview.stats.incoming,detailThreads:changed.length,detailNotes:records.length,incoming:records.length,uniqueIds:new Set(records.map(item=>item.id)).size,blankBodies:records.filter(item=>!item.text.trim()).length,idTypes:{number:records.filter(item=>typeof item.routerIdRaw==='number').length,string:records.filter(item=>typeof item.routerIdRaw==='string').length}},detailed:true};
   }
   async poll(){
     if(this.stopped)return;
