@@ -36,7 +36,7 @@ export function parseTendaConversation(raw,sender){
 }
 
 export class TendaReader {
-  constructor({config,onRecords,onStatus}){this.config=config;this.onRecords=onRecords;this.onStatus=onStatus;this.stopped=false;this.timer=null;this.cookies='';this.failures=0;this.threads=new Map();this.lastFullRefresh=0;}
+  constructor({config,onRecords,onStatus}){this.config=config;this.onRecords=onRecords;this.onStatus=onStatus;this.stopped=false;this.timer=null;this.cookies='';this.failures=0;this.threads=new Map();this.lastFullRefresh=0;this.lastLoginAt=0;}
   start(){this.poll();return this;}
   stop(){this.stopped=true;clearTimeout(this.timer);}
   async login(){
@@ -45,6 +45,7 @@ export class TendaReader {
     const response=await fetch(`${base}/login/Auth`,{method:'POST',headers:{'content-type':'application/json',referer:`${base}/index.html`,origin:base,'x-requested-with':'XMLHttpRequest'},body:JSON.stringify({username:this.config.username,password:createHash('md5').update(this.config.password).digest('hex')}),signal:AbortSignal.timeout(10000)});
     if(!response.ok||(await response.json()).errCode!==0)throw new Error('router-login-failed');
     this.cookies=response.headers.getSetCookie().map(x=>x.split(';')[0]).join('; ');
+    this.lastLoginAt=Date.now();
   }
   async module(parameters){
     const base=this.config.baseUrl.replace(/\/$/,'');
@@ -79,6 +80,7 @@ export class TendaReader {
       if(!this.cookies)await this.login();
       phase='inbox';
       const {records,stats,detailed}=await this.inbox();
+      if(stats.emptyResponse&&Date.now()-(this.lastNonempty?.at??0)>30000&&Date.now()-this.lastLoginAt>60000)this.cookies='';
       phase='ingest';
       if(!this.stopped){const ingestion=await this.onRecords(records,{detailed});this.failures=0;if(records.length)this.lastNonempty={at:Date.now(),...stats};this.onStatus?.({status:'reading',at:Date.now(),count:records.length,stats,inserted:ingestion?.inserted??0,baselined:ingestion?.baselined??0,lastNonempty:this.lastNonempty});}
     }catch(error){

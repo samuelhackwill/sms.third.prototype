@@ -332,6 +332,10 @@ export async function createController({
     }
     if(input.action==='live.pause')return {ok:true};
     if(input.action==='curated.toggle')return {selected:ticker.toggleCurated(input.id)};
+    if(input.action==='curated.injection'){
+      const enabled=ticker.setCuratedInjection(input.enabled);
+      tickerBroadcast();tickerTick();return {enabled};
+    }
     if(input.action==='curated.start'){
       if(pairing.status().active)throw new Error('stop-pairing-before-curated-mode');
       if(liveRows(state.layout).length<2)throw new Error('two-rows-required-for-curated-mode');

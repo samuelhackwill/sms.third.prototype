@@ -235,10 +235,11 @@ function render() {
   if(!curatedEdited){$('curated-custom-a').value=live?.customTexts?.[0]??'';$('curated-custom-b').value=live?.customTexts?.[1]??'';}
   $('curated-start').disabled=!!pairing?.active||!state.layout.slots.length||!!live?.upgradeRequired?.length;
   $('curated-stop').disabled=!curatedActive;
-  $('curated-status').textContent=curatedActive?`Playing on the first two rows · ${live.curatedSelected} of ${live.curatedCount} library messages included · ${live.queued} waiting`:`Stopped · ${live?.curatedSelected??0} of ${live?.curatedCount??0} library messages included`;
+  $('curated-db-toggle').textContent=live?.curatedInjectionEnabled?'Disable database messages':'Enable database messages';
+  $('curated-status').textContent=curatedActive?`Playing on the first two rows · database messages ${live.curatedInjectionEnabled?'on':'off'} · ${live.curatedSelected} selected · ${live.queued} waiting`:`Stopped · database messages ${live?.curatedInjectionEnabled?'on':'off'} · ${live?.curatedSelected??0} selected`;
   if(curatedLoadedCount!==live?.curatedCount||curatedLoadedSelected!==live?.curatedSelected)void loadCurated();
   const router=live?.router;
-  $('reader-status').textContent=live?.upgradeRequired?.length?`Install phone app 2.3 for live playback (${live.upgradeRequired.length} phones need updating).`:router?.status==='reading'&&Date.now()-router.at<15000?`Tenda router connected · polled ${Math.max(0,Math.round((Date.now()-router.at)/1000))}s ago`:router?.status==='error'?`Tenda router error: ${router.code}`:router?.status==='starting'?'Connecting to Tenda router…':'Tenda router is not connected.';
+  $('reader-status').textContent=live?.upgradeRequired?.length?`Install phone app 2.3 for live playback (${live.upgradeRequired.length} phones need updating).`:router?.status==='reading'&&Date.now()-router.at<15000?router.stats?.emptyResponse?`Tenda polled ${Math.max(0,Math.round((Date.now()-router.at)/1000))}s ago · router returned no inbox · last full inbox ${router.lastNonempty?`${Math.round((Date.now()-router.lastNonempty.at)/60000)} min ago`:'never'}`:`Tenda router connected · polled ${Math.max(0,Math.round((Date.now()-router.at)/1000))}s ago`:router?.status==='error'?`Tenda router error: ${router.code}`:router?.status==='starting'?'Connecting to Tenda router…':'Tenda router is not connected.';
   if(!testSpeedEdited)$('test-text-speed').value=state.testTextSpeed??240;
   if(!testMessageEdited)$('test-text-message').value=state.testText??defaultTestMessage;
   showTestSpeed();
@@ -702,6 +703,7 @@ $('barthes-start').onclick=run(()=>api({action:'barthes.start'}));
 $('barthes-stop').onclick=run(()=>api({action:'barthes.stop'}));
 $('curated-start').onclick=run(async()=>{await api({action:'curated.start',messages:curatedTexts()});curatedEdited=false;});
 $('curated-stop').onclick=run(()=>api({action:'curated.stop'}));
+$('curated-db-toggle').onclick=run(()=>api({action:'curated.injection',enabled:!data.ticker.curatedInjectionEnabled}));
 $('reset-installation').onclick=run(async()=>{
   if(!confirm('Erase all Phone Wall pairings, wall settings, queued messages and downloaded media, then restart the controller?'))return;
   const button=$('reset-installation'),before=data?.state?.installationId;

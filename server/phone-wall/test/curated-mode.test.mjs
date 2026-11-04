@@ -19,6 +19,7 @@ test('two custom rows repeat, selection controls occasional messages, and incomi
   const ticker=new LiveTicker(store),ready=new Set(ids);
   assert.equal(ticker.importCurated([{id:'imessage:one',text:'Library one'},{id:'imessage:one',text:'Library one'}]).inserted,1);
   ticker.startCurated(['First custom','Second custom']);
+  assert.equal(ticker.curatedInjectionEnabled,false);
   ticker.tick(ready,true,1000);
   assert.deepEqual(ticker.runs().map(run=>[run.row,run.text]),[[0,'First custom'],[1,'Second custom']]);
   const first=ticker.runs().find(run=>run.row===0);
@@ -32,7 +33,13 @@ test('two custom rows repeat, selection controls occasional messages, and incomi
   ticker.tick(ready,true,2000);
   assert.equal(ticker.runs().find(run=>run.row===0).text,'First custom');
   assert.equal(ticker.runs().find(run=>run.row===1).text,'Second custom');
+  assert.equal(ticker.runs().some(run=>run.source==='curated'),false);
+  ticker.setCuratedInjection(true);
+  store.db.prepare('UPDATE ticker_settings SET curated_next_at=0 WHERE id=1').run();
+  ticker.tick(ready,true,2100);
   assert.equal(ticker.runs().find(run=>run.row===2).text,'Library one');
+  ticker.setCuratedInjection(false);
+  assert.equal(ticker.runs().some(run=>run.source==='curated'),false);
   ticker.enableRouter();ticker.ingestRouter([]);ticker.ingestRouter([{id:'incoming',text:'Urgent SMS'}]);
   ticker.tick(ready,true,3000);
   assert.equal(ticker.runs().find(run=>run.row===0).text,'Urgent SMS');
@@ -53,6 +60,7 @@ test('scheduled library message uses a lower row',async t=>{
   store.commit(state,state.revision);
   const ticker=new LiveTicker(store);ticker.importCurated([{id:'imessage:timed',text:'Occasional'}]);
   ticker.toggleCurated('imessage:timed');
+  ticker.setCuratedInjection(true);
   ticker.startCurated(['One','Two']);
   store.db.prepare('UPDATE ticker_settings SET curated_next_at=0 WHERE id=1').run();
   ticker.tick(new Set(ids),true,1000);
@@ -77,6 +85,8 @@ test('operator can import and select a curated message without displaying it',as
   const clicked=await server.app.inject({method:'POST',url:'/phone-wall/api',headers,payload:{action:'curated.toggle',id:'imessage:fixture'}});
   assert.equal(clicked.statusCode,200);
   assert.equal(clicked.json().selected,true);
+  const injection=await server.app.inject({method:'POST',url:'/phone-wall/api',headers,payload:{action:'curated.injection',enabled:true}});
+  assert.equal(injection.json().enabled,true);
   assert.equal(server.ticker.playbackMode,'messages');
   assert.equal(server.ticker.runs().length,0);
 });

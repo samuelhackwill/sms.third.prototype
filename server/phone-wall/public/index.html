@@ -80,13 +80,14 @@
       <section class="operator-step">
         <p class="eyebrow">TWO-ROW MESSAGES</p>
         <h2>Curated Mode</h2>
-        <p>All text in this mode uses sans serif. The first row shows two digits per phone at full height when its message contains enough digits, blinking 0.5 seconds on and 0.2 seconds off. The second row scrolls its message. Included library messages appear in red on lower rows about every 20–35 seconds. New SMS take priority and appear white on blue.</p>
+        <p>All text in this mode uses sans serif. The first row shows two digits per phone at full height when its message contains enough digits, blinking 0.5 seconds on and 0.2 seconds off. The second row scrolls its message. New SMS take priority and appear white on blue.</p>
         <label>First row message<input id="curated-custom-a" type="text" maxlength="500" autocomplete="off" /></label>
         <label>Second row message<input id="curated-custom-b" type="text" maxlength="500" autocomplete="off" /></label>
         <div class="actions"><button id="curated-start" type="button">Start Curated Mode</button><button id="curated-stop" type="button">Stop Curated Mode</button></div>
+        <button id="curated-db-toggle" type="button">Enable database messages</button>
         <p id="curated-status" role="status"></p>
         <h3>Messages</h3>
-        <p>Click a message to include it in the rotation. Click again to remove it.</p>
+        <p>Click a message to include it in the rotation. Click again to remove it. Selected messages display in red on lower rows only when database messages are enabled.</p>
         <div id="curated-list-wrap">
           <div id="curated-list" aria-label="Curated messages"></div>
           <div id="curated-selection-rail" aria-hidden="true"></div>
