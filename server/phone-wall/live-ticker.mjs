@@ -36,6 +36,7 @@ export class LiveTicker {
       CREATE TABLE IF NOT EXISTS router_state(id INTEGER PRIMARY KEY CHECK(id=1),initialized INTEGER NOT NULL);
       INSERT OR IGNORE INTO router_state(id,initialized) VALUES(1,0);`);
     if(!this.db.prepare('PRAGMA table_info(router_state)').all().some(column=>column.name==='enabled'))this.db.exec('ALTER TABLE router_state ADD COLUMN enabled INTEGER NOT NULL DEFAULT 0');
+    if(!this.db.prepare('PRAGMA table_info(router_state)').all().some(column=>column.name==='detail_initialized'))this.db.exec('ALTER TABLE router_state ADD COLUMN detail_initialized INTEGER NOT NULL DEFAULT 0');
     if(!this.db.prepare('PRAGMA table_info(ticker_settings)').all().some(column=>column.name==='mode'))this.db.exec("ALTER TABLE ticker_settings ADD COLUMN mode TEXT NOT NULL DEFAULT 'messages'");
     if(!this.db.prepare('PRAGMA table_info(ticker_settings)').all().some(column=>column.name==='barthes_cursor'))this.db.exec('ALTER TABLE ticker_settings ADD COLUMN barthes_cursor INTEGER NOT NULL DEFAULT 0');
     if(!this.db.prepare('PRAGMA table_info(ticker_messages)').all().some(column=>column.name==='source'))this.db.exec("ALTER TABLE ticker_messages ADD COLUMN source TEXT NOT NULL DEFAULT 'messages'");
@@ -51,22 +52,28 @@ export class LiveTicker {
     this.db.prepare("DELETE FROM ticker_messages WHERE source='messages' AND status!='completed'").run();
     this.db.prepare("UPDATE ticker_sources SET status='disabled',error=NULL").run();
   }
-  ingestRouter(records){
-    if(!Array.isArray(records)||records.length>1000)throw new Error('invalid-router-batch');
+  ingestRouter(records,{detailed=false}={}){
+    if(!Array.isArray(records)||records.length>10000)throw new Error('invalid-router-batch');
     return this.store.transaction(()=>{
-      const initialized=this.db.prepare('SELECT initialized FROM router_state WHERE id=1').get().initialized===1;
+      const routerState=this.db.prepare('SELECT initialized,detail_initialized FROM router_state WHERE id=1').get();
+      const initialized=routerState.initialized===1;
+      const detailBaseline=detailed&&routerState.detail_initialized===0;
+      const latest=this.db.prepare("SELECT MAX(received_at) AS at FROM ticker_messages WHERE source='router'").get().at;
+      const catchupAfter=latest?Date.parse(latest)-10*60*1000:null;
       const seen=this.db.prepare('INSERT OR IGNORE INTO router_seen(id) VALUES(?)');
       const insert=this.db.prepare("INSERT OR IGNORE INTO ticker_messages(external_id,text,received_at,source) VALUES(?,?,?,'router')");
-      let inserted=0;
+      let inserted=0,baselined=0;
       for(const record of records){
         if(typeof record.id!=='string'||!record.id||record.id.length>512||typeof record.text!=='string')throw new Error('invalid-router-record');
         const id='tenda:'+record.id;
-        if(!seen.run(id).changes||!initialized)continue;
+        if(!seen.run(id).changes)continue;
+        if(!initialized||detailBaseline&&(!catchupAfter||!record.receivedAt||Date.parse(record.receivedAt)<catchupAfter)){baselined++;continue;}
         const message=displayMessage(record.text);
         if(message)inserted+=insert.run(id,message,typeof record.receivedAt==='string'?record.receivedAt.slice(0,40):null).changes;
       }
       if(!initialized)this.db.prepare('UPDATE router_state SET initialized=1 WHERE id=1').run();
-      return {inserted,baseline:!initialized};
+      if(detailBaseline)this.db.prepare('UPDATE router_state SET detail_initialized=1 WHERE id=1').run();
+      return {inserted,baselined,baseline:!initialized,detailBaseline};
     });
   }
   start(){this.requeue(true);this.db.prepare("UPDATE ticker_settings SET enabled=1,mode='messages' WHERE id=1").run();}

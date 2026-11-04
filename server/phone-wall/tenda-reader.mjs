@@ -2,6 +2,12 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 const execFileAsync=promisify(execFile);
+const outgoing=note=>[true,1,'1','true'].includes(note.isSend);
+function record(sender,note){
+  const body=String(note.content??''),stamp=Number(note.time)||0;
+  const key=note.id!=null?`${sender}:${note.id}`:`${sender}:${stamp}:${body}`;
+  return {id:key,text:body,receivedAt:stamp>0?new Date(stamp*1000).toISOString():null,stamp};
+}
 
 export function parseTendaInboxDetailed(raw) {
   const data=JSON.parse(raw);
@@ -13,21 +19,24 @@ export function parseTendaInboxDetailed(raw) {
   for(const entry of list){
     for(const note of entry.note??[]){
       notes++;
-      if(note.isSend===true||note.isSend===1||note.isSend==='1')continue;
-      const sender=String(entry.phone??''),body=String(note.content??'');
-      if(!body.trim())blankBodies++;
-      const stamp=Number(note.time)||0;
-      const key=note.id!=null?`${sender}:${note.id}`:`${sender}:${stamp}:${body}`;
-      records.push({id:key,text:body,receivedAt:stamp>0?new Date(stamp*1000).toISOString():null,stamp});
+      if(outgoing(note))continue;
+      const item=record(String(entry.phone??''),note);
+      if(!item.text.trim())blankBodies++;
+      records.push(item);
     }
   }
   records.sort((a,b)=>a.stamp-b.stamp);
   return {records,stats:{emptyResponse:false,threads:list.length,notes,incoming:records.length,uniqueIds:new Set(records.map(record=>record.id)).size,blankBodies}};
 }
 export const parseTendaInbox=raw=>parseTendaInboxDetailed(raw).records;
+export function parseTendaConversation(raw,sender){
+  const notes=JSON.parse(raw).smsPhoneList;
+  if(!Array.isArray(notes))throw new Error('router-conversation-invalid');
+  return notes.filter(note=>!outgoing(note)).map(note=>record(sender,note)).sort((a,b)=>a.stamp-b.stamp);
+}
 
 export class TendaReader {
-  constructor({config,onRecords,onStatus}){this.config=config;this.onRecords=onRecords;this.onStatus=onStatus;this.stopped=false;this.timer=null;this.cookies='';this.failures=0;}
+  constructor({config,onRecords,onStatus}){this.config=config;this.onRecords=onRecords;this.onStatus=onStatus;this.stopped=false;this.timer=null;this.cookies='';this.failures=0;this.threads=new Map();this.lastFullRefresh=0;}
   start(){this.poll();return this;}
   stop(){this.stopped=true;clearTimeout(this.timer);}
   async login(){
@@ -37,14 +46,31 @@ export class TendaReader {
     if(!response.ok||(await response.json()).errCode!==0)throw new Error('router-login-failed');
     this.cookies=response.headers.getSetCookie().map(x=>x.split(';')[0]).join('; ');
   }
-  async inbox(){
+  async module(parameters){
     const base=this.config.baseUrl.replace(/\/$/,'');
-    const query=new URLSearchParams({rand:String(Date.now()),currentPage:'1',pageSizes:String(this.config.pageSize),modules:'smsList'});
+    const query=new URLSearchParams({rand:String(Date.now()),...parameters});
     const {stdout}=await execFileAsync('/usr/bin/curl',['-sS','--max-time','20',`${base}/goform/getModules?${query}`,'-H',`Referer: ${base}/index.html`,'-H','X-Requested-With: XMLHttpRequest','-H',`Cookie: ${this.cookies}`,'-H','User-Agent: Mozilla/5.0','-H','Accept: application/json, text/plain, */*'],{encoding:'buffer',maxBuffer:4*1024*1024});
     const raw=Buffer.isBuffer(stdout)?stdout:Buffer.from(stdout);
     let text=new TextDecoder('utf-8',{fatal:true});
-    try{return parseTendaInboxDetailed(text.decode(raw));}
-    catch(error){if(!(error instanceof TypeError))throw error;text=new TextDecoder('gbk');return parseTendaInboxDetailed(text.decode(raw));}
+    try{return text.decode(raw);}
+    catch(error){if(!(error instanceof TypeError))throw error;text=new TextDecoder('gbk');return text.decode(raw);}
+  }
+  async inbox(){
+    const raw=await this.module({currentPage:'1',pageSizes:String(this.config.pageSize),modules:'smsList'});
+    const overview=parseTendaInboxDetailed(raw);
+    if(overview.stats.emptyResponse)return {records:[],stats:overview.stats,detailed:false};
+    const entries=JSON.parse(raw).smsList.phoneList;
+    const fullRefresh=Date.now()-this.lastFullRefresh>=30000;
+    const changed=entries.filter(entry=>entry.phone&&(fullRefresh||this.threads.get(String(entry.phone))!==JSON.stringify(entry.note??[])));
+    const records=[];
+    for(const entry of changed){
+      const sender=String(entry.phone);
+      records.push(...parseTendaConversation(await this.module({phone:sender,modules:'smsPhoneList'}),sender));
+    }
+    records.sort((a,b)=>a.stamp-b.stamp);
+    for(const entry of changed)this.threads.set(String(entry.phone),JSON.stringify(entry.note??[]));
+    if(fullRefresh)this.lastFullRefresh=Date.now();
+    return {records,stats:{emptyResponse:false,threads:entries.length,overviewNotes:overview.stats.notes,detailThreads:changed.length,detailNotes:records.length,incoming:records.length,uniqueIds:new Set(records.map(item=>item.id)).size,blankBodies:records.filter(item=>!item.text.trim()).length},detailed:true};
   }
   async poll(){
     if(this.stopped)return;
@@ -52,9 +78,9 @@ export class TendaReader {
     try{
       if(!this.cookies)await this.login();
       phase='inbox';
-      const {records,stats}=await this.inbox();
+      const {records,stats,detailed}=await this.inbox();
       phase='ingest';
-      if(!this.stopped){const ingestion=await this.onRecords(records);this.failures=0;this.onStatus?.({status:'reading',at:Date.now(),count:records.length,stats,inserted:ingestion?.inserted??0,...(!stats.emptyResponse?{lastNonempty:{at:Date.now(),...stats}}:{lastNonempty:this.lastNonempty})});if(!stats.emptyResponse)this.lastNonempty={at:Date.now(),...stats};}
+      if(!this.stopped){const ingestion=await this.onRecords(records,{detailed});this.failures=0;if(records.length)this.lastNonempty={at:Date.now(),...stats};this.onStatus?.({status:'reading',at:Date.now(),count:records.length,stats,inserted:ingestion?.inserted??0,baselined:ingestion?.baselined??0,lastNonempty:this.lastNonempty});}
     }catch(error){
       if(phase==='inbox')this.cookies='';
       this.failures++;

@@ -159,8 +159,8 @@ export async function createController({
     tickerBroadcast();
     tickerTick();
     routerStatus={status:'starting'};
-    routerReader=new TendaReader({config,onRecords:records=>{
-      const result=ticker.ingestRouter(records);
+    routerReader=new TendaReader({config,onRecords:(records,options)=>{
+      const result=ticker.ingestRouter(records,options);
       if(result.inserted)tickerTick();
       return result;
     },onStatus:status=>{routerStatus=status;}}).start();

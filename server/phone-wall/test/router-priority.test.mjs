@@ -5,11 +5,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '../store.mjs';
 import { LiveTicker } from '../live-ticker.mjs';
-import { parseTendaInbox } from '../tenda-reader.mjs';
+import { parseTendaInbox,parseTendaConversation } from '../tenda-reader.mjs';
 
 test('router parser includes every incoming note and skips sent notes',()=>{
   const records=parseTendaInbox(JSON.stringify({smsList:{phoneList:[{phone:'123',note:[{id:3,time:30,content:'Third',isSend:false},{id:2,time:20,content:'Second',isSend:0},{id:1,time:10,content:'Sent',isSend:true}]}]}}));
   assert.deepEqual(records.map(record=>record.text),['Second','Third']);
+  const detail=parseTendaConversation(JSON.stringify({smsPhoneList:[{id:1,time:10,content:'First',isSend:0},{id:2,time:20,content:'Second',isSend:0},{id:3,time:30,content:'Sent',isSend:1}]}),'123');
+  assert.deepEqual(detail.map(record=>record.text),['First','Second']);
 });
 
 test('router baseline stays silent; new SMS interrupts Barthes and plays while ambient ticker is paused',async t=>{
@@ -24,7 +26,7 @@ test('router baseline stays silent; new SMS interrupts Barthes and plays while a
   const ticker=new LiveTicker(store);
   ticker.enableRouter();
   assert.equal(ticker.messagesEnabled,false);
-  assert.deepEqual(ticker.ingestRouter([{id:'old',text:'Already in router'}]),{inserted:0,baseline:true});
+  assert.equal(ticker.ingestRouter([{id:'old',text:'Already in router'}]).inserted,0);
   ticker.startBarthes();ticker.tick(new Set(ids),true,1000);
   assert.equal(ticker.runs().filter(run=>run.source==='barthes').length,2);
   assert.equal(ticker.ingestRouter([{id:'old',text:'Already in router'},{id:'new',text:'New SMS'}]).inserted,1);
@@ -38,4 +40,13 @@ test('router baseline stays silent; new SMS interrupts Barthes and plays while a
   ticker.tick(new Set(ids),false,4000);
   assert.equal(ticker.snapshot(ids[0]).enabled,true);
   assert.ok(ticker.runs().some(run=>run.source==='router'&&run.text==='Second SMS'));
+  const now=Date.now();
+  ticker.ingestRouter([{id:'dated',text:'Recent',receivedAt:new Date(now).toISOString()}]);
+  const catchup=ticker.ingestRouter([
+    {id:'historical',text:'Old history',receivedAt:new Date(now-60*60*1000).toISOString()},
+    {id:'missed',text:'Missed in same conversation',receivedAt:new Date(now-2*60*1000).toISOString()},
+  ],{detailed:true});
+  assert.equal(catchup.inserted,1);
+  assert.equal(catchup.baselined,1);
+  assert.equal(ticker.ingestRouter([{id:'missed',text:'Missed in same conversation'}],{detailed:true}).inserted,0);
 });
