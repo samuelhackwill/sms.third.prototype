@@ -162,6 +162,7 @@ export async function createController({
     routerReader=new TendaReader({config,onRecords:records=>{
       const result=ticker.ingestRouter(records);
       if(result.inserted)tickerTick();
+      return result;
     },onStatus:status=>{routerStatus=status;}}).start();
   }
   const savedRouter=await readFile(routerFile,'utf8').then(JSON.parse).catch(error=>{if(error.code==='ENOENT')return null;throw error;});

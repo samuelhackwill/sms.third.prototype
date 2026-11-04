@@ -3,23 +3,28 @@ import { promisify } from 'node:util';
 
 const execFileAsync=promisify(execFile);
 
-export function parseTendaInbox(raw) {
+export function parseTendaInboxDetailed(raw) {
   const data=JSON.parse(raw);
-  if(data.errCode===1000)return [];
+  if(data.errCode===1000)return {records:[],stats:{emptyResponse:true,threads:0,notes:0,incoming:0,uniqueIds:0,blankBodies:0}};
   const list=data.smsList?.phoneList;
   if(!Array.isArray(list))throw new Error('router-inbox-invalid');
   const records=[];
+  let notes=0,blankBodies=0;
   for(const entry of list){
     for(const note of entry.note??[]){
+      notes++;
       if(note.isSend===true||note.isSend===1||note.isSend==='1')continue;
       const sender=String(entry.phone??''),body=String(note.content??'');
+      if(!body.trim())blankBodies++;
       const stamp=Number(note.time)||0;
       const key=note.id!=null?`${sender}:${note.id}`:`${sender}:${stamp}:${body}`;
       records.push({id:key,text:body,receivedAt:stamp>0?new Date(stamp*1000).toISOString():null,stamp});
     }
   }
-  return records.sort((a,b)=>a.stamp-b.stamp);
+  records.sort((a,b)=>a.stamp-b.stamp);
+  return {records,stats:{emptyResponse:false,threads:list.length,notes,incoming:records.length,uniqueIds:new Set(records.map(record=>record.id)).size,blankBodies}};
 }
+export const parseTendaInbox=raw=>parseTendaInboxDetailed(raw).records;
 
 export class TendaReader {
   constructor({config,onRecords,onStatus}){this.config=config;this.onRecords=onRecords;this.onStatus=onStatus;this.stopped=false;this.timer=null;this.cookies='';this.failures=0;}
@@ -38,8 +43,8 @@ export class TendaReader {
     const {stdout}=await execFileAsync('/usr/bin/curl',['-sS','--max-time','20',`${base}/goform/getModules?${query}`,'-H',`Referer: ${base}/index.html`,'-H','X-Requested-With: XMLHttpRequest','-H',`Cookie: ${this.cookies}`,'-H','User-Agent: Mozilla/5.0','-H','Accept: application/json, text/plain, */*'],{encoding:'buffer',maxBuffer:4*1024*1024});
     const raw=Buffer.isBuffer(stdout)?stdout:Buffer.from(stdout);
     let text=new TextDecoder('utf-8',{fatal:true});
-    try{return parseTendaInbox(text.decode(raw));}
-    catch(error){if(!(error instanceof TypeError))throw error;text=new TextDecoder('gbk');return parseTendaInbox(text.decode(raw));}
+    try{return parseTendaInboxDetailed(text.decode(raw));}
+    catch(error){if(!(error instanceof TypeError))throw error;text=new TextDecoder('gbk');return parseTendaInboxDetailed(text.decode(raw));}
   }
   async poll(){
     if(this.stopped)return;
@@ -47,9 +52,9 @@ export class TendaReader {
     try{
       if(!this.cookies)await this.login();
       phase='inbox';
-      const records=await this.inbox();
+      const {records,stats}=await this.inbox();
       phase='ingest';
-      if(!this.stopped){await this.onRecords(records);this.failures=0;this.onStatus?.({status:'reading',at:Date.now(),count:records.length});}
+      if(!this.stopped){const ingestion=await this.onRecords(records);this.failures=0;this.onStatus?.({status:'reading',at:Date.now(),count:records.length,stats,inserted:ingestion?.inserted??0,...(!stats.emptyResponse?{lastNonempty:{at:Date.now(),...stats}}:{lastNonempty:this.lastNonempty})});if(!stats.emptyResponse)this.lastNonempty={at:Date.now(),...stats};}
     }catch(error){
       if(phase==='inbox')this.cookies='';
       this.failures++;

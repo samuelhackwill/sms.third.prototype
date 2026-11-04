@@ -175,5 +175,5 @@ export class LiveTicker {
     }
     return false;
   }
-  status(){return {enabled:this.enabled,mode:this.playbackMode,queued:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source=? AND status='queued'").get(this.playbackMode).n,routerQueued:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source='router' AND status='queued'").get().n,active:this.runs(),completed:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source=? AND status='completed'").get(this.playbackMode).n,readers:this.db.prepare('SELECT * FROM ticker_sources').all()};}
+  status(){return {enabled:this.enabled,mode:this.playbackMode,queued:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source=? AND status='queued'").get(this.playbackMode).n,routerQueued:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source='router' AND status='queued'").get().n,routerSeen:this.db.prepare('SELECT COUNT(*) AS n FROM router_seen').get().n,routerMessages:this.db.prepare("SELECT status,COUNT(*) AS n FROM ticker_messages WHERE source='router' GROUP BY status").all(),active:this.runs(),completed:this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source=? AND status='completed'").get(this.playbackMode).n,readers:this.db.prepare('SELECT * FROM ticker_sources').all()};}
 }
