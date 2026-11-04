@@ -1,0 +1,309 @@
+import SwiftUI
+import Security
+
+@main
+struct PhoneWallRemoteApp: App {
+    var body: some Scene {
+        WindowGroup { RemoteView() }
+    }
+}
+
+private enum RemoteError: LocalizedError {
+    case invalidURL, missingKey, invalidResponse, server(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidURL: return "Enter the private HTTPS address of the Mac mini."
+        case .missingKey: return "Enter the Phone Wall operator key."
+        case .invalidResponse: return "The controller returned an unexpected response."
+        case .server(let message): return message
+        }
+    }
+}
+
+private enum OperatorKey {
+    private static let account = "phone-wall-remote-operator"
+    private static let service = "org.museum.phonewall.remote"
+
+    static func load() -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: account,
+            kSecAttrService as String: service,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    static func save(_ key: String) throws {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: account,
+            kSecAttrService as String: service
+        ]
+        let value: [String: Any] = [kSecValueData as String: Data(key.utf8)]
+        let status = SecItemUpdate(query as CFDictionary, value as CFDictionary)
+        if status == errSecItemNotFound {
+            var item = query
+            item[kSecValueData as String] = Data(key.utf8)
+            item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            guard SecItemAdd(item as CFDictionary, nil) == errSecSuccess else {
+                throw RemoteError.server("Could not save the operator key on this iPhone.")
+            }
+        } else if status != errSecSuccess {
+            throw RemoteError.server("Could not update the operator key on this iPhone.")
+        }
+    }
+}
+
+private struct WallStatus: Decodable {
+    struct State: Decodable { let mode: String }
+    struct Ticker: Decodable { let mode: String; let enabled: Bool }
+    struct Device: Decodable {
+        let id: String
+        let connected: Bool
+        let paired: Bool
+        let slotIndex: Int?
+        let telemetryAt: Double?
+        let telemetry: Telemetry?
+
+        enum CodingKeys: String, CodingKey {
+            case id = "_id", connected, paired, slotIndex, telemetryAt, telemetry
+        }
+    }
+    struct Telemetry: Decodable { let battery: Double?; let charging: Bool? }
+
+    let state: State
+    let ticker: Ticker
+    let devices: [Device]
+    let serverTimeMs: Double
+}
+
+private struct APIError: Decodable { let error: String }
+private struct Action: Encodable { let action: String }
+
+private struct UnpluggedPhone: Identifiable {
+    let id: String
+    let slot: Int?
+    let battery: Double?
+}
+
+@MainActor
+private final class RemoteModel: ObservableObject {
+    @Published var controllerURL = UserDefaults.standard.string(forKey: "controllerURL")
+        ?? "https://sms-ingestors-mac-mini.tail2420ce.ts.net"
+    @Published var unplugged: [UnpluggedPhone] = []
+    @Published var mode = "Unknown"
+    @Published var connection = "Waiting for controller"
+    @Published var unknownPowerCount = 0
+    @Published var isBusy = false
+
+    var hasKey: Bool { !(OperatorKey.load() ?? "").isEmpty }
+
+    func saveConfiguration(address: String, key: String) throws {
+        let cleaned = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard var parts = URLComponents(string: cleaned),
+              parts.scheme == "https", parts.host != nil else { throw RemoteError.invalidURL }
+        parts.path = ""
+        parts.query = nil
+        parts.fragment = nil
+        guard let base = parts.url else { throw RemoteError.invalidURL }
+        let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedKey.isEmpty else { throw RemoteError.missingKey }
+        try OperatorKey.save(trimmedKey)
+        controllerURL = base.absoluteString
+        UserDefaults.standard.set(controllerURL, forKey: "controllerURL")
+    }
+
+    private func request(action: String? = nil) async throws -> Data {
+        guard let key = OperatorKey.load(), !key.isEmpty else { throw RemoteError.missingKey }
+        guard let base = URL(string: controllerURL), base.scheme == "https" else { throw RemoteError.invalidURL }
+        var request = URLRequest(url: base.appendingPathComponent("phone-wall/api"))
+        request.timeoutInterval = 12
+        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        if let action {
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONEncoder().encode(Action(action: action))
+        }
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let response = response as? HTTPURLResponse else { throw RemoteError.invalidResponse }
+        guard (200..<300).contains(response.statusCode) else {
+            let message = (try? JSONDecoder().decode(APIError.self, from: data))?.error
+            throw RemoteError.server(message ?? "Controller error \(response.statusCode).")
+        }
+        return data
+    }
+
+    func refresh() async {
+        guard hasKey else {
+            connection = "Set up the controller connection"
+            return
+        }
+        do {
+            let data = try await request()
+            let status = try JSONDecoder().decode(WallStatus.self, from: data)
+            let now = status.serverTimeMs
+            let paired = status.devices.filter(\.paired)
+            let fresh = paired.filter { $0.connected && ($0.telemetryAt ?? 0) >= now - 60_000 }
+            unplugged = fresh.filter { $0.telemetry?.charging == false }
+                .sorted { ($0.slotIndex ?? Int.max) < ($1.slotIndex ?? Int.max) }
+                .map { UnpluggedPhone(id: $0.id, slot: $0.slotIndex, battery: $0.telemetry?.battery) }
+            unknownPowerCount = paired.count - fresh.filter { $0.telemetry?.charging != nil }.count
+            mode = status.state.mode == "night" ? "Night" :
+                status.state.mode == "exhibition" && status.ticker.mode == "barthes" && status.ticker.enabled ? "Day · Barthes" : "Other artwork"
+            connection = "Connected · updated \(Date().formatted(date: .omitted, time: .shortened))"
+        } catch {
+            unplugged = []
+            unknownPowerCount = 0
+            connection = "Cannot reach controller: \(error.localizedDescription)"
+        }
+    }
+
+    func activate(_ action: String) async {
+        guard !isBusy else { return }
+        isBusy = true
+        defer { isBusy = false }
+        do {
+            _ = try await request(action: action)
+            await refresh()
+        } catch {
+            connection = "Action failed: \(error.localizedDescription)"
+        }
+    }
+
+    func poll() async {
+        while !Task.isCancelled {
+            await refresh()
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+        }
+    }
+}
+
+private struct RemoteView: View {
+    @StateObject private var model = RemoteModel()
+    @State private var showingSettings = false
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 22) {
+                Text(model.mode)
+                    .font(.title2.weight(.semibold))
+                Button {
+                    Task { await model.activate("remote.night") }
+                } label: {
+                    Label("Night mode", systemImage: "moon.fill")
+                        .frame(maxWidth: .infinity, minHeight: 58)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.indigo)
+                .disabled(model.isBusy || !model.hasKey)
+
+                Button {
+                    Task { await model.activate("remote.day") }
+                } label: {
+                    Label("Day mode", systemImage: "sun.max.fill")
+                        .frame(maxWidth: .infinity, minHeight: 58)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.orange)
+                .disabled(model.isBusy || !model.hasKey)
+
+                Text(model.connection)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+
+                Divider()
+                Text("Unplugged phones")
+                    .font(.headline)
+                if model.unplugged.isEmpty {
+                    Text(model.connection.hasPrefix("Connected") ? "No currently unplugged phones reported." : "Waiting for current power readings.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    List(model.unplugged) { phone in
+                        HStack {
+                            Text(phone.slot.map { "Slot \($0 + 1)" } ?? "Phone")
+                            Spacer()
+                            if let battery = phone.battery, battery >= 0 {
+                                Text("\(Int((battery * 100).rounded()))%")
+                            }
+                        }
+                    }
+                    .listStyle(.plain)
+                }
+                if model.unknownPowerCount > 0 {
+                    Text("Power status unavailable for \(model.unknownPowerCount) paired phone(s).")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding()
+            .navigationTitle("Phone Wall")
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button { showingSettings = true } label: {
+                        Image(systemName: "gearshape").accessibilityLabel("Connection")
+                    }
+                }
+            }
+            .sheet(isPresented: $showingSettings) {
+                SettingsView(model: model)
+            }
+            .task {
+                if !model.hasKey { showingSettings = true }
+                await model.poll()
+            }
+        }
+    }
+}
+
+private struct SettingsView: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject var model: RemoteModel
+    @State private var address = ""
+    @State private var key = ""
+    @State private var error: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Controller") {
+                    TextField("HTTPS address", text: $address)
+                        .textInputAutocapitalization(.never)
+                        .keyboardType(.URL)
+                        .autocorrectionDisabled()
+                    SecureField("Operator key", text: $key)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                }
+                Section {
+                    Text("The iPhone must be connected to the same Tailscale network as the Mac mini. The operator key stays in this iPhone's Keychain.")
+                }
+                if let error {
+                    Section { Text(error).foregroundStyle(.red) }
+                }
+            }
+            .navigationTitle("Connection")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        do {
+                            try model.saveConfiguration(address: address, key: key)
+                            dismiss()
+                            Task { await model.refresh() }
+                        } catch { self.error = error.localizedDescription }
+                    }
+                }
+            }
+            .onAppear {
+                address = model.controllerURL
+                key = OperatorKey.load() ?? ""
+            }
+        }
+    }
+}

@@ -286,12 +286,19 @@ export async function createController({
       store.commit({...state,debugEnabled:input.enabled},previous.revision);
       broadcast();return {ok:true,enabled:input.enabled};
     }
-    if(input.action==='barthes.start'){
+    if(input.action==='remote.night'){
+      if(pairing.status().active)throw new Error('stop-pairing-before-night-mode');
+      state.mode='night';state.nightBrightness=0;state.schedule=null;state.overrides={};
+      store.commit(state,previous.revision);
+      store.db.prepare('DELETE FROM previews').run();
+      broadcast();return {ok:true};
+    }
+    if(input.action==='barthes.start'||input.action==='remote.day'){
       if(pairing.status().active)throw new Error('stop-pairing-before-barthes-mode');
       if(!state.layout.slots.length)throw new Error('pair-phones-before-barthes-mode');
       if(state.layout.slots.some(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.liveTicker!==1))throw new Error('phone-app-2.3-required-for-barthes-mode');
       kissing.configure({enabled:false});liveAttempts.clear();cacheRecovery.clear();ticker.startBarthes();
-      store.commit({...state,mode:'exhibition',schedule:null,overrides:{}},previous.revision);
+      store.commit({...state,mode:'exhibition',...(input.action==='remote.day'?{brightness:1}:{}),schedule:null,overrides:{}},previous.revision);
       store.db.prepare('DELETE FROM previews').run();broadcast();tickerTick();return {ok:true};
     }
     if(input.action==='barthes.stop'){

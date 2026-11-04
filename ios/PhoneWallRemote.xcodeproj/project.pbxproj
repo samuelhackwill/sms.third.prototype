@@ -1,0 +1,91 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		B00000000000000000000001 /* PhoneWallRemoteApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000002 /* PhoneWallRemoteApp.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		B00000000000000000000002 /* PhoneWallRemoteApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneWallRemoteApp.swift; sourceTree = "<group>"; };
+		B00000000000000000000003 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		B00000000000000000000004 /* PhoneWallRemote.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = PhoneWallRemote.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		B00000000000000000000005 = {
+			isa = PBXGroup;
+			children = (
+				B00000000000000000000006 /* PhoneWallRemote */,
+				B00000000000000000000004 /* PhoneWallRemote.app */,
+			);
+			sourceTree = "<group>";
+		};
+		B00000000000000000000006 /* PhoneWallRemote */ = {
+			isa = PBXGroup;
+			children = (
+				B00000000000000000000002 /* PhoneWallRemoteApp.swift */,
+				B00000000000000000000003 /* Info.plist */,
+			);
+			path = PhoneWallRemote;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		B00000000000000000000007 /* PhoneWallRemote */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = B00000000000000000000008 /* Build configuration list for PBXNativeTarget "PhoneWallRemote" */;
+			buildPhases = (B00000000000000000000009 /* Sources */);
+			buildRules = ();
+			dependencies = ();
+			name = PhoneWallRemote;
+			productName = PhoneWallRemote;
+			productReference = B00000000000000000000004 /* PhoneWallRemote.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		B00000000000000000000010 /* Project object */ = {
+			isa = PBXProject;
+			attributes = { LastUpgradeCheck = 1500; TargetAttributes = { B00000000000000000000007 = { CreatedOnToolsVersion = 15.0; }; }; };
+			buildConfigurationList = B00000000000000000000011 /* Build configuration list for PBXProject "PhoneWallRemote" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (en, Base);
+			mainGroup = B00000000000000000000005;
+			productRefGroup = B00000000000000000000005;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (B00000000000000000000007 /* PhoneWallRemote */);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		B00000000000000000000009 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (B00000000000000000000001 /* PhoneWallRemoteApp.swift in Sources */);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		B00000000000000000000012 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = { ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; CODE_SIGN_STYLE = Automatic; COPY_PHASE_STRIP = NO; DEBUG_INFORMATION_FORMAT = dwarf; ENABLE_TESTABILITY = YES; IPHONEOS_DEPLOYMENT_TARGET = 16.0; SDKROOT = iphoneos; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; SWIFT_VERSION = 5.0; }; name = Debug; };
+		B00000000000000000000013 /* Release */ = {isa = XCBuildConfiguration; buildSettings = { ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; CODE_SIGN_STYLE = Automatic; COPY_PHASE_STRIP = YES; DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym"; IPHONEOS_DEPLOYMENT_TARGET = 16.0; SDKROOT = iphoneos; SWIFT_OPTIMIZATION_LEVEL = "-O"; SWIFT_VERSION = 5.0; }; name = Release; };
+		B00000000000000000000014 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = { CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = PhoneWallRemote/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 16.0; PRODUCT_BUNDLE_IDENTIFIER = org.museum.phonewall.remote; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 1; }; name = Debug; };
+		B00000000000000000000015 /* Release */ = {isa = XCBuildConfiguration; buildSettings = { CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = PhoneWallRemote/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 16.0; PRODUCT_BUNDLE_IDENTIFIER = org.museum.phonewall.remote; PRODUCT_NAME = "$(TARGET_NAME)"; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 1; }; name = Release; };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		B00000000000000000000008 /* Build configuration list for PBXNativeTarget "PhoneWallRemote" */ = {isa = XCConfigurationList; buildConfigurations = (B00000000000000000000014 /* Debug */, B00000000000000000000015 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		B00000000000000000000011 /* Build configuration list for PBXProject "PhoneWallRemote" */ = {isa = XCConfigurationList; buildConfigurations = (B00000000000000000000012 /* Debug */, B00000000000000000000013 /* Release */); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+	};
+	rootObject = B00000000000000000000010 /* Project object */;
+}
