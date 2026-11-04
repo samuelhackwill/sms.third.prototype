@@ -32,6 +32,6 @@ export async function configureInstallation({root='/Library/Application Support/
   return {configFile,keyFile,plist,port};
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
-  if(process.getuid?.()!==0)throw new Error('This helper is run by macOS Installer as administrator.');
+  if(process.getuid?.()!==0)throw new Error('Run daemon configuration as administrator.');
   const result=await configureInstallation();console.log(`Phone Wall configured on port ${result.port}. Operator key retained locally.`);
 }

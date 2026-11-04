@@ -2,7 +2,6 @@ import { spawnSync } from 'node:child_process';
 import { mkdir,readFile,writeFile,cp,readdir,lstat,rm,rename,mkdtemp } from 'node:fs/promises';
 import { join,resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { applyDashboardIcon } from './dashboard-icon.mjs';
 
 const repository='samuelhackwill/sms.third.prototype',branch='phone-wall-runtime-2';
 const root='/Library/Application Support/PhoneWall',label='org.museum.phonewall';
@@ -51,6 +50,19 @@ async function stopService() {
   if(spawnSync('/bin/launchctl',['print','system/'+label],{stdio:'ignore'}).status===0)run('/bin/launchctl',['bootout','system/'+label]);
 }
 function startService(){run('/bin/launchctl',['bootstrap','system',`/Library/LaunchDaemons/${label}.plist`]);}
+async function restartReaders() {
+  for(const entry of await readdir('/Users',{withFileTypes:true})) {
+    if(!entry.isDirectory())continue;
+    const file=join('/Users',entry.name,'Library/LaunchAgents/org.museum.phonewall.messages.plist');
+    const info=await lstat(file).catch(()=>null);
+    if(!info?.isFile())continue;
+    const service=`gui/${info.uid}/org.museum.phonewall.messages`;
+    if(spawnSync('/bin/launchctl',['print',service],{stdio:'ignore'}).status===0){
+      try{run('/bin/launchctl',['kickstart','-k',service]);}
+      catch(error){console.warn(`Reader restart deferred for ${entry.name}: ${error.message}`);}
+    }
+  }
+}
 export async function activateUpdate({directory,candidate,stop,start,backup,healthy}) {
   const app=join(directory,'app'),previous=join(directory,'app.previous');
   await rm(previous,{recursive:true,force:true});
@@ -70,7 +82,7 @@ export async function activateUpdate({directory,candidate,stop,start,backup,heal
   }
 }
 async function update() {
-  if(process.platform!=='darwin'||process.getuid?.()!==0)throw new Error('Run Update Phone Wall from Applications and approve administrator access');
+  if(process.platform!=='darwin'||process.getuid?.()!==0)throw new Error('Run the updater as root through launchd');
   const lock=join(root,'update.lock');
   await mkdir(lock); // Exclusive directory prevents concurrent swaps.
   let work;
@@ -79,6 +91,8 @@ async function update() {
     const ref=JSON.parse((await download(`https://api.github.com/repos/${repository}/git/ref/heads/${branch}`,1024*1024)).toString());
     const commit=ref.object?.sha;
     if(!/^[a-f0-9]{40}$/.test(commit??''))throw new Error('Invalid GitHub commit');
+    const installed=await readFile(join(root,'app/build-info.json'),'utf8').then(JSON.parse).catch(()=>null);
+    if(installed?.gitCommit===commit)return;
     const archive=join(work,'source.tar.gz');
     await writeFile(archive,await download(`https://codeload.github.com/${repository}/tar.gz/${commit}`,200*1024*1024));
     const entries=run('/usr/bin/tar',['-tzf',archive]).trim().split('\n');
@@ -95,7 +109,11 @@ async function update() {
     await cp(join(source,'scripts/phone-wall'),join(candidate,'scripts/phone-wall'),{recursive:true});
     await cp(join(root,'app/runtime'),join(candidate,'runtime'),{recursive:true});
     const node=join(candidate,'runtime/bin/node'),npm=join(candidate,'runtime/lib/node_modules/npm/bin/npm-cli.js');
-    run(node,[npm,'ci','--omit=dev','--ignore-scripts','--prefix',service]);
+    const oldService=join(root,'app/server/phone-wall');
+    const oldLock=await readFile(join(oldService,'package-lock.json')).catch(()=>null);
+    const nextLock=await readFile(join(service,'package-lock.json'));
+    if(oldLock?.equals(nextLock)&&await lstat(join(oldService,'node_modules')).then(info=>info.isDirectory()).catch(()=>false))await cp(join(oldService,'node_modules'),join(service,'node_modules'),{recursive:true});
+    else run(node,[npm,'ci','--omit=dev','--ignore-scripts','--prefix',service]);
     const smokeData=join(work,'smoke-data');
     run(node,['--input-type=module','-e',`const {createController}=await import(${JSON.stringify(join(service,'app.mjs'))});const {app}=await createController({dataDir:${JSON.stringify(smokeData)},adminToken:'update-smoke-private-key-0000000000000000'});try{for(const url of ['/health','/admin/phone-wall']){const r=await app.inject({url});if(r.statusCode!==200)throw new Error('Update validation failed');}}finally{await app.close();}`]);
     await writeFile(join(candidate,'build-info.json'),JSON.stringify({version:format.version,gitCommit:commit,nodeVersion:process.version,updatedAt:new Date().toISOString()},null,2));
@@ -124,9 +142,8 @@ async function update() {
       }
       console.log(`Phone connections after update: ${connectedAfter??'unavailable'} / ${connectedBefore} before update.`);
     }
-    try {await applyDashboardIcon({iconFile:join(root,'app/scripts/phone-wall/assets/dashboard.icns')});}
-    catch(error){throw new Error(`Server updated, but the dashboard icon could not be applied. Run Update Phone Wall again. ${error.message}`);}
-    console.log(`Updated to ${format.version} (${commit.slice(0,8)}). Open Phone Wall Dashboard.`);
+    await restartReaders();
+    console.log(`Updated to ${format.version} (${commit.slice(0,8)}). Dashboard: http://127.0.0.1:${config.port}/admin/phone-wall`);
   } finally {
     if(work)await rm(work,{recursive:true,force:true});
     await rm(lock,{recursive:true,force:true});

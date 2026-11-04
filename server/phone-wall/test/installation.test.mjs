@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { configureInstallation } from '../../../scripts/phone-wall/installer/configure.mjs';
+import { configureInstallation } from '../../../scripts/phone-wall/daemon-config.mjs';
 import { configuration, advertisement } from '../installation.mjs';
 import { Service } from 'bonjour-service';
 

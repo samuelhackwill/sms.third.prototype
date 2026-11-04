@@ -4,9 +4,9 @@ See [Architecture](ARCHITECTURE.md), [Deployment](DEPLOYMENT.md), [Staff Guide](
 
 The [runtime 2.0 artwork contract](RUNTIME.md) documents declarative scenes, cached offline rendering, staged prepare/activate publication, WebView recovery, rollback and the boundary between artwork updates and IPA updates.
 
-The default dashboard is **Control**: Pair / Position, Send Test Text and Live iMessages. Existing functionality remains in **Advanced**. Mac installer 2.2.0 and newer include **Update Phone Wall.app**, a pull-from-GitHub updater for committed server/UI changes without reinstalling packages; see [Updating](DEPLOYMENT.md#updating-without-reinstalling). Existing 2.1 phone apps support the test-text scene; Live iMessages requires the one-time native app 2.3 upgrade. Later supported artwork changes need no IPA redeployment.
+The default dashboard is **Control**: Pair / Position, Send Test Text and Live iMessages. Existing functionality remains in **Advanced**. The Mac mini uses a Node LaunchDaemon and a headless GitHub polling updater; see [Deployment](DEPLOYMENT.md#mac-mini-node-daemon-and-browser-dashboard). Existing 2.1 phone apps support the test-text scene; Live iMessages requires the one-time native app 2.3 upgrade. Later supported artwork changes need no IPA redeployment.
 
-For the **Mac mini**, use the double-click Apple Silicon installer described in [Deployment](DEPLOYMENT.md#mac-mini-double-click-installation), then open **Phone Wall Dashboard** in Applications. It bundles Node and runs a boot-time daemon; no Terminal commands are needed on the installation Mac. macOS Bonjour advertises the Phone Wall service using the Mac's current hostname and selected port, without claiming a hostname separately.
+For the **Mac mini**, the Node controller runs at boot and serves the browser dashboard directly. Existing installations migrate with one headless setup command; routine pushes are fetched automatically. macOS Bonjour advertises the Phone Wall service using the Mac's current hostname and selected port, without claiming a hostname separately.
 
 The following commands are for **development**, not museum operation:
 
@@ -26,7 +26,7 @@ Run `npm test` for protocol, 30-device fleet and real-process restart tests. `np
 
 ## Live iMessages
 
-Live iMessages are now available in **Control > Live iMessages** with native app **2.3 (build 6)**. Incoming Messages.app records feed a durable SQLite FIFO and play on available rows; the same red serif artwork is reused. The Mac's logged-in Messages user has a separate read-only reader agent, installed when opening the dashboard, and must explicitly grant Full Disk Access once. The backend service never reads a personal database as root or `_phonewall`. See [one-time setup](DEPLOYMENT.md#live-imessages-one-time-setup-on-sms-ingestor), [operator behavior](OPERATIONS.md#live-incoming-messages) and `npm run test:live --prefix server/phone-wall` for the synthetic end-to-end test. Legacy Meteor files and Mongo data are untouched.
+Live iMessages are now available in **Control > Live iMessages** with native app **2.3 (build 6)**. Incoming Messages.app records feed a durable SQLite FIFO and play on available rows; the same red serif artwork is reused. The Mac's logged-in Messages user has a separate read-only reader agent, installed once as the Messages user, and must explicitly grant Full Disk Access once. The backend service never reads a personal database as root or `_phonewall`. See [one-time setup](DEPLOYMENT.md#live-imessages-one-time-setup-on-sms-ingestor), [operator behavior](OPERATIONS.md#live-incoming-messages) and `npm run test:live --prefix server/phone-wall` for the synthetic end-to-end test. Legacy Meteor files and Mongo data are untouched.
 
 ## Legacy Meteor Artwork
 

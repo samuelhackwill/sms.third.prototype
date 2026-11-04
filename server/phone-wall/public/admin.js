@@ -3,7 +3,7 @@ const $ = (id) => document.getElementById(id);
 function requestId(){if(typeof crypto.randomUUID==='function')return crypto.randomUUID();return Array.from(crypto.getRandomValues(new Uint8Array(16)),n=>n.toString(16).padStart(2,'0')).join('');}
 let virtualDraft = null;
 let inspectedDeviceId = null;
-let token = "",
+let token = sessionStorage.getItem('phoneWallOperatorKey') ?? "",
   data = null,
   offset = 0,
   edited = false,
@@ -55,7 +55,10 @@ async function api(input) {
     ...(input ? { body: JSON.stringify(input) } : {}),
   });
   const value = await response.json();
-  if (!response.ok) throw new Error(value.error);
+  if (!response.ok) {
+    if (response.status === 401) { token = ''; sessionStorage.removeItem('phoneWallOperatorKey'); $('login').hidden = false; }
+    throw new Error(value.error);
+  }
   if (!input) {
     data = value;
     if (data.serverTimeMs) {
@@ -183,7 +186,7 @@ function render() {
   $('barthes-status').textContent=live?.upgradeRequired?.length?`Install phone app 2.3 on ${live.upgradeRequired.length} connected phones.`:
     barthesActive?`${state.mode==='exhibition'?'PLAYING':'WAITING'} · ${live.queued} queued · ${live.active.length} active rows · ${live.completed} completed`:'Stopped';
   const readers=live?.readers??[];
-  $('reader-status').textContent=live?.upgradeRequired?.length?`Install phone app 2.3 for live playback (${live.upgradeRequired.length} phones need updating).`:readers.length?readers.map(reader=>`${reader.status==='needs-full-disk-access'?'Reader needs Full Disk Access (see permission instructions)':Date.now()-reader.last_seen>45000?'Reader offline':reader.status==='reading'?'Reader connected; watching new iMessages':`Reader: ${reader.status}`}`).join(' · '):'Reader not connected. Open Phone Wall Dashboard on the Mac mini.';
+  $('reader-status').textContent=live?.upgradeRequired?.length?`Install phone app 2.3 for live playback (${live.upgradeRequired.length} phones need updating).`:readers.length?readers.map(reader=>`${reader.status==='needs-full-disk-access'?'Reader needs Full Disk Access (see permission instructions)':Date.now()-reader.last_seen>45000?'Reader offline':reader.status==='reading'?'Reader connected; watching new iMessages':`Reader: ${reader.status}`}`).join(' · '):'Reader not connected. Check that the Messages user is logged in and its reader agent is running.';
   if(!testSpeedEdited)$('test-text-speed').value=state.testTextSpeed??240;
   if(!testMessageEdited)$('test-text-message').value=state.testText??defaultTestMessage;
   showTestSpeed();
@@ -491,6 +494,7 @@ $("login").onsubmit = run(async () => {
   token = $("key").value;
   $("key").value = "";
   await api();
+  sessionStorage.setItem('phoneWallOperatorKey',token);
 });
 document
   .querySelectorAll("[data-mode]")
@@ -747,7 +751,8 @@ $("upload-code").onclick = run(() =>
   upload($("code").value, "text/javascript"),
 );
 const launchKey=new URLSearchParams(location.hash.slice(1)).get('operatorKey');
-if(launchKey!==null){history.replaceState(null,'',location.pathname+location.search);if(/^[a-f0-9]{64}$/.test(launchKey)){token=launchKey;api().catch(error=>status(error.message));}}
+if(launchKey!==null){history.replaceState(null,'',location.pathname+location.search);if(/^[a-f0-9]{64}$/.test(launchKey)){token=launchKey;api().then(()=>sessionStorage.setItem('phoneWallOperatorKey',token)).catch(error=>status(error.message));}}
+else if(token)api().catch(error=>status(error.message));
 setInterval(async () => {
   if (!token) return;
   try {

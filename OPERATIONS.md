@@ -20,7 +20,7 @@ Use the **Text speed** slider (20–1000 logical pixels/second) before sending a
 
 Native app **2.2 (build 5)** requests **60 frames/second**; older 2.1 apps requested 30. Install this IPA once for the smoother native renderer; GitHub server updates cannot change native code. **Advanced** phone cards show sampled display-callback rate and target after a heartbeat. This is a useful slowdown diagnostic, not proof every frame reached the screen. Actual sustained performance, thermals and battery behavior must be checked on the iPhone 6s. Speed and frame rate are independent. The browser's 30-screen preview remains approximate and capped around 30 fps; video and experimental WebView frame rates depend on their own playback/render loop.
 
-For a published server update, open **Update Phone Wall** in Applications and approve once; no package reinstall or Terminal is required after installing version 2.2.0. Only committed/pushed source is downloaded. Update outside exhibition hours with internet available; normal operation remains offline-capable. Artwork-only changes do not require an IPA update.
+Push a server update to `phone-wall-runtime-2`; the Mac checks for new commits every five minutes and updates itself. Normal playback remains local once the update has downloaded. Artwork-only changes do not require an IPA update.
 
 ## Independent Kissing Wall
 
@@ -30,7 +30,7 @@ Optional **Play only the kiss** uses the API kiss timestamps and the before/afte
 
 ## Live Incoming Messages
 
-After the one-time [Messages setup](DEPLOYMENT.md#live-imessages-one-time-setup-on-sms-ingestor) and phone app 2.3 installation, open **Phone Wall Dashboard**. Polling and playback start automatically. Wait for the reader's connected status before sending the first new incoming message. The first database connection skips old history. Each message enters one FIFO; whichever row is ready next takes the oldest waiting message. The row starts all its phones together after they have prepared the actual text, and becomes free after all of them confirm the text has left the row.
+After the one-time [Messages setup](DEPLOYMENT.md#live-imessages-one-time-setup-on-sms-ingestor) and phone app 2.3 installation, open the browser dashboard. Polling and playback start automatically. Wait for the reader's connected status before sending the first new incoming message. The first database connection skips old history. Each message enters one FIFO; whichever row is ready next takes the oldest waiting message. The row starts all its phones together after they have prepared the actual text, and becomes free after all of them confirm the text has left the row.
 
 The reader continues polling through artwork changes. Night mode, pairing, Kissing Wall and Barthes mode temporarily hold incoming-message playback while retaining messages in the queue. Playback resumes when the temporary mode ends. Test Text and other artwork actions do not turn off incoming messages. A row with an offline phone waits while other rows continue. Interrupted/unfinished runs return to the queue; a partially seen message may replay after a network/server interruption rather than being silently lost. Duplicate database deliveries do not create duplicate queue entries.
 
@@ -39,12 +39,12 @@ If the reader needs Full Disk Access, follow the on-screen permission instructio
 Artistic editing and staged release instructions are in [RUNTIME.md](RUNTIME.md). Use one phone, then a selected group, then promote the same immutable release to the entire matrix. Do not treat a release as successful until its target phones report displayed; a preparation error leaves the previous artwork in place.
 
 1. Switch on the dedicated router, screen chargers and Mac mini. If the Mac was deliberately shut down, press its power button and log into the installation account as instructed. Restored power alone may not start it.
-2. Open **Phone Wall Dashboard** in Applications on the Mac mini. It signs in automatically; no Terminal or operator key is needed with the packaged installation. Check the device count and text status labels.
+2. Open `http://127.0.0.1:3100/admin/phone-wall` in a browser on the Mac mini (or use the configured port). Enter the operator key once for that tab session. Check the device count and status labels.
 3. For the approved exhibition artwork, open **Advanced** and press **Start Exhibition**. Check all screens. If a scene needs selecting, choose the approved scene before starting.
 4. At closing, open **Advanced** and press **Night Mode**. Screens become black and dim; phones remain plugged in and reachable. Do not shut them down individually.
 5. Set Target to **Entire matrix** and use **Blackout** for an immediate black display. Use **Start Exhibition** to resume. Manual mode controls disable an enabled daily schedule; the installer must save the schedule again to reactivate it.
 6. For a missing screen, find its Offline card. Click a neighboring paired screen, choose **Select for Advanced actions** in its details (repeat for other phones), set Target to **Selected phones**, then press **Identify**. The test pattern lasts 15 seconds. Check the missing phone's cable, charger and Wi-Fi. Ask the installer for USB recovery if it does not return. Return Target to **Entire matrix** afterward.
 
-After an outage, restore router, chargers and Mac power and wait for reconnect. The packaged controller starts at boot, before login; logging in is only needed to open the dashboard. A fully powered-off iPhone cannot be switched on remotely by this app; use its physical power button if needed. Single App Mode reboot/autolaunch must have been verified for the deployed build.
+After an outage, restore router, chargers and Mac power and wait for reconnect. The Node controller starts at boot, before login; logging in to the Messages account is needed for iMessage ingestion. A fully powered-off iPhone cannot be switched on remotely by this app; use its physical power button if needed. Single App Mode reboot/autolaunch must have been verified for the deployed build.
 
 Keep ventilation clear and cables secured. Remove any phone with a swollen battery, abnormal heat or unstable charging from service. Do not use personal accounts or store personal information on installation phones. The dedicated router travels with the wall when moving rooms.

@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { join,resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { escapeXml } from './installer/configure.mjs';
+import { escapeXml } from './daemon-config.mjs';
 
 export function messagesAgentPlist(home,root='/Library/Application Support/PhoneWall') {
   const app=join(root,'app'),label='org.museum.phonewall.messages';
