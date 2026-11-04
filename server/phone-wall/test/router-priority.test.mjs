@@ -159,7 +159,7 @@ test('router delete uses the per-message request from the Tenda web UI',async t=
   assert.deepEqual(request,{method:'POST',path:'/goform/setModules',body:{delSmsList:{phone:'0612345678',idList:[12,13]}}});
 });
 
-test('router baseline stays silent; new SMS interrupts Barthes and plays while ambient ticker is paused',async t=>{
+test('router baseline stays silent; new SMS waits for Barthes and plays before ambient text resumes',async t=>{
   const dir=await mkdtemp(join(tmpdir(),'wall-router-'));
   const store=new Store(join(dir,'controller.sqlite'));
   t.after(async()=>{store.close();await rm(dir,{recursive:true,force:true});});
@@ -174,17 +174,26 @@ test('router baseline stays silent; new SMS interrupts Barthes and plays while a
   assert.equal(ticker.ingestRouter([{id:'old',text:'Already in router'}]).inserted,0);
   ticker.startBarthes();ticker.tick(new Set(ids),true,1000);
   assert.equal(ticker.runs().filter(run=>run.source==='barthes').length,2);
+  const ambient=ticker.runs().find(run=>run.row===0);
   assert.equal(ticker.ingestRouter([{id:'old',text:'Already in router'},{id:'0612345678:new',text:'New SMS'}]).inserted,1);
   ticker.tick(new Set(ids),true,2000);
+  assert.equal(ticker.runs().find(run=>run.row===0).id,ambient.id);
+  assert.equal(ticker.status().routerQueued,1);
+  for(const id of ambient.targets)ticker.acknowledge(id,{type:'ticker.ready',runId:ambient.id,width:300},3000);
+  for(const id of ambient.targets)ticker.acknowledge(id,{type:'ticker.done',runId:ambient.id},10000);
+  ticker.tick(new Set(ids),true,11000);
   assert.equal(ticker.runs().find(run=>run.source==='router').row,0);
   assert.equal(ticker.runs().find(run=>run.source==='router').backgroundColor,routerBackground('tenda:0612345678:new'));
   assert.equal(ticker.snapshot(ids[0]).runs[0].text,'New SMS');
-  ticker.pause();ticker.tick(new Set(ids),false,3000);
+  ticker.pause();ticker.tick(new Set(ids),false,12000);
   assert.equal(ticker.runs().filter(run=>run.source==='barthes').length,0);
   assert.equal(ticker.runs().find(run=>run.source==='router').text,'New SMS');
   assert.equal(ticker.ingestRouter([{id:'newer',text:'Second SMS'}]).inserted,1);
-  ticker.tick(new Set(ids),false,4000);
+  ticker.tick(new Set(ids),false,13000);
   assert.equal(ticker.snapshot(ids[0]).enabled,true);
+  assert.equal(ticker.status().routerQueued,1);
+  assert.equal(ticker.runs().some(run=>run.source==='router'&&run.text==='Second SMS'),false);
+  ticker.tick(new Set(ids),true,14000);
   assert.ok(ticker.runs().some(run=>run.source==='router'&&run.text==='Second SMS'));
   const now=Date.now();
   ticker.ingestRouter([{id:'dated',text:'Recent',receivedAt:new Date(now).toISOString()}]);
@@ -211,11 +220,17 @@ test('new SMS waits when every row already shows SMS, so the first message is no
   ticker.tick(new Set(ids),true,1000);
   const first=ticker.runs()[0];
   ticker.ingestRouter([{id:'second',text:'Second'}]);
+  ticker.ingestRouter([{id:'third',text:'Third'}]);
   ticker.tick(new Set(ids),true,2000);
   assert.equal(ticker.runs()[0].id,first.id);
-  assert.equal(ticker.status().routerQueued,1);
+  assert.equal(ticker.status().routerQueued,2);
   for(const id of ids)ticker.acknowledge(id,{type:'ticker.ready',runId:first.id,width:100},3000);
   for(const id of ids)ticker.acknowledge(id,{type:'ticker.done',runId:first.id},100000);
   ticker.tick(new Set(ids),true,100000);
   assert.equal(ticker.runs()[0].text,'Second');
+  const second=ticker.runs()[0];
+  for(const id of ids)ticker.acknowledge(id,{type:'ticker.ready',runId:second.id,width:100},101000);
+  for(const id of ids)ticker.acknowledge(id,{type:'ticker.done',runId:second.id},200000);
+  ticker.tick(new Set(ids),true,200000);
+  assert.equal(ticker.runs()[0].text,'Third');
 });
