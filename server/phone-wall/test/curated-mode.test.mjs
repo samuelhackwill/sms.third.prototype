@@ -69,6 +69,7 @@ test('second priority row starts off and can release its row to incoming SMS',as
   ticker.enableRouter();ticker.ingestRouter([]);ticker.ingestRouter([{id:'incoming',text:'SMS'}]);
   ticker.tick(ready,true,2000);
   assert.equal(ticker.runs().find(run=>run.source==='router').row,1);
+  assert.equal(ticker.runs().find(run=>run.source==='router').effect,'sms-sweep');
   assert.equal(ticker.runs().find(run=>run.row===0).text,'Protected');
   ticker.setCuratedSecond(true);
   ticker.tick(ready,true,3000);

@@ -226,7 +226,7 @@ export class LiveTicker {
       if(band){
         const interrupted=active.find(run=>run.row===band.row);
         if(interrupted)this.db.prepare("UPDATE ticker_messages SET status='queued',run=NULL WHERE seq=?").run(interrupted.seq);
-        this.save({seq:urgent.seq,id:randomUUID(),row:band.row,band,targets:band.targets,ready:{},done:[],phase:'preparing',backgroundColor:routerBackground(urgent.external_id),speed:state.testTextSpeed??240,startAtServerMs:null,deadline:now+30000},'preparing');
+        this.save({seq:urgent.seq,id:randomUUID(),row:band.row,band,targets:band.targets,ready:{},done:[],phase:'preparing',effect:this.playbackMode==='curated'?'sms-sweep':undefined,backgroundColor:routerBackground(urgent.external_id),speed:state.testTextSpeed??240,startAtServerMs:null,deadline:now+30000},'preparing');
         changed=true;active=this.runs();busy=new Set(active.map(run=>run.row));
       }
     }

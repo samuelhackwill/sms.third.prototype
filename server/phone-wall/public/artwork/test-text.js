@@ -2,6 +2,8 @@
   const state = window.PHONE_WALL;
   const parameters = state.parameters;
   const digitFont = 'Arial, Helvetica, sans-serif';
+  const sweepStepMs = 120, sweepFadeMs = 260;
+  const clamp = value => Math.max(0, Math.min(1, value));
   let text = parameters.text.replace(/[\r\n]+/g, ' ');
   const viewport = state.viewport || state.geometry;
   const canvas = document.createElement('canvas');
@@ -11,8 +13,20 @@
   document.body.appendChild(canvas);
   const context = canvas.getContext('2d');
   if (!context) throw new Error('Test text canvas is unavailable');
-  let rows = [], ratio, sx, sy, run = parameters.live && state.preview ? state.liveRun : null, lastAck = 0, edgeBlue = 0, lastFrame = Date.now();
+  let rows = [], ratio, sx, sy, run = parameters.live && state.preview ? state.liveRun : null, lastAck = 0;
   const incomingStyle = () => parameters.curatedMode && run?.source === 'router';
+  function sweepTiming(row, elapsed) {
+    const count = run.targets.length;
+    const column = Math.max(0, Math.min(count - 1,
+      Math.floor((viewport.x + viewport.width / 2 - row.left) / (row.right - row.left) * count)));
+    const fromRight = count - 1 - column;
+    const introMs = (count - 1) * sweepStepMs + sweepFadeMs;
+    const travelMs = (row.right - row.left + row.width) / run.speed * 1000;
+    const outroStart = introMs + travelMs;
+    return {introMs,doneAt:outroStart + introMs,
+      backgroundAlpha:Math.min(clamp((elapsed - fromRight * sweepStepMs) / sweepFadeMs),
+        clamp((outroStart + fromRight * sweepStepMs + sweepFadeMs - elapsed) / sweepFadeMs))};
+  }
   if(run)text=run.text;
   function metrics(size) {
     context.font = `${size}px ${parameters.fontFamily}`;
@@ -72,35 +86,23 @@
       const next = snapshot.enabled ? snapshot.runs[0] || null : null;
       const changed = next?.id !== run?.id;
       run = next;
-      if (changed) { text = run?.text || ''; lastAck = 0; edgeBlue = 0; resize(); }
+      if (changed) { text = run?.text || ''; lastAck = 0; resize(); }
     });
   }
   PhoneWall.onFrame(elapsedSeconds => {
     const now = Date.now();
-    const frameMs = Math.max(0, Math.min(100, now - lastFrame));
-    lastFrame = now;
     const incoming = incomingStyle();
-    let edgePhone = false;
-    if (incoming && run.phase === 'playing' && rows[0] && run.targets?.length > 1) {
-      const row = rows[0], count = run.targets.length;
-      const elapsed = now + state.clockOffsetMs - run.startAtServerMs;
-      if (elapsed >= 0) {
-        const x = row.right - elapsed / 1000 * run.speed;
-        if (x < row.right && x + row.width > row.left) {
-          const column = edge => Math.max(0, Math.min(count - 1, Math.floor((edge - row.left) / (row.right - row.left) * count)));
-          const phone = column(viewport.x + viewport.width / 2);
-          edgePhone = phone === column(x) || phone === column(x + row.width);
-        }
-      }
-    }
-    edgeBlue = edgePhone ? Math.min(1, edgeBlue + frameMs / 180) : 0;
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
-    context.fillStyle = incoming ? run.backgroundColor || '#15202b' : '#000000';
+    context.fillStyle = '#000000';
     context.fillRect(0, 0, window.innerWidth, window.innerHeight);
-    if (edgeBlue > 0) {
+    const sweep = incoming && run?.effect === 'sms-sweep';
+    const elapsed = now + state.clockOffsetMs - (run?.startAtServerMs || Infinity);
+    const timing = sweep && rows[0] && run.phase === 'playing' ? sweepTiming(rows[0], elapsed) : null;
+    const backgroundAlpha = incoming ? sweep ? timing?.backgroundAlpha ?? 0 : 1 : 0;
+    if (backgroundAlpha > 0) {
       context.save();
-      context.globalAlpha = edgeBlue;
-      context.fillStyle = '#003f9e';
+      context.globalAlpha = backgroundAlpha;
+      context.fillStyle = run.backgroundColor || '#15202b';
       context.fillRect(0, 0, window.innerWidth, window.innerHeight);
       context.restore();
     }
@@ -110,10 +112,11 @@
       return;
     }
     for (const row of rows) {
-      const elapsed = parameters.live ? Date.now() + state.clockOffsetMs - (run?.startAtServerMs || Infinity) : elapsedSeconds * 1000 - row.delayMs;
-      if (elapsed < 0) continue;
+      const rowElapsed = parameters.live ? elapsed : elapsedSeconds * 1000 - row.delayMs;
+      const textElapsed = sweep ? rowElapsed - timing.introMs : rowElapsed;
+      if (textElapsed < 0) continue;
       const flashing = parameters.live && run?.effect === 'flash';
-      if (flashing && elapsed % 700 >= 500) continue;
+      if (flashing && rowElapsed % 700 >= 500) continue;
       if (flashing && row.digitPair) {
         const pair = row.digitPair;
         context.save();
@@ -128,8 +131,8 @@
         context.restore();
         continue;
       }
-      const x = flashing ? row.left + (row.right - row.left - row.width) / 2 : row.right - elapsed / 1000 * (parameters.live ? run.speed : parameters.speed);
-      if (parameters.live && !flashing && !state.preview && x + row.width < row.left && Date.now() - lastAck > 2000) { PhoneWall.completeRow(run.id); lastAck = Date.now(); }
+      const x = flashing ? row.left + (row.right - row.left - row.width) / 2 : row.right - textElapsed / 1000 * (parameters.live ? run.speed : parameters.speed);
+      if (parameters.live && !flashing && !state.preview && (sweep ? rowElapsed >= timing.doneAt : x + row.width < row.left) && Date.now() - lastAck > 2000) { PhoneWall.completeRow(run.id); lastAck = Date.now(); }
       if (x > viewport.x + viewport.width || x + row.width < viewport.x) continue;
       context.save();
       context.beginPath();

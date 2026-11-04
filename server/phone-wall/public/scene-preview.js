@@ -15,6 +15,8 @@ export function hasTestTextPreview(definition) {
 
 const testTextMetrics = new WeakMap();
 const digitFont = 'Arial, Helvetica, sans-serif';
+const sweepStepMs = 120, sweepFadeMs = 260;
+const clamp = value => Math.max(0, Math.min(1, value));
 // Match artwork/test-text.js in logical wall coordinates, without a WebView per tile.
 function drawTestText(c, definition, g, elapsed) {
   const p = definition.parameters;
@@ -64,21 +66,29 @@ function drawTestText(c, definition, g, elapsed) {
   }
   cached.definition = definition; cached.geometry = g;
   let inProgress = false, visible = false;
+  const sweep = p.effect === 'sms-sweep' && p.phoneCount && cached.rows[0];
+  let sweepIntroMs = 0;
+  let backgroundAlpha = 0;
+  if (sweep) {
+    const row = cached.rows[0], count = p.phoneCount;
+    const column = Math.max(0, Math.min(count - 1, Math.floor((g.x + g.width / 2 - row.left) / (row.right - row.left) * count)));
+    const fromRight = count - 1 - column;
+    sweepIntroMs = (count - 1) * sweepStepMs + sweepFadeMs;
+    const outroStart = sweepIntroMs + (row.right - row.left + row.width) / p.speed * 1000;
+    backgroundAlpha = Math.min(clamp((elapsed - fromRight * sweepStepMs) / sweepFadeMs),
+      clamp((outroStart + fromRight * sweepStepMs + sweepFadeMs - elapsed) / sweepFadeMs));
+    inProgress = elapsed < outroStart + sweepIntroMs;
+  }
   c.save();
   c.scale(c.canvas.width / g.width, c.canvas.height / g.height);
-  c.fillStyle = definition.background; c.fillRect(0, 0, g.width, g.height);
-  if (p.edgeAccent && p.phoneCount > 1 && cached.rows[0] && elapsed >= 0) {
-    const row = cached.rows[0], x = row.right - elapsed / 1000 * p.speed;
-    const column = edge => Math.max(0, Math.min(p.phoneCount - 1, Math.floor((edge - row.left) / (row.right - row.left) * p.phoneCount)));
-    const phone = column(g.x + g.width / 2);
-    if (x < row.right && x + row.width > row.left && (phone === column(x) || phone === column(x + row.width))) {
-      c.save(); c.globalAlpha = Math.min(1, elapsed / 180);
-      c.fillStyle = '#003f9e'; c.fillRect(0, 0, g.width, g.height); c.restore();
-    }
+  c.fillStyle = sweep ? '#000' : definition.background; c.fillRect(0, 0, g.width, g.height);
+  if (sweep && backgroundAlpha > 0) {
+    c.save(); c.globalAlpha = backgroundAlpha;
+    c.fillStyle = definition.background; c.fillRect(0, 0, g.width, g.height); c.restore();
   }
   c.translate(-g.x, -g.y); c.textBaseline = 'alphabetic';
   for (const row of cached.rows) {
-    const rowElapsed = elapsed - row.delayMs;
+    const rowElapsed = elapsed - row.delayMs - sweepIntroMs;
     const flashing = p.effect === 'flash';
     if (flashing && rowElapsed >= 0 && rowElapsed % 700 >= 500) { inProgress = true; continue; }
     if (flashing && row.digitPair && rowElapsed >= 0) {
@@ -106,7 +116,7 @@ function drawTestText(c, definition, g, elapsed) {
 export function drawLiveText(c, definition, geometry, run, now) {
   const incoming = definition.parameters.curatedMode && run?.source === 'router';
   if (!run || run.phase !== 'playing' || !Number.isFinite(run.startAtServerMs)) {
-    c.fillStyle = incoming ? run.backgroundColor || '#15202b' : '#000';
+    c.fillStyle = '#000';
     c.fillRect(0, 0, c.canvas.width, c.canvas.height);
     return run ? 'Preparing live text' : 'Waiting for incoming text';
   }
@@ -118,7 +128,6 @@ export function drawLiveText(c, definition, geometry, run, now) {
       text: run.text,
       speed: run.speed,
       effect: run.effect,
-      edgeAccent: incoming,
       phoneCount: run.targets.length,
       rows: [{...run.band, delayMs: 0}],
     },
