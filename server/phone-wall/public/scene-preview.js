@@ -74,7 +74,7 @@ export function drawLiveText(c, definition, geometry, run, now) {
     },
   };
   drawTestText(c, preview, geometry, now - run.startAtServerMs);
-  return definition.parameters.color === '#00ff00' ? 'Roland Barthes text' : 'Incoming iMessage text';
+  return definition.parameters.color === '#00ff00' ? 'Roland Barthes text' : 'Incoming SMS text';
 }
 export function drawArtwork(
   context,

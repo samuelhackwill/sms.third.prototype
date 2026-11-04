@@ -50,11 +50,10 @@
       </section>
       <section class="operator-step">
         <p class="eyebrow">03 / INCOMING MESSAGES</p>
-        <h2>Live iMessages</h2>
-        <p>Incoming messages are watched automatically and scroll on the next available row. Sent messages, reactions and attachments without text are ignored. The first connection skips existing history.</p>
+        <h2>Live SMS</h2>
+        <p>The Tenda router is watched automatically. Each new incoming SMS interrupts the first row not already showing an SMS, including during Barthes or Kissing Wall. Messages already on the SIM at first connection are skipped.</p>
         <p id="live-status" role="status"></p>
         <p id="reader-status" role="status"></p>
-        <details><summary>One-time Messages permission</summary><p>Run <code>node scripts/phone-wall/install-messages-agent.mjs</code> once as the logged-in Messages user. In System Settings → Privacy &amp; Security → Full Disk Access, allow <code>/Library/Application Support/PhoneWall/app/runtime/bin/node</code>. The reader then starts at login and polls automatically.</p></details>
       </section>
       <section class="operator-step">
         <p class="eyebrow">04 / TEXT ARCHIVE</p>

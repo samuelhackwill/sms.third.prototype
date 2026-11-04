@@ -179,14 +179,15 @@ function render() {
   $('debug-toggle').textContent=state.debugEnabled?'Disable phone debug display':'Enable phone debug display';
   $('debug-status').textContent=state.debugEnabled?'Visible on phones with app 2.4.2 or newer.':'Hidden on phones.';
   const live=data.ticker;
-  const messagesActive=live?.enabled&&live.mode==='messages',barthesActive=live?.enabled&&live.mode==='barthes';
-  $('live-status').textContent=`Always watching · ${messagesActive?(state.mode!=='exhibition'||pairing?.active?'WAITING (night / pairing)':'PLAYING'):live?.mode==='barthes'?'Barthes artwork active':'Other artwork active'} · ${live?.mode==='messages'?live.queued:0} waiting · ${messagesActive?live.active.length:0} active rows`;
+  const barthesActive=live?.enabled&&live.mode==='barthes';
+  const smsActive=live?.active?.filter(run=>run.source==='router').length??0;
+  $('live-status').textContent=`Always watching · ${live?.routerQueued??0} SMS waiting · ${smsActive} SMS active ${smsActive?'· interrupting current display':''}`;
   $('barthes-start').disabled=!!barthesActive||!!pairing?.active||!!live?.upgradeRequired?.length||!state.layout.slots.length;
   $('barthes-stop').disabled=!barthesActive;
   $('barthes-status').textContent=live?.upgradeRequired?.length?`Install phone app 2.3 on ${live.upgradeRequired.length} connected phones.`:
     barthesActive?`${state.mode==='exhibition'?'PLAYING':'WAITING'} · ${live.queued} queued · ${live.active.length} active rows · ${live.completed} completed`:'Stopped';
-  const readers=live?.readers??[];
-  $('reader-status').textContent=live?.upgradeRequired?.length?`Install phone app 2.3 for live playback (${live.upgradeRequired.length} phones need updating).`:readers.length?readers.map(reader=>`${reader.status==='needs-full-disk-access'?'Reader needs Full Disk Access (see permission instructions)':Date.now()-reader.last_seen>45000?'Reader offline':reader.status==='reading'?'Reader connected; watching new iMessages':`Reader: ${reader.status}`}`).join(' · '):'Reader not connected. Check that the Messages user is logged in and its reader agent is running.';
+  const router=live?.router;
+  $('reader-status').textContent=live?.upgradeRequired?.length?`Install phone app 2.3 for live playback (${live.upgradeRequired.length} phones need updating).`:router?.status==='reading'&&Date.now()-router.at<15000?`Tenda router connected · polled ${Math.max(0,Math.round((Date.now()-router.at)/1000))}s ago`:router?.status==='error'?`Tenda router error: ${router.code}`:router?.status==='starting'?'Connecting to Tenda router…':'Tenda router is not connected.';
   if(!testSpeedEdited)$('test-text-speed').value=state.testTextSpeed??240;
   if(!testMessageEdited)$('test-text-message').value=state.testText??defaultTestMessage;
   showTestSpeed();
