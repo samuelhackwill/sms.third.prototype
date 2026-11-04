@@ -173,7 +173,7 @@ function render() {
     for(const [id,key] of [['kissing-before','trimStartOffsetSec'],['kissing-after','trimEndOffsetSec'],['kissing-in','revealDurationMs'],['kissing-out','fadeOutDurationMs']])$(id).value=kissing[key];
   }
   $('kissing-status').textContent=kissing?.upgradeRequired?.length?`Install phone app 2.4 on ${kissing.upgradeRequired.length} connected phones to enable video.`:
-    `${kissing?.enabled?(state.mode==='exhibition'&&!pairing?.active?'PLAYING INDEPENDENTLY · SOUND ON':'PAUSED (night / pairing)'):'STOPPED'} · ${kissing?.clips??0} clips cached on Mac${kissing?.busy?' · downloading a clip':''}${kissing?.lastError?' · '+kissing.lastError:''}`;
+    `${kissing?.enabled?(state.mode==='exhibition'&&!pairing?.active?'PLAYING INDEPENDENTLY · SOUND ON':'PAUSED (night / pairing)'):'STOPPED'} · ${kissing?.clips??0} clips cached on Mac${kissing?.busy?' · caching available clips':''}${kissing?.lastError?' · '+kissing.lastError:''}`;
   renderPhoneDetails();
   renderErrors();
   $('debug-toggle').textContent=state.debugEnabled?'Disable phone debug display':'Enable phone debug display';

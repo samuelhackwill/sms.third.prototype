@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { createController } from '../app.mjs';
-import { kissClip } from '../kissing-wall.mjs';
+import { kissClip,kissClips } from '../kissing-wall.mjs';
 import { SimulatedClient } from '../simulated-client.mjs';
 import { envelope } from '../../../protocol/core.mjs';
 
@@ -18,9 +18,47 @@ const request=(server,payload)=>server.app.inject({method:'POST',url:'/phone-wal
 
 test('legacy kissing metadata preserves trim points and rejects unsafe media URLs',()=>{
   assert.deepEqual(kissClip(metadata),{source,startSec:2,endSec:4});
+  assert.equal(kissClips({clips:[metadata.clips[0],metadata.clips[0]]}).length,1);
   for(const media_url of ['http://127.0.0.1/private','https://example.org/a.mp4','https://user:secret@sms-clips.samuel.ovh/a','https://sms-clips.samuel.ovh:999/a'])assert.throws(()=>kissClip({clips:[{...metadata.clips[0],media_url}]}));
   assert.throws(()=>kissClip({clips:[{...metadata.clips[0],kiss_end_seconds:1}]}));
   assert.throws(()=>kissClip({clips:[]}));
+});
+
+test('one metadata batch caches every distinct clip and reuses the files',async t=>{
+  const directory=await mkdtemp(join(tmpdir(),'wall-kissing-batch-'));
+  const batch=[0,1,2].map(i=>({...metadata.clips[0],media_url:source+`?clip=${i}`}));
+  let metadataCalls=0,videoCalls=0;
+  const server=await createController({dataDir:directory,adminToken:key,kissingOptions:{fetchImpl:async url=>{
+    if(url.includes('/api/')){metadataCalls++;return Response.json({clips:batch});}
+    videoCalls++;return new Response(Buffer.concat([mp4,Buffer.from(url)]));
+  }}});
+  t.after(async()=>{await server.app.close();await rm(directory,{recursive:true,force:true});});
+  await server.kissing.refresh();assert.equal(server.kissing.clips().length,3);
+  assert.equal(metadataCalls,1);assert.equal(videoCalls,3);
+  await server.kissing.refresh();assert.equal(metadataCalls,2);assert.equal(videoCalls,3);
+});
+
+test('repeated 50-clip batches discover the full collection while phone snapshots stay compatible',async t=>{
+  const directory=await mkdtemp(join(tmpdir(),'wall-kissing-all-'));
+  const clips=Array.from({length:51},(_,i)=>({...metadata.clips[0],media_url:source+`?clip=${i}`}));
+  let metadataCalls=0,videoCalls=0;
+  const server=await createController({dataDir:directory,adminToken:key,kissingOptions:{fetchImpl:async url=>{
+    if(url.includes('/api/'))return Response.json({clips:metadataCalls++===0?clips.slice(0,50):clips.slice(1)});
+    videoCalls++;return new Response(Buffer.concat([mp4,Buffer.from(url)]));
+  }}});
+  t.after(async()=>{await server.app.close();await rm(directory,{recursive:true,force:true});});
+  await server.kissing.refresh();
+  assert.equal(server.kissing.clips().length,51);
+  assert.equal(videoCalls,51);
+  assert.equal(metadataCalls,5);
+  const id='kissing-phone-all-clips';
+  server.store.register({deviceId:id,token:id+'x'.repeat(64),bootSessionId:'kissing-fixture-all-clips'});
+  const state=server.store.current();state.layout.rows=1;state.layout.columns=1;
+  state.layout.slots=[{deviceId:id,slotIndex:0,geometry:{x:0,y:0,width:375,height:667}}];
+  server.store.commit(state,state.revision);
+  server.store.updateDevice(id,{capabilities:{kissingWall:1}});
+  server.kissing.configure({enabled:true});
+  assert.equal(server.kissing.snapshot(id).clips.length,24);
 });
 
 test('Mac caches a checksummed clip once, survives upstream failure/restart and validates settings',async t=>{
@@ -52,7 +90,7 @@ test('rejects broken/oversized downloads without publishing assets or leaking st
   assert.ok((await readdir(join(directory,'media'))).every(name=>!name.startsWith('kissing-incoming-')));
 });
 
-test('rotating pool is bounded without deleting generic uploads or referenced artwork',async t=>{
+test('Mac retains more than 24 clips without deleting generic uploads or referenced artwork',async t=>{
   const directory=await mkdtemp(join(tmpdir(),'wall-kissing-budget-'));let n=0;
   const server=await createController({dataDir:directory,adminToken:key,kissingOptions:{fetchImpl:async url=>{
     if(url.includes('/api/'))return Response.json({clips:[{...metadata.clips[0],media_url:source+'?n='+n++}]});
@@ -64,7 +102,7 @@ test('rotating pool is bounded without deleting generic uploads or referenced ar
   server.releases.create({sceneSchemaVersion:1,artworkId:'retained-video',artworkVersion:'1',canvas:{width:375,height:667},background:'#000000',transition:{type:'cut',durationMs:0},elements:[{id:'video',type:'video',asset:referenced.hash,frame:{x:0,y:0,width:375,height:667}}]});
   const generic='d'.repeat(64);server.store.db.prepare('INSERT INTO assets VALUES(?,?,?)').run(generic,'video/mp4',3);await writeFile(join(directory,'media',generic),'abc');
   for(let i=0;i<25;i++)await server.kissing.refresh();
-  assert.equal(server.kissing.clips().length,24);assert.equal(server.store.asset(first.hash),undefined);
+  assert.equal(server.kissing.clips().length,27);assert.ok(server.store.asset(first.hash));
   assert.ok(server.store.asset(referenced.hash));await access(join(directory,'media',referenced.hash));
   assert.equal((await readFile(join(directory,'media',generic))).toString(),'abc');
 });
