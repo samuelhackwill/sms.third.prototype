@@ -27,6 +27,7 @@ export class Store {
       CREATE TABLE IF NOT EXISTS receipts(id TEXT PRIMARY KEY, result TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS events(id INTEGER PRIMARY KEY, device_id TEXT NOT NULL, at INTEGER NOT NULL, data TEXT NOT NULL);`);
     this.db.exec("CREATE INDEX IF NOT EXISTS events_at ON events(at)");
+    this.db.exec("CREATE INDEX IF NOT EXISTS events_error_recent ON events(id DESC) WHERE json_extract(data,'$.kind')='error'");
     if (!this.db.prepare("SELECT revision FROM current_state WHERE id=1").get())
       this.commit(initialConfig(), 0);
   }
