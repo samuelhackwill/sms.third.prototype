@@ -43,6 +43,7 @@ struct KissingConfiguration: Codable {
     private var playbackWindow: (start:Double,end:Double,fadeIn:Double,fadeOut:Double)?
     private(set) var enabled = false
     private(set) var status = "stopped"
+    func setVolume(_ value: Float) { player.volume = min(1,max(0,value)) }
     var endpoint: URL?
     var token = ""
     var report: (([String:Any])->Void)?

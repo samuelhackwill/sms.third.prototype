@@ -13,6 +13,7 @@ export function initialConfig() {
     overrides: {},
     schedule: null,
     debugEnabled: false,
+    audioVolume: 1,
   };
 }
 const finite = (n, min, max) => Number.isFinite(n) && n >= min && n <= max;
@@ -20,6 +21,7 @@ export function validateConfig(config) {
   if (!config || Buffer.byteLength(JSON.stringify(config)) > 48000)
     throw new Error("configuration-too-large");
   if(config.debugEnabled!==undefined&&typeof config.debugEnabled!=='boolean')throw new Error('invalid-debug-setting');
+  if(config.audioVolume!==undefined&&!finite(config.audioVolume,0,1))throw new Error('invalid-audio-volume');
   if (!["exhibition", "night", "blackout"].includes(config.mode))
     throw new Error("invalid-mode");
   if (!finite(config.brightness, 0, 1) || !finite(config.nightBrightness, 0, 1))

@@ -83,6 +83,8 @@ final class StableWallController: UIViewController {
         runtime.setMode(initialMode); blackout.isHidden = initialMode == "exhibition"
         kissing.setMode(initialMode)
         if let saved = state.state["kissing"] as? [String:Any] { kissing.receive(saved) }
+        let savedVolume = Float(min(1,max(0,state.state["audioVolume"] as? Double ?? 1)))
+        kissing.setVolume(savedVolume); liveAlert.volume = savedVolume
         if kissing.enabled { runtime.setMode("night") }
         if initialMode == "night" { UIScreen.main.brightness = CGFloat(state.state["nightBrightness"] as? Double ?? 0) }
         runtime.restore()
@@ -197,6 +199,8 @@ final class StableWallController: UIViewController {
             completed.append(id); UserDefaults.standard.set(Array(completed.suffix(100)),forKey:"completedCommands"); connection.send("client.ack",["commandId":id,"result":"applied"])
         }
         guard type == "state.snapshot", state.apply(payload,revision:revision) else { return }
+        let volume = Float(min(1,max(0,payload["audioVolume"] as? Double ?? 1)))
+        kissing.setVolume(volume); liveAlert.volume = volume
         refreshDebugOverlay()
         setPaired(true)
         let mode = payload["mode"] as? String ?? "blackout"

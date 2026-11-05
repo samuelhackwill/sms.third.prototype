@@ -27,6 +27,14 @@
     <div class="dashboard-panels">
     <section id="control-panel" role="tabpanel" aria-labelledby="control-tab">
       <section class="operator-step">
+        <p class="eyebrow">WALL POWER &amp; SOUND</p>
+        <h2>Night and volume</h2>
+        <div class="actions"><button id="night-now" type="button">Start Night Mode</button></div>
+        <p id="night-status" role="status"></p>
+        <div class="speed-controls"><label>Phone app sound volume <output id="audio-volume-value">100%</output><input id="audio-volume" type="range" min="0" max="100" step="1" value="100" /></label></div>
+        <p id="audio-volume-status" role="status">Controls Kissing videos and the live SMS ding. Each phone’s volume buttons still set its hardware output level.</p>
+      </section>
+      <section class="operator-step">
         <p class="eyebrow">01 / SET THE POSITIONS</p>
         <h2>Pair / Position</h2>
         <p>Start pairing, then tap the red phones from top left to bottom right. Green means assigned.</p>
@@ -87,7 +95,7 @@
         </div>
         <div class="actions"><button id="kissing-start" disabled>Start Kissing Wall</button><button id="kissing-stop" disabled>Stop Kissing Wall</button><button id="kissing-apply" disabled>Apply Video Settings</button></div>
         <p id="kissing-status" role="status"></p>
-        <p>Requires phone app 2.4 once. Settings apply to the next clip without reinstalling. Set each phone's speaker volume using its volume buttons.</p>
+        <p>Requires phone app 2.4 once. Settings apply to the next clip without reinstalling. Use the dashboard sound slider for app playback and each phone's volume buttons for its hardware output level.</p>
       </section>
       <section class="operator-step">
         <p class="eyebrow">PRIORITY MESSAGES</p>

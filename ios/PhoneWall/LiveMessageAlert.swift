@@ -4,6 +4,7 @@ import AudioToolbox
 @MainActor final class LiveMessageAlert {
     var canPlay: () -> Bool = { true }
     private var player: AVAudioPlayer?
+    var volume: Float = 1 { didSet { player?.volume = volume } }
     private var enabled = false
     private var currentRuns = Set<String>()
     private var seen = Set<String>()
@@ -42,6 +43,7 @@ import AudioToolbox
         guard enabled, currentRuns.contains(id), canPlay() else { return }
         if player == nil, let sound = Bundle.main.url(forResource:"live-sms-ding",withExtension:"wav") {
             player = try? AVAudioPlayer(contentsOf:sound)
+            player?.volume = volume
             player?.prepareToPlay()
         }
         do {

@@ -18,6 +18,7 @@ let testMessageEdited=false;
 let kissingEdited=false;
 let transitionSettingsEdited=false;
 let cycleEdited=false;
+let audioVolumeEdited=false;
 let curatedEdited=false,curatedLoadedCount=-1,curatedLoadedSelected=-1,curatedLoading=false;
 let curatedLoadedGeneration=null;
 let curatedSaveTimer=null,curatedEditVersion=0;
@@ -242,6 +243,10 @@ function renderErrors() {
 function render() {
   const state = data.state,
     devices = data.devices;
+  if(!audioVolumeEdited)$('audio-volume').value=Math.round((state.audioVolume??1)*100);
+  $('audio-volume-value').textContent=`${$('audio-volume').value}%`;
+  $('audio-volume-status').textContent=data.audioUpgradeRequired?.length?`Saved for new app versions · ${data.audioUpgradeRequired.length} connected phones need app 2.4.6. Hardware volume remains set on each phone.`:'Controls Kissing videos and the live SMS ding. Hardware volume remains set on each phone.';
+  $('night-status').textContent=state.mode==='night'?'NIGHT · brightness minimum · automatic cycle stopped':'Ready to darken the wall and stop the automatic cycle.';
   const cpu=data.system?.controllerCpuPercent;
   $('controller-cpu').textContent=`Controller CPU ${Number.isFinite(cpu)?`${cpu}%`:'—'}`;
   const pairing=data.pairing;
@@ -647,8 +652,11 @@ document
   .querySelectorAll("[data-mode]")
   .forEach(
     (b) =>
-      (b.onclick = run(() => api({ action: "mode", mode: b.dataset.mode }))),
+      (b.onclick = run(() => api(b.dataset.mode==='night'?{action:'remote.night'}:{ action: "mode", mode: b.dataset.mode }))),
   );
+$('night-now').onclick=run(()=>api({action:'remote.night'}));
+$('audio-volume').oninput=()=>{audioVolumeEdited=true;$('audio-volume-value').textContent=`${$('audio-volume').value}%`;};
+$('audio-volume').onchange=run(async()=>{try{await api({action:'audio.volume',volume:Number($('audio-volume').value)/100});}finally{audioVolumeEdited=false;}});
 document.querySelectorAll("[data-command]").forEach(
   (b) =>
     (b.onclick = run(() =>

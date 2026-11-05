@@ -333,6 +333,7 @@ export async function createController({
     const state = store.current();
     return {
       state,
+      audioUpgradeRequired:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.audioVolume!==1).map(slot=>slot.deviceId),
       pairing:pairing.status(),
       kissing:{...kissing.status(),upgradeRequired:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.kissingWall!==1).map(slot=>slot.deviceId)},
       ticker:{...ticker.status(),router:routerStatus,upgradeRequired:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.liveTicker!==1).map(slot=>slot.deviceId),alertUpgradeRequired:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.liveAlert!==1).map(slot=>slot.deviceId)},
@@ -416,6 +417,11 @@ export async function createController({
     )
       throw new Error("expected-revision-required");
     let state = structuredClone(previous);
+    if(input.action==='audio.volume'){
+      if(!Number.isFinite(input.volume)||input.volume<0||input.volume>1)throw new Error('invalid-audio-volume');
+      store.commit({...state,audioVolume:input.volume},previous.revision);
+      broadcast();return {volume:input.volume};
+    }
     if(input.action==='cycle.settings'||input.action==='cycle.start'){
       const settings=input.settings??{};
       if(!Number.isInteger(settings.curatedDurationSec)||settings.curatedDurationSec<10||settings.curatedDurationSec>3600||!['duration','count'].includes(settings.kissingMetric)||!Number.isInteger(settings.kissingDurationSec)||settings.kissingDurationSec<10||settings.kissingDurationSec>3600||!Number.isInteger(settings.kissTarget)||settings.kissTarget<1||settings.kissTarget>100)throw new Error('invalid-cycle-settings');
@@ -508,7 +514,7 @@ export async function createController({
       broadcast();return {ok:true,enabled:input.enabled};
     }
     if(input.action==='remote.night'){
-      if(pairing.status().active)throw new Error('stop-pairing-before-night-mode');
+      if(pairing.status().active){pairing.stop();broadcastPairing();}
       state.mode='night';state.nightBrightness=0;state.schedule=null;state.overrides={};
       store.commit(state,previous.revision);
       store.db.prepare('DELETE FROM previews').run();
