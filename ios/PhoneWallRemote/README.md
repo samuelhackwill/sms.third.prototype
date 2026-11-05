@@ -2,10 +2,11 @@
 
 Open `../PhoneWallRemote.xcodeproj` in Xcode on the Mac that will build the control iPhone app. Select the `PhoneWallRemote` target, choose a signing team, and set a bundle identifier available to that team. The target is iPhone-only and requires iOS 16 or newer.
 
-The app has two main controls:
+The app has three main controls:
 
 - **Night mode** sets the installation's night brightness to zero and enters night mode.
 - **Day mode** sets the installation's brightness to one, enters exhibition mode, and starts Roland Barthes from the beginning.
+- **Shut down installation** asks for confirmation, sends all connected phones to Night mode, and then cleanly shuts down macOS after an eight-second delay. Wait for the Mac mini's power light to go off before unplugging it. This M1 Mac mini needs its physical power button pressed after reconnecting power.
 
 It refreshes the controller every five seconds and lists paired, connected phones whose latest power report is less than a minute old and says they are unplugged. Phones without a current power report are counted separately.
 

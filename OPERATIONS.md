@@ -38,10 +38,10 @@ If the reader needs Full Disk Access, follow the on-screen permission instructio
 
 Artistic editing and staged release instructions are in [RUNTIME.md](RUNTIME.md). Use one phone, then a selected group, then promote the same immutable release to the entire matrix. Do not treat a release as successful until its target phones report displayed; a preparation error leaves the previous artwork in place.
 
-1. Switch on the dedicated router, screen chargers and Mac mini. If the Mac was deliberately shut down, press its power button and log into the installation account as instructed. Restored power alone may not start it.
+1. Switch on the dedicated router and screen chargers, reconnect Mac mini power, then press the Mac mini's power button. The controller starts before anyone logs in. Restored power alone will not reliably start this M1 Mac after a deliberate shutdown.
 2. Open `http://127.0.0.1:3100/admin/phone-wall` in a browser on the Mac mini (or use the configured port). Enter the operator key once for that tab session. Check the device count and status labels.
 3. For the approved exhibition artwork, open **Advanced** and press **Start Exhibition**. Check all screens. If a scene needs selecting, choose the approved scene before starting.
-4. At closing, open **Advanced** and press **Night Mode**. Screens become black and dim; phones remain plugged in and reachable. Do not shut them down individually.
+4. Before moving or unplugging the installation, use **Shut down installation** on the museum remote and confirm. It puts connected phones in Night mode, then shuts down the Mac mini. Wait until the Mac mini's power light is off before unplugging it. After reconnecting power, press the Mac mini's power button; the controller starts without a macOS login and restores Exhibition mode.
 5. Set Target to **Entire matrix** and use **Blackout** for an immediate black display. Use **Start Exhibition** to resume. Manual mode controls disable an enabled daily schedule; the installer must save the schedule again to reactivate it.
 6. For a missing screen, find its Offline card. Click a neighboring paired screen, choose **Select for Advanced actions** in its details (repeat for other phones), set Target to **Selected phones**, then press **Identify**. The test pattern lasts 15 seconds. Check the missing phone's cable, charger and Wi-Fi. Ask the installer for USB recovery if it does not return. Return Target to **Entire matrix** afterward.
 

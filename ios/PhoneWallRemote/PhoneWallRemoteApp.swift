@@ -101,6 +101,7 @@ private final class RemoteModel: ObservableObject {
     @Published var connection = "Waiting for controller"
     @Published var unknownPowerCount = 0
     @Published var isBusy = false
+    @Published var shuttingDown = false
 
     var hasKey: Bool { !(OperatorKey.load() ?? "").isEmpty }
 
@@ -140,6 +141,7 @@ private final class RemoteModel: ObservableObject {
     }
 
     func refresh() async {
+        if shuttingDown { return }
         guard hasKey else {
             connection = "Set up the controller connection"
             return
@@ -170,7 +172,13 @@ private final class RemoteModel: ObservableObject {
         defer { isBusy = false }
         do {
             _ = try await request(action: action)
-            await refresh()
+            if action == "remote.shutdown" {
+                shuttingDown = true
+                mode = "Night"
+                connection = "Mac mini shutting down. Wait until its power light is off before unplugging."
+            } else {
+                await refresh()
+            }
         } catch {
             connection = "Action failed: \(error.localizedDescription)"
         }
@@ -187,6 +195,7 @@ private final class RemoteModel: ObservableObject {
 private struct RemoteView: View {
     @StateObject private var model = RemoteModel()
     @State private var showingSettings = false
+    @State private var showingShutdownConfirmation = false
 
     var body: some View {
         NavigationStack {
@@ -201,7 +210,7 @@ private struct RemoteView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.indigo)
-                .disabled(model.isBusy || !model.hasKey)
+                .disabled(model.isBusy || model.shuttingDown || !model.hasKey)
 
                 Button {
                     Task { await model.activate("remote.day") }
@@ -211,7 +220,16 @@ private struct RemoteView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(.orange)
-                .disabled(model.isBusy || !model.hasKey)
+                .disabled(model.isBusy || model.shuttingDown || !model.hasKey)
+
+                Button(role: .destructive) {
+                    showingShutdownConfirmation = true
+                } label: {
+                    Label("Shut down installation", systemImage: "power")
+                        .frame(maxWidth: .infinity, minHeight: 58)
+                }
+                .buttonStyle(.bordered)
+                .disabled(model.isBusy || model.shuttingDown || !model.hasKey)
 
                 Text(model.connection)
                     .font(.footnote)
@@ -253,6 +271,14 @@ private struct RemoteView: View {
             }
             .sheet(isPresented: $showingSettings) {
                 SettingsView(model: model)
+            }
+            .alert("Shut down the Mac mini?", isPresented: $showingShutdownConfirmation) {
+                Button("Cancel", role: .cancel) {}
+                Button("Enter Night mode and shut down", role: .destructive) {
+                    Task { await model.activate("remote.shutdown") }
+                }
+            } message: {
+                Text("The phones will enter Night mode first. Wait for the Mac mini's power light to go off before unplugging it. Press its power button after reconnecting power.")
             }
             .task {
                 if !model.hasKey { showingSettings = true }

@@ -2,6 +2,7 @@ import Fastify from "fastify";
 import staticFiles from "@fastify/static";
 import { WebSocketServer } from "ws";
 import { createHash, randomBytes } from "node:crypto";
+import { spawn, spawnSync } from 'node:child_process';
 import { createReadStream, createWriteStream } from "node:fs";
 import { mkdir, rename, unlink, readFile, writeFile } from "node:fs/promises";
 import { resolve, dirname, join } from "node:path";
@@ -51,6 +52,9 @@ export async function createController({
   const mediaDir = join(dataDir, "media");
   await mkdir(mediaDir, { recursive: true, mode: 0o700 });
   const store = new Store(join(dataDir, "controller.sqlite"));
+  const bootState=store.current();
+  if(bootState.mode!=='exhibition'||bootState.schedule)
+    store.commit({...bootState,mode:'exhibition',schedule:null},bootState.revision);
   const pixi = await readFile(
     join(root, "node_modules/pixi.js/dist/pixi.min.js"),
   );
@@ -73,6 +77,7 @@ export async function createController({
     logController: new Fastify.LogController({ disableRequestLogging: true }),
   });
   const sessions = new Map();
+  let shutdownPending=false;
   let transitionRequest=null,transitionError=null;
   const transitionStatus=state=>{
     const connected=state.layout.slots.filter(slot=>sessions.has(slot.deviceId));
@@ -129,7 +134,7 @@ export async function createController({
     const ws = sessions.get(id),
       state = store.snapshot(id);
     if (ws && state){
-      const urgent=ticker.snapshot(id).runs.some(run=>run.source==='router');
+      const urgent=state.mode==='exhibition'&&ticker.snapshot(id).runs.some(run=>run.source==='router');
       const kissingState=kissing.snapshot(id,cycle.enabled&&['draining-kissing','preparing-curated'].includes(cycle.phase));
       send(
         ws,
@@ -417,6 +422,29 @@ export async function createController({
     )
       throw new Error("expected-revision-required");
     let state = structuredClone(previous);
+    if(input.action==='remote.shutdown'){
+      if(!['127.0.0.1','::1','::ffff:127.0.0.1'].includes(req.raw.socket.remoteAddress))
+        throw new Error('shutdown-requires-private-https-proxy');
+      if(shutdownPending)return {ok:true,shuttingDown:true};
+      const permission=spawnSync('/usr/bin/sudo',['-n','-l','/sbin/shutdown','-h','now'],{encoding:'utf8',timeout:3000});
+      if(permission.status!==0)throw new Error('shutdown-permission-unavailable');
+      if(cycle.enabled)stopCycle();
+      if(pairing.status().active){pairing.stop();broadcastPairing();}
+      state=structuredClone(store.current());
+      state.mode='night';state.nightBrightness=0;state.schedule=null;state.overrides={};
+      store.commit(state,state.revision);
+      store.db.prepare('DELETE FROM previews').run();
+      shutdownPending=true;
+      broadcast();
+      const timer=setTimeout(()=>{
+        const child=spawn('/usr/bin/sudo',['-n','/sbin/shutdown','-h','now'],{stdio:'ignore'});
+        child.on('error',error=>{shutdownPending=false;app.log.error({error},'shutdown-command-failed');});
+        child.on('exit',code=>{if(code!==0){shutdownPending=false;app.log.error({code},'shutdown-command-failed');}});
+      },8000);
+      timer.unref();
+      return {ok:true,shuttingDown:true,delaySeconds:8};
+    }
+    if(shutdownPending)throw new Error('shutdown-in-progress');
     if(input.action==='audio.volume'){
       if(!Number.isFinite(input.volume)||input.volume<0||input.volume>1)throw new Error('invalid-audio-volume');
       store.commit({...state,audioVolume:input.volume},previous.revision);
