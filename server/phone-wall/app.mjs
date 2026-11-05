@@ -117,13 +117,15 @@ export async function createController({
     const state=store.current(),allowed=state.mode==='exhibition'&&!pairing.status().active&&!kissing.settings.enabled;
     const tickerState=ticker.dispatchState();
     const urgent=tickerState.routerQueued||tickerState.active.some(run=>run.source==='router');
+    let desiredTickerVersion=null;
     if(allowed&&(ticker.enabled||urgent)&&state.layout.slots.length&&(['barthes','curated'].includes(ticker.playbackMode)||tickerState.queued||tickerState.active.length||tickerState.routerQueued)){
       const definition=testTextDefinition(state.layout,{asset:testTextHash,color:ticker.playbackMode==='barthes'?'#00ff00':'#ff0000'});
       definition.artworkId='live-ticker';definition.parameters={...definition.parameters,live:true,curatedMode:ticker.playbackMode==='curated',fontFamily:ticker.playbackMode==='curated'?'Arial, Helvetica, sans-serif':definition.parameters.fontFamily};
       definition.artworkVersion=releaseHash({parameters:definition.parameters,elements:definition.elements,canvas:definition.canvas,layout:state.layout,...(ticker.playbackMode==='barthes'?{startRevision:state.revision}:{})});
+      desiredTickerVersion=definition.artworkVersion;
       const urgentRows=liveRows(state.layout);
       const nextUrgentRow=urgentRows.find(row=>!ticker.isCuratedPriorityRow(row.row)&&!tickerState.active.some(run=>run.row===row.row)&&row.targets.every(id=>sessions.has(id)&&store.device(id)?.capabilities?.liveTicker===1));
-      const targetIds=ticker.enabled&&allowed&&ticker.playbackMode==='barthes'?state.layout.slots.map(slot=>slot.deviceId):tickerState.routerQueued?nextUrgentRow?.targets??[]:urgent?tickerState.active.filter(run=>run.source==='router').flatMap(run=>run.targets):state.layout.slots.map(slot=>slot.deviceId);
+      const targetIds=ticker.enabled&&allowed&&['barthes','curated'].includes(ticker.playbackMode)?state.layout.slots.map(slot=>slot.deviceId):tickerState.routerQueued?nextUrgentRow?.targets??[]:urgent?tickerState.active.filter(run=>run.source==='router').flatMap(run=>run.targets):state.layout.slots.map(slot=>slot.deviceId);
       for(const id of targetIds){
         if(tickerState.active.some(run=>run.source==='router'&&run.targets.includes(id)))continue;
         if(!sessions.has(id)||store.device(id)?.capabilities?.liveTicker!==1)continue;
@@ -144,7 +146,7 @@ export async function createController({
     const ready=new Set([...sessions.keys()].filter(id=>{
       const art=releases.snapshot(id),status=store.device(id)?.artworkStatus;
       const activeStatus=art.active&&releases.deployment(art.active.deploymentId).targets[id]?.status;
-      return store.device(id)?.capabilities?.liveTicker===1&&!!store.snapshot(id)&&!art.pending&&art.active?.release.definition.artworkId==='live-ticker'&&(activeStatus==='displayed'||status?.deploymentId===art.active.deploymentId&&status.status==='displayed');
+      return store.device(id)?.capabilities?.liveTicker===1&&!!store.snapshot(id)&&!art.pending&&art.active?.release.definition.artworkId==='live-ticker'&&(!desiredTickerVersion||art.active.release.definition.artworkVersion===desiredTickerVersion)&&(activeStatus==='displayed'||status?.deploymentId===art.active.deploymentId&&status.status==='displayed');
     }));
     if(ticker.tick(ready,allowed))tickerBroadcast();
     if(!ticker.status().routerQueued&&!ticker.runs().some(run=>run.source==='router')){

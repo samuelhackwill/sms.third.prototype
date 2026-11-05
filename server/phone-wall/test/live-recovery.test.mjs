@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import WebSocket from 'ws';
 import { createController } from '../app.mjs';
+import { SimulatedClient } from '../simulated-client.mjs';
 import { envelope } from '../../../protocol/core.mjs';
 
 async function until(predicate){
@@ -49,4 +50,34 @@ test('a failed live artwork asks a phone to clear its cache once before retrying
   assert.equal(messages.filter(m=>m.type==='state.snapshot').length,snapshots);
   assert.equal(messages.filter(m=>m.type==='command'&&m.payload.name==='clearCache').length,1);
   assert.equal(server.ticker.playbackMode,'barthes');
+});
+
+test('Curated waits for its own artwork after Barthes when an SMS is queued',async t=>{
+  const directory=await mkdtemp(join(tmpdir(),'wall-curated-switch-'));
+  const key='curated-switch-operator-secret-00000000000';
+  const server=await createController({dataDir:directory,adminToken:key});
+  await server.app.listen({host:'127.0.0.1',port:0});
+  const endpoint=`ws://127.0.0.1:${server.app.server.address().port}/phone-wall/ws`;
+  const clients=[new SimulatedClient(endpoint),new SimulatedClient(endpoint)];
+  t.after(async()=>{clients.forEach(client=>client.stop());await server.app.close();await rm(directory,{recursive:true,force:true});});
+  clients.forEach(client=>client.connect());
+  await until(()=>clients.every(client=>client.welcome));
+  const state=server.store.current();
+  state.layout.rows=2;state.layout.columns=1;
+  state.layout.slots=clients.map((client,index)=>({deviceId:client.identity.deviceId,slotIndex:index,geometry:{x:0,y:index*667,width:375,height:667}}));
+  const headers={authorization:`Bearer ${key}`};
+  const action=async payload=>{
+    const result=await server.app.inject({url:'/phone-wall/api',method:'POST',headers,payload});
+    assert.equal(result.statusCode,200,result.body);
+  };
+  await action({action:'configure',config:state,expectedRevision:state.revision});
+  await action({action:'barthes.start'});
+  await until(()=>clients.every(client=>client.activeArtwork?.release?.definition?.parameters?.color==='#00ff00'));
+  server.ticker.enableRouter();
+  server.ticker.ingestRouter([],{detailed:true});
+  server.ticker.ingestRouter([{id:'0612345678:1',sender:'0612345678',routerId:'1',text:'Incoming SMS',receivedAt:new Date().toISOString()}],{detailed:true});
+  await action({action:'curated.start',messages:['1234567890','']});
+  assert.equal(server.ticker.runs().some(run=>run.source==='custom'),false);
+  await until(()=>clients.every(client=>client.activeArtwork?.release?.definition?.parameters?.color==='#ff0000'));
+  await until(()=>server.ticker.runs().some(run=>run.source==='custom'));
 });
