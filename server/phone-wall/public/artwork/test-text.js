@@ -51,6 +51,7 @@
   const context = canvas.getContext('2d');
   if (!context) throw new Error('Test text canvas is unavailable');
   let rows = [], ratio, sx, sy, run = parameters.live && state.preview ? state.liveRun : null, lastAck = 0;
+  let transition = state.ticker?.transition || null;
   const incomingStyle = () => parameters.curatedMode && run?.effect === 'sms-sweep';
   function sweepTiming(row, elapsed) {
     const count = run.targets.length;
@@ -120,11 +121,40 @@
   window.addEventListener('resize', resize);
   if (parameters.live && !state.preview) {
     PhoneWall.onTicker(snapshot => {
+      transition = snapshot.transition || null;
       const next = snapshot.enabled ? snapshot.runs[0] || null : null;
       const changed = next?.id !== run?.id;
       run = next;
       if (changed) { text = run?.text || ''; lastAck = 0; resize(); }
     });
+  }
+  function drawTransition(serverNow) {
+    if (!transition) return false;
+    const elapsed = (serverNow - transition.startAtServerMs) / 1000;
+    if (elapsed < 0 || elapsed >= 3.3) return false;
+    const blinking = elapsed >= 1.7 && elapsed < 2.5 && (elapsed - 1.7) % 0.4 >= 0.22;
+    const alpha = blinking ? 0 : elapsed >= 2.5 ? Math.max(0, (3.3 - elapsed) / 0.8) : 1;
+    const phrase = '❤️ SMS ❤️';
+    context.fillStyle = '#000000';
+    context.fillRect(viewport.x, viewport.y, viewport.width, viewport.height);
+    for (const row of transition.rows) {
+      if (row.top >= viewport.y + viewport.height || row.top + row.height <= viewport.y) continue;
+      const fontSize = Math.min(row.height * 0.5, (row.right - row.left) * 0.17);
+      context.save();
+      context.beginPath();context.rect(row.left,row.top,row.right-row.left,row.height);context.clip();
+      context.font = `${fontSize}px Arial, Helvetica, sans-serif`;
+      const ink = context.measureText(phrase), textWidth = ink.width;
+      const startX = row.row % 2 === 0 ? row.left - textWidth : row.right;
+      const targetX = (row.left + row.right - textWidth) / 2;
+      const x = startX + (targetX - startX) * Math.min(1, elapsed / 1.7);
+      const ascent = ink.actualBoundingBoxAscent || fontSize * 0.8;
+      const descent = ink.actualBoundingBoxDescent || fontSize * 0.2;
+      const baseline = row.top + (row.height - ascent - descent) / 2 + ascent;
+      context.globalAlpha = alpha;
+      drawColoredText(context, phrase, x, baseline, '#ff0000', '#ff0000');
+      context.restore();
+    }
+    return true;
   }
   PhoneWall.onFrame(elapsedSeconds => {
     const now = Date.now();
@@ -144,6 +174,7 @@
       context.restore();
     }
     context.setTransform(ratio * sx, 0, 0, ratio * sy, -viewport.x * ratio * sx, -viewport.y * ratio * sy);
+    if (drawTransition(now + state.clockOffsetMs)) return;
     if (parameters.live && run?.phase === 'preparing') {
       if (!state.preview && rows[0] && Date.now() - lastAck > 2000) { PhoneWall.readyRow(run.id,rows[0].width); lastAck = Date.now(); }
       return;

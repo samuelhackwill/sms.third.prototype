@@ -32,7 +32,7 @@ export function liveRows(layout) {
 }
 export class LiveTicker {
   constructor(store) {
-    this.store=store;this.db=store.db;this.libraryGeneration=randomUUID();
+    this.store=store;this.db=store.db;this.libraryGeneration=randomUUID();this.transition=null;
     this.db.exec(`CREATE TABLE IF NOT EXISTS ticker_settings(id INTEGER PRIMARY KEY CHECK(id=1),enabled INTEGER NOT NULL);
       INSERT OR IGNORE INTO ticker_settings(id,enabled) VALUES(1,0);
       CREATE TABLE IF NOT EXISTS ticker_messages(seq INTEGER PRIMARY KEY AUTOINCREMENT,external_id TEXT NOT NULL UNIQUE,text TEXT NOT NULL,received_at TEXT,status TEXT NOT NULL DEFAULT 'queued',run TEXT,completed_at INTEGER);
@@ -292,7 +292,7 @@ export class LiveTicker {
       queued:!!this.db.prepare("SELECT 1 FROM ticker_messages WHERE status='queued' AND (source=? OR ?='curated' AND source IN ('custom','archive')) LIMIT 1").get(mode,mode),
     };
   }
-  snapshot(deviceId){const runs=this.runs().filter(run=>run.targets.includes(deviceId));return {enabled:this.enabled||runs.some(run=>run.source==='router'),alertEnabled:this.liveAlertEnabled,runs};}
+  snapshot(deviceId){const runs=this.runs().filter(run=>run.targets.includes(deviceId));return {enabled:this.enabled||runs.some(run=>run.source==='router'),alertEnabled:this.liveAlertEnabled,runs,transition:this.transition&&Date.now()<this.transition.startAtServerMs+3300?this.transition:null};}
   save(run,status){const {seq,text,...data}=run;this.db.prepare('UPDATE ticker_messages SET status=?,run=? WHERE seq=?').run(status,JSON.stringify(data),seq);}
   tick(ready,allowed=true,now=Date.now()) {
     if(this.enabled&&allowed)this.refillBarthes();

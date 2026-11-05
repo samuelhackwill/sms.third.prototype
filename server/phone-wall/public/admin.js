@@ -250,8 +250,8 @@ function render() {
   $('live-alert-toggle').checked=!!live?.liveAlertEnabled;
   $('live-alert-status').textContent=live?.liveAlertEnabled?live?.alertUpgradeRequired?.length?`Update ${live.alertUpgradeRequired.length} connected phones to app 2.4.4 for ding and vibration.`:'Ding and vibration enabled on updated phones.':'Silent when live SMS starts.';
   const transition=data.transition;
-  $('sms-transition').disabled=!!pairing?.active||state.mode!=='exhibition'||!!kissing?.enabled||!transition?.online||!!transition?.upgradeRequired?.length;
-  $('sms-transition-status').textContent=transition?.upgradeRequired?.length?`Install phone app 2.4.5 on ${transition.upgradeRequired.length} connected phones.`:transition?.active?'Playing across the wall…':transition?.online?'Ready for a manual transition.':'Connect phones to play the transition.';
+  $('sms-transition').disabled=!!pairing?.active||state.mode!=='exhibition'||!!kissing?.enabled||!transition?.available||!!transition?.preparing||!!transition?.active;
+  $('sms-transition-status').textContent=transition?.active?'Playing across the wall…':transition?.preparing?'Preparing the web artwork on connected phones…':transition?.error??(transition?.available?'Ready for a manual transition.':'Show live text artwork on connected phones first.');
   $('barthes-start').disabled=!!barthesActive||!!pairing?.active||!!live?.upgradeRequired?.length||!state.layout.slots.length;
   $('barthes-stop').disabled=!barthesActive;
   $('barthes-status').textContent=live?.upgradeRequired?.length?`Install phone app 2.3 on ${live.upgradeRequired.length} connected phones.`:
@@ -465,8 +465,10 @@ function drawSMSTransition(c,slot,active,now){
   const row=active.rows.find(item=>item.row===Math.floor(slot.slotIndex/data.state.layout.columns));
   if(!row)return;
   const g=slot.geometry,fontSize=Math.min(row.height*0.5,(row.right-row.left)*0.17);
-  c.save();c.scale(300/g.width,400/g.height);c.translate(-g.x,-g.y);
-  c.font=`900 ${fontSize}px Arial, sans-serif`;c.textBaseline='top';
+  c.save();c.setTransform(1,0,0,1,0,0);c.fillStyle='#000';c.fillRect(0,0,300,400);
+  c.scale(300/g.width,400/g.height);c.translate(-g.x,-g.y);
+  c.beginPath();c.rect(row.left,row.top,row.right-row.left,row.height);c.clip();
+  c.font=`${fontSize}px Arial, sans-serif`;c.textBaseline='top';
   const text='❤️ SMS ❤️',textWidth=c.measureText(text).width;
   const startX=row.row%2===0?row.left-textWidth:row.right;
   const targetX=(row.left+row.right-textWidth)/2;

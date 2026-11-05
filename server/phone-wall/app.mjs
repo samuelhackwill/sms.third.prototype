@@ -73,10 +73,14 @@ export async function createController({
     logController: new Fastify.LogController({ disableRequestLogging: true }),
   });
   const sessions = new Map();
-  let smsTransition=null;
+  let transitionRequest=null,transitionError=null;
   const transitionStatus=state=>{
     const connected=state.layout.slots.filter(slot=>sessions.has(slot.deviceId));
-    return {online:connected.length,upgradeRequired:connected.filter(slot=>store.device(slot.deviceId)?.capabilities?.transitionOverlay!==1).map(slot=>slot.deviceId),active:smsTransition&&Date.now()<smsTransition.startAtServerMs+3300?smsTransition:null};
+    const available=connected.length>0&&connected.every(slot=>{
+      const art=releases.snapshot(slot.deviceId);
+      return !art.pending&&store.device(slot.deviceId)?.capabilities?.liveTicker===1&&art.active?.release.definition.artworkId==='live-ticker';
+    });
+    return {online:connected.length,available,preparing:!!transitionRequest,error:transitionError,active:ticker.transition&&Date.now()<ticker.transition.startAtServerMs+3300?ticker.transition:null};
   };
   let closing=false;
   let cpuPercent=null;
@@ -123,14 +127,14 @@ export async function createController({
     const tickerState=ticker.dispatchState();
     const urgent=tickerState.routerQueued||tickerState.active.some(run=>run.source==='router');
     let desiredTickerVersion=null;
-    if(allowed&&(ticker.enabled||urgent)&&state.layout.slots.length&&(['barthes','curated'].includes(ticker.playbackMode)||tickerState.queued||tickerState.active.length||tickerState.routerQueued)){
+    if(allowed&&(ticker.enabled||urgent||transitionRequest)&&state.layout.slots.length&&(['barthes','curated'].includes(ticker.playbackMode)||tickerState.queued||tickerState.active.length||tickerState.routerQueued||transitionRequest)){
       const definition=testTextDefinition(state.layout,{asset:testTextHash,color:ticker.playbackMode==='barthes'?'#00ff00':'#ff0000'});
       definition.artworkId='live-ticker';definition.parameters={...definition.parameters,live:true,curatedMode:ticker.playbackMode==='curated',fontFamily:ticker.playbackMode==='curated'?'Arial, Helvetica, sans-serif':definition.parameters.fontFamily};
       definition.artworkVersion=releaseHash({parameters:definition.parameters,elements:definition.elements,canvas:definition.canvas,layout:state.layout,...(ticker.playbackMode==='barthes'?{startRevision:state.revision}:{})});
       desiredTickerVersion=definition.artworkVersion;
       const urgentRows=liveRows(state.layout);
       const nextUrgentRow=urgentRows.find(row=>!ticker.isCuratedPriorityRow(row.row)&&!tickerState.active.some(run=>run.row===row.row)&&row.targets.every(id=>sessions.has(id)&&store.device(id)?.capabilities?.liveTicker===1));
-      const targetIds=ticker.enabled&&allowed&&['barthes','curated'].includes(ticker.playbackMode)?state.layout.slots.map(slot=>slot.deviceId):tickerState.routerQueued?nextUrgentRow?.targets??[]:urgent?tickerState.active.filter(run=>run.source==='router').flatMap(run=>run.targets):state.layout.slots.map(slot=>slot.deviceId);
+      const targetIds=transitionRequest?transitionRequest.targets:ticker.enabled&&allowed&&['barthes','curated'].includes(ticker.playbackMode)?state.layout.slots.map(slot=>slot.deviceId):tickerState.routerQueued?nextUrgentRow?.targets??[]:urgent?tickerState.active.filter(run=>run.source==='router').flatMap(run=>run.targets):state.layout.slots.map(slot=>slot.deviceId);
       for(const id of targetIds){
         if(tickerState.active.some(run=>run.source==='router'&&run.targets.includes(id)))continue;
         if(!sessions.has(id)||store.device(id)?.capabilities?.liveTicker!==1)continue;
@@ -153,6 +157,13 @@ export async function createController({
       const activeStatus=art.active&&releases.deployment(art.active.deploymentId).targets[id]?.status;
       return store.device(id)?.capabilities?.liveTicker===1&&!!store.snapshot(id)&&!art.pending&&art.active?.release.definition.artworkId==='live-ticker'&&(!desiredTickerVersion||art.active.release.definition.artworkVersion===desiredTickerVersion)&&(activeStatus==='displayed'||status?.deploymentId===art.active.deploymentId&&status.status==='displayed');
     }));
+    if(transitionRequest){
+      if(Date.now()>transitionRequest.deadline){transitionRequest=null;transitionError='Phone artwork did not become ready in time.';}
+      else if(transitionRequest.targets.every(id=>ready.has(id))){
+        ticker.transition={id:transitionRequest.id,startAtServerMs:Date.now()+500,rows:transitionRequest.rows};
+        transitionRequest=null;tickerBroadcast();
+      }
+    }
     if(ticker.tick(ready,allowed))tickerBroadcast();
     if(!ticker.status().routerQueued&&!ticker.runs().some(run=>run.source==='router')){
       for(const [id,releaseId] of interruptedArtwork){
@@ -325,16 +336,12 @@ export async function createController({
     let state = structuredClone(previous);
     if(input.action==='transition.sms'){
       if(pairing.status().active||state.mode!=='exhibition'||kissing.settings.enabled)throw new Error('transition-requires-exhibition-mode');
-      const connected=state.layout.slots.filter(slot=>sessions.has(slot.deviceId));
-      if(!connected.length)throw new Error('no-connected-phones');
-      if(connected.some(slot=>store.device(slot.deviceId)?.capabilities?.transitionOverlay!==1))throw new Error('phone-app-2.4.5-required-for-transition');
-      const rows=liveRows(state.layout).map(({row,left,right,top,height})=>({row,left,right,top,height}));
-      smsTransition={id:randomBytes(16).toString('hex'),startAtServerMs:Date.now()+500,rows};
-      for(const slot of connected){
-        const row=rows.find(item=>item.row===Math.floor(slot.slotIndex/state.layout.columns));
-        send(sessions.get(slot.deviceId),'transition.play',{kind:'sms-hearts',id:smsTransition.id,startAtServerMs:smsTransition.startAtServerMs,row,slot:slot.geometry});
-      }
-      return {transition:smsTransition,phones:connected.length};
+      if(!transitionStatus(state).available)throw new Error('live-text-artwork-required-for-transition');
+      if(transitionRequest)throw new Error('transition-already-preparing');
+      transitionError=null;liveAttempts.clear();
+      transitionRequest={id:randomBytes(16).toString('hex'),targets:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)).map(slot=>slot.deviceId),rows:liveRows(state.layout).map(({row,left,right,top,height})=>({row,left,right,top,height})),deadline:Date.now()+30000};
+      tickerTick();
+      return {id:transitionRequest?.id??ticker.transition?.id};
     }
     if(['kissing.start','kissing.settings','kissing.stop'].includes(input.action)){
       if(input.settings?.enabled!==undefined)throw new Error('use-kissing-start-or-stop');
