@@ -43,6 +43,8 @@ export class LiveTicker {
       INSERT OR IGNORE INTO router_state(id,initialized) VALUES(1,0);
       CREATE TABLE IF NOT EXISTS router_archive(external_id TEXT PRIMARY KEY,sender TEXT NOT NULL,router_id TEXT,text TEXT NOT NULL,received_at TEXT,archived_at INTEGER NOT NULL,delete_attempt_at INTEGER,deleted_at INTEGER);
       CREATE INDEX IF NOT EXISTS router_archive_pending ON router_archive(deleted_at,delete_attempt_at,archived_at);
+      CREATE INDEX IF NOT EXISTS router_archive_sender_recent ON router_archive(sender,archived_at);
+      CREATE INDEX IF NOT EXISTS router_archive_sender_id ON router_archive(sender,router_id);
       CREATE TABLE IF NOT EXISTS archive_replay_history(external_id TEXT PRIMARY KEY,last_queued_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS curated_messages(id TEXT PRIMARY KEY,text TEXT NOT NULL,received_at TEXT,selected INTEGER NOT NULL DEFAULT 0);`);
     if(!this.db.prepare('PRAGMA table_info(curated_messages)').all().some(column=>column.name==='selected'))this.db.exec('ALTER TABLE curated_messages ADD COLUMN selected INTEGER NOT NULL DEFAULT 0');
@@ -53,6 +55,7 @@ export class LiveTicker {
     if(!this.db.prepare('PRAGMA table_info(ticker_settings)').all().some(column=>column.name==='barthes_cursor'))this.db.exec('ALTER TABLE ticker_settings ADD COLUMN barthes_cursor INTEGER NOT NULL DEFAULT 0');
     for(const [name,definition] of [['custom_a',"TEXT NOT NULL DEFAULT ''"],['custom_b',"TEXT NOT NULL DEFAULT ''"],['curated_next_at','INTEGER NOT NULL DEFAULT 0'],['curated_injection_enabled','INTEGER NOT NULL DEFAULT 0'],['curated_second_enabled','INTEGER NOT NULL DEFAULT 0'],['archive_replay_enabled','INTEGER NOT NULL DEFAULT 0'],['live_alert_enabled','INTEGER NOT NULL DEFAULT 0'],['archive_density','INTEGER NOT NULL DEFAULT 1'],['barthes_min_speed','INTEGER NOT NULL DEFAULT 1000'],['barthes_max_speed','INTEGER NOT NULL DEFAULT 6000'],['curated_min_speed','INTEGER NOT NULL DEFAULT 240'],['curated_max_speed','INTEGER NOT NULL DEFAULT 240']])if(!this.db.prepare('PRAGMA table_info(ticker_settings)').all().some(column=>column.name===name))this.db.exec(`ALTER TABLE ticker_settings ADD COLUMN ${name} ${definition}`);
     if(!this.db.prepare('PRAGMA table_info(ticker_messages)').all().some(column=>column.name==='source'))this.db.exec("ALTER TABLE ticker_messages ADD COLUMN source TEXT NOT NULL DEFAULT 'messages'");
+    this.db.exec("CREATE INDEX IF NOT EXISTS ticker_source_status ON ticker_messages(source,status,seq)");
     if(!this.db.prepare('PRAGMA table_info(ticker_messages)').all().some(column=>column.name==='target_row'))this.db.exec('ALTER TABLE ticker_messages ADD COLUMN target_row INTEGER');
     for(const name of ['origin_id','color_seed'])if(!this.db.prepare('PRAGMA table_info(ticker_messages)').all().some(column=>column.name===name))this.db.exec(`ALTER TABLE ticker_messages ADD COLUMN ${name} TEXT`);
     const repairArchive=this.db.prepare('UPDATE router_archive SET text=? WHERE external_id=?');
