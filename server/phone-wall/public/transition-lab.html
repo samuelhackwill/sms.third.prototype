@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Phone Wall · Transition Lab</title>
+  <style>
+    :root { color-scheme: dark; --ink:#edf3ed; --muted:#94aaa0; --line:#31443f; --panel:#12211e; --accent:#dbff78; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; background:radial-gradient(circle at 85% 0%,#1c3936 0,transparent 38%),#07110f; color:var(--ink); font:15px/1.5 system-ui,-apple-system,sans-serif; }
+    button,input { font:inherit; }
+    button { cursor:pointer; }
+    .lab { width:min(1600px,100%); margin:auto; padding:28px; display:grid; grid-template-columns:minmax(300px,350px) minmax(0,1fr); gap:28px; }
+    .sidebar { position:sticky; top:24px; align-self:start; max-height:calc(100vh - 48px); overflow:auto; padding:8px 10px 24px 0; }
+    .brand { display:flex; align-items:center; gap:10px; color:var(--accent); font:700 12px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.13em; text-transform:uppercase; }
+    .brand-mark { width:26px; height:26px; display:grid; place-items:center; border:1px solid currentColor; border-radius:7px; font-size:17px; }
+    h1 { max-width:320px; margin:38px 0 12px; font-size:clamp(38px,4vw,58px); line-height:.98; letter-spacing:-.065em; font-weight:650; }
+    .intro { margin:0 0 32px; color:var(--muted); max-width:290px; }
+    .eyebrow { margin:0 0 10px; color:var(--muted); font:700 11px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.13em; text-transform:uppercase; }
+    .effects { display:grid; gap:8px; margin-bottom:28px; }
+    .effect { width:100%; display:grid; grid-template-columns:35px 1fr auto; align-items:center; gap:10px; padding:13px 14px; border:1px solid var(--line); border-radius:12px; background:#12211e; color:var(--ink); text-align:left; transition:background .15s,border-color .15s,transform .15s; }
+    .effect:hover { transform:translateX(3px); border-color:#779087; }
+    .effect[aria-pressed="true"] { background:#21352d; border-color:var(--accent); box-shadow:inset 3px 0 var(--accent); }
+    .effect .number { color:var(--accent); font:700 12px ui-monospace,SFMono-Regular,Menlo,monospace; }
+    .effect .name { font-weight:650; }
+    .effect .kind { color:var(--muted); font:11px ui-monospace,SFMono-Regular,Menlo,monospace; }
+    .controls { border-top:1px solid var(--line); padding-top:24px; }
+    .slider { display:block; margin:17px 0; }
+    .slider-head { display:flex; justify-content:space-between; gap:12px; margin-bottom:7px; font-size:13px; }
+    .slider output { color:var(--accent); font:700 12px ui-monospace,SFMono-Regular,Menlo,monospace; }
+    input[type="range"] { width:100%; accent-color:var(--accent); }
+    .actions { display:grid; grid-template-columns:1fr 1fr; gap:9px; margin-top:20px; }
+    .actions button { border:1px solid var(--line); border-radius:10px; padding:12px 10px; background:#1b2b26; color:var(--ink); font-weight:650; }
+    .actions button.primary { background:var(--accent); border-color:var(--accent); color:#142010; }
+    .actions button:hover { filter:brightness(1.12); }
+    .tour { display:flex; align-items:center; gap:10px; margin-top:22px; color:var(--muted); font-size:13px; }
+    .tour input { width:17px; height:17px; accent-color:var(--accent); }
+    .stage { min-width:0; border:1px solid var(--line); border-radius:18px; overflow:hidden; background:#0d1917; box-shadow:0 24px 80px #0006; }
+    .stage-head { display:flex; align-items:start; justify-content:space-between; gap:16px; padding:20px 24px 16px; border-bottom:1px solid var(--line); }
+    .stage-head h2 { margin:2px 0 2px; font-size:24px; line-height:1.1; letter-spacing:-.04em; }
+    .stage-head p { margin:0; color:var(--muted); font-size:13px; }
+    .tag { flex:none; padding:6px 9px; border:1px solid #4c6d61; border-radius:6px; color:var(--accent); font:700 10px ui-monospace,SFMono-Regular,Menlo,monospace; letter-spacing:.1em; }
+    .screen-wrap { position:relative; display:grid; place-items:center; min-height:560px; padding:14px; background:radial-gradient(circle at center,#1b3430 0,#0b1715 65%); }
+    canvas { display:block; width:min(100%,740px); height:auto; max-height:min(75vh,830px); object-fit:contain; }
+    .stage-foot { padding:17px 24px 20px; border-top:1px solid var(--line); }
+    .progress { height:4px; overflow:hidden; border-radius:4px; background:#334942; }
+    .progress > span { display:block; width:0; height:100%; background:var(--accent); transition:width .08s linear; }
+    .meta { display:flex; flex-wrap:wrap; justify-content:space-between; gap:10px; margin-top:12px; color:var(--muted); font:11px ui-monospace,SFMono-Regular,Menlo,monospace; text-transform:uppercase; letter-spacing:.05em; }
+    .note { margin-top:18px; color:var(--muted); font-size:12px; }
+    .note strong { color:var(--ink); }
+    @media(max-width:1000px) { .lab { grid-template-columns:1fr; } .sidebar { position:static; max-height:none; padding-right:0; } .effects { grid-template-columns:repeat(2,minmax(0,1fr)); } h1 { max-width:none; } }
+    @media(max-width:600px) { .lab { padding:14px; gap:16px; } .effects { grid-template-columns:1fr; } .effect { padding:11px 12px; } .stage-head { padding:16px; } .screen-wrap { min-height:0; padding:6px; } .stage-foot { padding:15px; } }
+  </style>
+</head>
+<body>
+  <main class="lab">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">✳</span> Phone Wall / Lab 01</div>
+      <h1>What could happen between modes?</h1>
+      <p class="intro">Four rough transition sketches on a fake 5 × 3 phone wall. Explore motion, chance, and timing without touching the installation.</p>
+      <p class="eyebrow">Choose a sketch</p>
+      <div class="effects" role="group" aria-label="Transition sketches">
+        <button class="effect" data-effect="magnet" aria-pressed="true"><span class="number">01</span><span class="name">Magnetic letters</span><span class="kind">SPRING</span></button>
+        <button class="effect" data-effect="gravity" aria-pressed="false"><span class="number">02</span><span class="name">Gravity drop</span><span class="kind">IMPACT</span></button>
+        <button class="effect" data-effect="relay" aria-pressed="false"><span class="number">03</span><span class="name">Signal relay</span><span class="kind">GLITCH</span></button>
+        <button class="effect" data-effect="storm" aria-pressed="false"><span class="number">04</span><span class="name">Pixel storm</span><span class="kind">PARTICLES</span></button>
+      </div>
+      <div class="controls">
+        <p class="eyebrow">Tweak the experiment</p>
+        <label class="slider"><span class="slider-head"><span>Randomness</span><output id="chaos-value">60%</output></span><input id="chaos" type="range" min="0" max="100" value="60" /></label>
+        <label class="slider"><span class="slider-head"><span>Playback speed</span><output id="speed-value">1.0×</output></span><input id="speed" type="range" min="0.5" max="2" step="0.1" value="1" /></label>
+        <div class="actions"><button id="reseed" type="button">↻ New seed</button><button class="primary" id="replay" type="button">▶ Replay</button></div>
+        <label class="tour"><input id="tour" type="checkbox" /> Auto-tour all sketches</label>
+      </div>
+      <p class="note"><strong>Visual study only.</strong> These are canvas animations on this page. No phone, pairing, or controller mode is changed.</p>
+    </aside>
+    <section class="stage" aria-label="Fake phone wall preview">
+      <div class="stage-head"><div><p class="eyebrow">Fake matrix · 15 screens</p><h2 id="effect-title">Magnetic letters</h2><p id="effect-description">Letters overshoot their screens, then settle as if pulled by magnets.</p></div><span class="tag">LOCAL SIMULATION</span></div>
+      <div class="screen-wrap"><canvas id="wall" width="930" height="980" role="img" aria-label="Animated preview of fifteen simulated phones"></canvas></div>
+      <div class="stage-foot"><div class="progress"><span id="progress"></span></div><div class="meta"><span id="phase">ASSEMBLING</span><span id="seed">SEED 000000</span><span>5 COLUMNS / 3 ROWS</span></div></div>
+    </section>
+  </main>
+  <script src="/console/transition-lab.js"></script>
+</body>
+</html>
