@@ -245,6 +245,8 @@ function render() {
   const barthesActive=live?.enabled&&live.mode==='barthes';
   const smsActive=live?.active?.filter(run=>run.source==='router').length??0;
   $('live-status').textContent=`Always watching · ${live?.routerQueued??0} SMS waiting · ${smsActive} SMS active · ${live?.routerArchive?.total??0} archived · ${live?.routerArchive?.pending??0} awaiting router cleanup${live?.routerArchive?.missingId?` · ${live.routerArchive.missingId} lack router IDs`:''}`;
+  $('live-alert-toggle').checked=!!live?.liveAlertEnabled;
+  $('live-alert-status').textContent=live?.liveAlertEnabled?live?.alertUpgradeRequired?.length?`Update ${live.alertUpgradeRequired.length} connected phones to app 2.4.4 for ding and vibration.`:'Ding and vibration enabled on updated phones.':'Silent when live SMS starts.';
   $('barthes-start').disabled=!!barthesActive||!!pairing?.active||!!live?.upgradeRequired?.length||!state.layout.slots.length;
   $('barthes-stop').disabled=!barthesActive;
   $('barthes-status').textContent=live?.upgradeRequired?.length?`Install phone app 2.3 on ${live.upgradeRequired.length} connected phones.`:
@@ -724,6 +726,7 @@ $("identify").onclick = run(() => api({ action: "identify", ...target() }));
 $('pairing-start').onclick=run(()=>api({action:'pairing.start'}));
 $('pairing-stop').onclick=run(()=>api({action:'pairing.stop'}));
 $('barthes-start').onclick=run(()=>api({action:'barthes.start'}));
+$('live-alert-toggle').onchange=run(()=>api({action:'live.alert',enabled:$('live-alert-toggle').checked}));
 $('barthes-stop').onclick=run(()=>api({action:'barthes.stop'}));
 $('curated-start').onclick=run(async()=>{clearTimeout(curatedSaveTimer);await api({action:data.ticker?.enabled&&data.ticker.mode==='curated'?'curated.messages':'curated.start',messages:curatedTexts()});curatedEdited=false;});
 $('curated-stop').onclick=run(()=>api({action:'curated.stop'}));

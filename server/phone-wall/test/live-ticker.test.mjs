@@ -35,6 +35,15 @@ test('FIFO dispatch fills free rows, waits for every phone, completes and frees 
   assert.deepEqual(ticker.runs().map(run=>[run.seq,run.row]),[[2,1],[3,0]]);
   assert.equal(ticker.acknowledge(ids[0],{type:'ticker.done',runId:first.id},10000),false);
 });
+test('live SMS alert setting persists and reaches phone snapshots',async t=>{
+  const {ticker,store,ids}=await fixture(t);
+  assert.equal(ticker.snapshot(ids[0]).alertEnabled,false);
+  assert.equal(ticker.setLiveAlert(true),true);
+  assert.equal(ticker.snapshot(ids[0]).alertEnabled,true);
+  assert.equal(new LiveTicker(store).status().liveAlertEnabled,true);
+  assert.equal(ticker.setLiveAlert(false),false);
+  assert.equal(ticker.snapshot(ids[0]).alertEnabled,false);
+});
 test('offline rows do not block other rows; pause/restart/timeouts preserve unfinished messages',async t=>{
   const {ticker,store,ids,ingest}=await fixture(t);ticker.start();
   ingest([1,2].map(rowId=>({rowId,id:`incoming-${rowId}`,text:'Hello ❤️'})));

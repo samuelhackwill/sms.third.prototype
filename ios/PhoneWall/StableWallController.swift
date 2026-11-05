@@ -6,6 +6,7 @@ final class StableWallController: UIViewController {
     private lazy var library = ArtworkLibrary(media:media)
     private lazy var runtime = ArtworkRuntime(host:host,library:library)
     private lazy var kissing = KissingWallView(media:media)
+    private let liveAlert = LiveMessageAlert()
     private let discovery = ServerDiscovery()
     private var displayLink: CADisplayLink?
     private let boot = ProcessInfo.processInfo.systemUptime
@@ -61,6 +62,10 @@ final class StableWallController: UIViewController {
         NSLayoutConstraint.activate([debugOverlay.topAnchor.constraint(equalTo:view.safeAreaLayoutGuide.topAnchor,constant:8),debugOverlay.leadingAnchor.constraint(equalTo:view.leadingAnchor,constant:8),debugOverlay.trailingAnchor.constraint(equalTo:view.trailingAnchor,constant:-8)])
         setup.isHidden = !state.state.isEmpty
         runtime.clockOffset = { [weak self] in guard let self = self else { return 0 }; return self.connection.hasClockSample ? self.connection.offset : self.runtime.restoredOffset }
+        liveAlert.canPlay = { [weak self] in
+            guard let self = self else { return false }
+            return self.connection.isConnected && self.state.state["mode"] as? String == "exhibition" && !self.kissing.enabled && !self.identifying && self.pairingSessionId == nil
+        }
         runtime.report = { [weak self] payload in
             guard let self = self else { return }
             if payload["status"] as? String == "error" { self.showDebugError(payload["code"] as? String ?? "artwork-error") }
@@ -86,6 +91,7 @@ final class StableWallController: UIViewController {
             guard let self = self else { return }
             self.diagnostics.record("connection-lost-retaining-artwork")
             self.showDebugError("connection-lost")
+            self.liveAlert.disconnect()
             self.runtime.receiveTicker(["enabled":false,"runs":[]])
             if self.pairingSessionId != nil { self.pairingScreen.isEnabled = false; self.pairingScreen.setTitle("OFFLINE\nWaiting for controller…",for:.normal) }
         }
@@ -159,7 +165,10 @@ final class StableWallController: UIViewController {
         }
         if type == "server.error" { let code=payload["code"] as? String ?? "server-error"; diagnostics.record(code); showDebugError(code) }
         if type == "pairing.state" { showPairing(payload); return }
-        if type == "ticker.snapshot" { runtime.receiveTicker(payload); return }
+        if type == "ticker.snapshot" {
+            liveAlert.receive(payload,clockOffsetMs:connection.hasClockSample ? connection.offset : runtime.restoredOffset)
+            runtime.receiveTicker(payload); return
+        }
         if type == "command", let name = payload["name"] as? String, let id = payload["commandId"] as? String {
             var completed = UserDefaults.standard.stringArray(forKey:"completedCommands") ?? []
             if completed.contains(id) { connection.send("client.ack",["commandId":id,"result":"duplicate"]); return }

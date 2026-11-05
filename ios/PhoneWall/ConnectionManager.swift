@@ -60,7 +60,7 @@ final class ConnectionManager {
         handshakeTimeout = timeout
         DispatchQueue.main.asyncAfter(deadline:.now()+10,execute:timeout)
         let screen = UIScreen.main
-        send("client.hello", ["deviceId": deviceId, "token": token, "bootSessionId": bootSession, "appVersion": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "2.0", "runtimeVersion":"2.0", "capabilities": ["sceneSchemaVersions":[1],"liveTicker":1,"kissingWall":1,"debugOverlay":1,"model": UIDevice.current.model, "osVersion": UIDevice.current.systemVersion, "width": screen.bounds.width, "height": screen.bounds.height, "pixelWidth": screen.nativeBounds.width, "pixelHeight": screen.nativeBounds.height, "scale": screen.scale, "codecs": ["h264"]]])
+        send("client.hello", ["deviceId": deviceId, "token": token, "bootSessionId": bootSession, "appVersion": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "2.0", "runtimeVersion":"2.0", "capabilities": ["sceneSchemaVersions":[1],"liveTicker":1,"liveAlert":1,"kissingWall":1,"debugOverlay":1,"model": UIDevice.current.model, "osVersion": UIDevice.current.systemVersion, "width": screen.bounds.width, "height": screen.bounds.height, "pixelWidth": screen.nativeBounds.width, "pixelHeight": screen.nativeBounds.height, "scale": screen.scale, "codecs": ["h264"]]])
         receive(ws, generation: current)
         let heartbeatTimer = Timer(timeInterval:12,repeats:true) { [weak self] _ in
             guard let self = self else { return }

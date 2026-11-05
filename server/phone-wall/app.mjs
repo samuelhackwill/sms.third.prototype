@@ -112,7 +112,7 @@ export async function createController({
   const pauseTicker=()=>{ticker.pause();tickerBroadcast();};
   function tickerTick(){
     const state=store.current(),allowed=state.mode==='exhibition'&&!pairing.status().active&&!kissing.settings.enabled;
-    const tickerState=ticker.status();
+    const tickerState=ticker.dispatchState();
     const urgent=tickerState.routerQueued||tickerState.active.some(run=>run.source==='router');
     if(allowed&&(ticker.enabled||urgent)&&state.layout.slots.length&&(['barthes','curated'].includes(ticker.playbackMode)||tickerState.queued||tickerState.active.length||tickerState.routerQueued)){
       const definition=testTextDefinition(state.layout,{asset:testTextHash,color:ticker.playbackMode==='barthes'?'#00ff00':'#ff0000'});
@@ -233,7 +233,7 @@ export async function createController({
       state,
       pairing:pairing.status(),
       kissing:{...kissing.status(),upgradeRequired:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.kissingWall!==1).map(slot=>slot.deviceId)},
-      ticker:{...ticker.status(),router:routerStatus,upgradeRequired:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.liveTicker!==1).map(slot=>slot.deviceId)},
+      ticker:{...ticker.status(),router:routerStatus,upgradeRequired:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.liveTicker!==1).map(slot=>slot.deviceId),alertUpgradeRequired:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.liveAlert!==1).map(slot=>slot.deviceId)},
       serverTimeMs: Date.now(),
       history: store.history(),
       errors: store.errors(),
@@ -332,6 +332,7 @@ export async function createController({
       kissing.configure({enabled:false});liveAttempts.clear();cacheRecovery.clear();ticker.start();store.commit({...state,mode:'exhibition',schedule:null,overrides:{}},previous.revision);broadcast();tickerTick();return {ok:true};
     }
     if(input.action==='live.pause')return {ok:true};
+    if(input.action==='live.alert'){const enabled=ticker.setLiveAlert(input.enabled);tickerBroadcast();return {enabled};}
     if(input.action==='curated.toggle'){const selected=ticker.toggleCurated(input.id);tickerBroadcast();tickerTick();return {selected};}
     if(input.action==='curated.injection'){
       const enabled=ticker.setCuratedInjection(input.enabled);
@@ -871,11 +872,14 @@ export async function createController({
   const releaseTimer = setInterval(() => {
     try {
       for (const id of releases.tick(sessions)) snapshot(id);
-      tickerTick();
     } catch {
       app.log.error("artwork-deployment-tick-failed");
     }
   }, 100);
+  const tickerTimer = setInterval(() => {
+    try { tickerTick(); }
+    catch { app.log.error("ticker-tick-failed"); }
+  }, 500);
   const tick = setInterval(() => {
     try {
       if(pairing.expire())broadcastPairing();
@@ -901,6 +905,7 @@ export async function createController({
     closing=true;
     clearInterval(tick);
     clearInterval(releaseTimer);
+    clearInterval(tickerTimer);
     await kissing.close();
     for (const ws of wss.clients) ws.terminate();
     wss.close();
