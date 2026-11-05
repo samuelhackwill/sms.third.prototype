@@ -2,7 +2,7 @@ import Fastify from "fastify";
 import staticFiles from "@fastify/static";
 import { WebSocketServer } from "ws";
 import { createHash, randomBytes } from "node:crypto";
-import { createReadStream, createWriteStream } from "node:fs";
+import { createReadStream, createWriteStream, appendFileSync, chmodSync } from "node:fs";
 import { mkdir, rename, unlink, readFile, writeFile } from "node:fs/promises";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,6 +26,8 @@ import {
 } from "../../protocol/core.mjs";
 
 const root = dirname(fileURLToPath(import.meta.url));
+const tracePath=`/tmp/phone-wall-hotpath-${process.pid}.log`;
+const trace=name=>{appendFileSync(tracePath,`${Date.now()} ${name}\n`);chmodSync(tracePath,0o644);};
 const commands = [
   "reloadState",
   "restartScene",
@@ -114,8 +116,10 @@ export async function createController({
   const tickerBroadcast=()=>{for(const [id,ws] of sessions){snapshot(id);send(ws,'ticker.snapshot',ticker.snapshot(id));}};
   const pauseTicker=()=>{ticker.pause();tickerBroadcast();};
   function tickerTick(){
+    trace('ticker begin');
     const state=store.current(),allowed=state.mode==='exhibition'&&!pairing.status().active&&!kissing.settings.enabled;
     const tickerState=ticker.dispatchState();
+    trace('ticker dispatch');
     const urgent=tickerState.routerQueued||tickerState.active.some(run=>run.source==='router');
     if(allowed&&(ticker.enabled||urgent)&&state.layout.slots.length&&(['barthes','curated'].includes(ticker.playbackMode)||tickerState.queued||tickerState.active.length||tickerState.routerQueued)){
       const definition=testTextDefinition(state.layout,{asset:testTextHash,color:ticker.playbackMode==='barthes'?'#00ff00':'#ff0000'});
@@ -146,7 +150,9 @@ export async function createController({
       const activeStatus=art.active&&releases.deployment(art.active.deploymentId).targets[id]?.status;
       return store.device(id)?.capabilities?.liveTicker===1&&!!store.snapshot(id)&&!art.pending&&art.active?.release.definition.artworkId==='live-ticker'&&(activeStatus==='displayed'||status?.deploymentId===art.active.deploymentId&&status.status==='displayed');
     }));
+    trace('ticker run begin');
     if(ticker.tick(ready,allowed))tickerBroadcast();
+    trace('ticker run end');
     if(!ticker.status().routerQueued&&!ticker.runs().some(run=>run.source==='router')){
       for(const [id,releaseId] of interruptedArtwork){
         const art=releases.snapshot(id);
@@ -157,6 +163,7 @@ export async function createController({
         catch{phoneError(id,'ticker','router-artwork-restore-failed');}
       }
     }
+    trace('ticker end');
   }
   function startRouter(config){
     routerReader?.stop();
@@ -165,10 +172,12 @@ export async function createController({
     tickerTick();
     routerStatus={status:'starting'};
     routerReader=new TendaReader({config,onRecords:(records,options)=>{
+      trace(`router ingest begin ${records.length}`);
       const result=ticker.ingestRouter(records,options);
+      trace('router ingest end');
       if(result.inserted)tickerTick();
       return result;
-    },pendingDeletes:limit=>ticker.pendingRouterDeletes(limit),onDeleteAttempt:ids=>ticker.markRouterDeleteAttempt(ids),onDeleteConfirmed:ids=>ticker.markRouterDeleted(ids),onStatus:status=>{routerStatus=status;}}).start();
+    },pendingDeletes:limit=>{trace('router cleanup begin');const result=ticker.pendingRouterDeletes(limit);trace('router cleanup end');return result;},onDeleteAttempt:ids=>ticker.markRouterDeleteAttempt(ids),onDeleteConfirmed:ids=>ticker.markRouterDeleted(ids),onStatus:status=>{routerStatus=status;}}).start();
   }
   const savedRouter=await readFile(routerFile,'utf8').then(JSON.parse).catch(error=>{if(error.code==='ENOENT')return null;throw error;});
   if(savedRouter)startRouter(savedRouter);
@@ -231,39 +240,49 @@ export async function createController({
       ),
   );
   app.get("/phone-wall/api", { preHandler: authorize }, async () => {
+    trace('api begin');
     const state = store.current();
+    trace('api state');
+    const tickerStatus=ticker.status();
+    trace('api ticker');
+    const errors=store.errors();
+    trace('api errors');
+    const artwork=releases.list();
+    trace('api artwork');
+    const devices=store.devices().map((d) => {
+      const { tokenHash, ...safe } = d;
+      const slot = state.layout.slots.find((s) => s.deviceId === d._id);
+      const display = slot ? store.snapshot(d._id) : null;
+      return {
+        ...safe,
+        paired: !!slot,
+        slotIndex: slot?.slotIndex,
+        geometry: slot?.geometry,
+        connected: sessions.has(d._id),
+        display: display
+          ? {
+              scene: display.scene,
+              mode: display.mode,
+              previewUntil: display.previewUntil,
+              pairing: pairing.status(d._id),
+              kissing:kissing.snapshot(d._id),
+              artwork: releases.snapshot(d._id),
+            }
+          : null,
+      };
+    });
+    trace('api devices');
     return {
       state,
       pairing:pairing.status(),
       kissing:{...kissing.status(),upgradeRequired:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.kissingWall!==1).map(slot=>slot.deviceId)},
-      ticker:{...ticker.status(),router:routerStatus,upgradeRequired:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.liveTicker!==1).map(slot=>slot.deviceId),alertUpgradeRequired:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.liveAlert!==1).map(slot=>slot.deviceId)},
+      ticker:{...tickerStatus,router:routerStatus,upgradeRequired:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.liveTicker!==1).map(slot=>slot.deviceId),alertUpgradeRequired:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.liveAlert!==1).map(slot=>slot.deviceId)},
       system:{controllerCpuPercent:cpuPercent},
       serverTimeMs: Date.now(),
       history: store.history(),
-      errors: store.errors(),
-      artwork: releases.list(),
-      devices: store.devices().map((d) => {
-        const { tokenHash, ...safe } = d;
-        const slot = state.layout.slots.find((s) => s.deviceId === d._id);
-        const display = slot ? store.snapshot(d._id) : null;
-        return {
-          ...safe,
-          paired: !!slot,
-          slotIndex: slot?.slotIndex,
-          geometry: slot?.geometry,
-          connected: sessions.has(d._id),
-          display: display
-            ? {
-                scene: display.scene,
-                mode: display.mode,
-                previewUntil: display.previewUntil,
-                pairing: pairing.status(d._id),
-                kissing:kissing.snapshot(d._id),
-                artwork: releases.snapshot(d._id),
-              }
-            : null,
-        };
-      }),
+      errors,
+      artwork,
+      devices,
     };
   });
   app.get('/phone-wall/reader/:sourceId',{preHandler:authorize},async(req)=>{
@@ -739,6 +758,7 @@ export async function createController({
     ws.on("message", (raw) => {
       if(closing||ws.readyState!==1||(device&&sessions.get(device._id)!==ws))return;
       let decoded=false,messageType='invalid';
+      trace('socket begin');
       try {
         if (Date.now() - windowAt > 60000) {
           windowAt = Date.now();
@@ -870,12 +890,16 @@ export async function createController({
         app.log.warn({deviceId:device?._id??null,code,messageType,fatal},'phone-wall-message-error');
         send(ws, "server.error", { code, fatal });
         if(fatal){ws.failureCode=code;ws.close(1008,code);}
+      } finally {
+        trace(`socket end ${messageType}`);
       }
     });
   });
   const releaseTimer = setInterval(() => {
     try {
+      trace('release begin');
       for (const id of releases.tick(sessions)) snapshot(id);
+      trace('release end');
     } catch {
       app.log.error("artwork-deployment-tick-failed");
     }
@@ -892,14 +916,17 @@ export async function createController({
   }, 1000);
   const tick = setInterval(() => {
     try {
+      trace('housekeeping begin');
       if(pairing.expire())broadcastPairing();
       const expired = store.db
         .prepare("SELECT device_id FROM previews WHERE expires<=?")
         .all(Date.now());
       store.prune();
+      trace('housekeeping prune');
       expired.forEach((row) => snapshot(row.device_id));
       const state = store.current();
       kissing.tick();
+      trace('housekeeping kissing');
       if (state.schedule) {
         const mode = scheduledMode(state.schedule);
         if (state.mode !== mode) {
@@ -907,6 +934,7 @@ export async function createController({
           broadcast();
         }
       }
+      trace('housekeeping end');
     } catch {
       app.log.error("schedule-or-preview-tick-failed");
     }
