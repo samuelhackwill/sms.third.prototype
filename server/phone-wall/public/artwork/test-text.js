@@ -8,12 +8,8 @@
   const segmenter = Intl.Segmenter ? new Intl.Segmenter('und', {granularity:'grapheme'}) : null;
   const emojiCache = new Map();
   const segments = value => segmenter ? [...segmenter.segment(value)].map(part => part.segment) : Array.from(value);
-  function emojiTint(background, textColor) {
-    const match = /^hsl\((\d+),\s*(\d+)%,\s*\d+%\)$/.exec(background || '');
-    return match ? `hsl(${match[1]}, ${match[2]}%, 78%)` : textColor;
-  }
-  function tintedEmoji(ctx, glyph, color) {
-    const key = `${ctx.font}|${glyph}|${color}`;
+  function tintedEmoji(ctx, glyph, color, multiply) {
+    const key = `${ctx.font}|${glyph}|${multiply ? 'multiply' : color}`;
     if (emojiCache.has(key)) return emojiCache.get(key);
     const measured = ctx.measureText(glyph), size = parseFloat(ctx.font) || 100;
     const left = Math.ceil(Math.max(0, measured.actualBoundingBoxLeft || 0)) + 4;
@@ -23,20 +19,33 @@
     const tile = document.createElement('canvas'); tile.width = width; tile.height = height;
     const ink = tile.getContext('2d'); ink.font = ctx.font; ink.textBaseline = 'alphabetic';
     ink.fillText(glyph, left, top);
-    ink.globalCompositeOperation = 'source-in'; ink.fillStyle = color; ink.fillRect(0, 0, width, height);
+    if (multiply) {
+      const image = ink.getImageData(0, 0, width, height);
+      for (let i = 0; i < image.data.length; i += 4) {
+        if (!image.data[i + 3]) continue;
+        const luminance = (0.2126 * image.data[i] + 0.7152 * image.data[i + 1] + 0.0722 * image.data[i + 2]) / 255;
+        const shade = Math.round(255 * (0.26 + 0.62 * luminance));
+        image.data[i] = image.data[i + 1] = image.data[i + 2] = shade;
+      }
+      ink.putImageData(image, 0, 0);
+    } else {
+      ink.globalCompositeOperation = 'source-in'; ink.fillStyle = color; ink.fillRect(0, 0, width, height);
+    }
     const result = {tile, left, top, advance:measured.width};
     if (emojiCache.size >= 8) emojiCache.delete(emojiCache.keys().next().value);
     emojiCache.set(key, result);
     return result;
   }
-  function drawColoredText(ctx, value, x, baseline, textColor, emojiColor) {
+  function drawColoredText(ctx, value, x, baseline, textColor, multiplyEmoji = false) {
     let cursor = x, plain = '';
     const flush = () => {if (!plain) return; ctx.fillStyle = textColor; ctx.fillText(plain, cursor, baseline); cursor += ctx.measureText(plain).width; plain = '';};
     for (const part of segments(value)) {
       if (!emojiPattern.test(part)) {plain += part; continue;}
       flush();
-      const glyph = tintedEmoji(ctx, part, emojiColor);
+      const glyph = tintedEmoji(ctx, part, textColor, multiplyEmoji);
+      if (multiplyEmoji) { ctx.save(); ctx.globalCompositeOperation = 'multiply'; }
       ctx.drawImage(glyph.tile, cursor - glyph.left, baseline - glyph.top);
+      if (multiplyEmoji) ctx.restore();
       cursor += glyph.advance;
     }
     flush();
@@ -156,7 +165,7 @@
         const ascent=ink.actualBoundingBoxAscent||80,descent=ink.actualBoundingBoxDescent||20;
         context.translate(cell.x+cell.width/2+offset,cell.y+cell.height*0.01);
         context.scale(cell.width*0.9/Math.max(1,ink.width),cell.height*0.98/(ascent+descent));
-        drawColoredText(context,glyph,-ink.width/2,ascent,row.color||'#ff0000',row.color||'#ff0000');
+        drawColoredText(context,glyph,-ink.width/2,ascent,row.color||'#ff0000');
         context.restore();
       }
       context.restore();
@@ -215,7 +224,7 @@
       context.clip();
       context.font = row.font;
       const textColor = incoming ? '#ffffff' : parameters.color;
-      drawColoredText(context, text, x, row.baseline, textColor, incoming ? emojiTint(run.backgroundColor, textColor) : textColor);
+      drawColoredText(context, text, x, row.baseline, textColor, incoming);
       context.restore();
     }
   });
