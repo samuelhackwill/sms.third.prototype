@@ -110,6 +110,24 @@
         </div>
       </section>
       <section class="operator-step">
+        <p class="eyebrow">AUTOMATIC CYCLE</p>
+        <h2>Curated ↔ Kissing</h2>
+        <p>Cycle between Curated Mode and Kissing Wall. The ❤️ SMS ❤️ transition plays at each switch.</p>
+        <div class="speed-controls">
+          <label>Curated duration <output id="cycle-curated-value">3:00</output><input id="cycle-curated-duration" type="range" min="10" max="3600" step="10" value="180" /></label>
+        </div>
+        <div class="condition-group" role="group" aria-label="When to leave Kissing Wall">
+          <label class="condition-toggle"><input id="cycle-kissing-duration-mode" name="cycle-kissing-metric" type="radio" value="duration" checked />After a fixed duration</label>
+          <label class="condition-toggle"><input id="cycle-kissing-count-mode" name="cycle-kissing-metric" type="radio" value="count" />After a total number of kisses</label>
+        </div>
+        <div class="speed-controls">
+          <label>Kissing duration <output id="cycle-kissing-value">3:00</output><input id="cycle-kissing-duration" type="range" min="10" max="3600" step="10" value="180" /></label>
+          <label>Completed kisses across all phones <output id="cycle-count-value">10</output><input id="cycle-kiss-target" type="range" min="1" max="100" step="1" value="10" /></label>
+        </div>
+        <div class="actions"><button id="cycle-start" type="button">Start cycle</button><button id="cycle-stop" type="button" disabled>Stop cycle</button></div>
+        <p id="cycle-status" role="status">Stopped.</p>
+      </section>
+      <section class="operator-step">
         <p class="eyebrow">06 / DIAGNOSTICS</p>
         <h2>Phone Debug Display</h2>
         <p>Show the app version, connection state and last error code on each phone.</p>

@@ -17,6 +17,7 @@ let testSpeedEdited=false;
 let testMessageEdited=false;
 let kissingEdited=false;
 let transitionSettingsEdited=false;
+let cycleEdited=false;
 let curatedEdited=false,curatedLoadedCount=-1,curatedLoadedSelected=-1,curatedLoading=false;
 let curatedLoadedGeneration=null;
 let curatedSaveTimer=null,curatedEditVersion=0;
@@ -31,6 +32,15 @@ function transitionLabels(){
   $('sms-blinks-value').textContent=$('sms-blinks').value;
   $('sms-scroll-speed-value').textContent=`${$('sms-scroll-speed').value}×`;
   $('sms-blink-speed-value').textContent=`${$('sms-blink-speed').value}×`;
+}
+function cycleSettings(){return {curatedDurationSec:Number($('cycle-curated-duration').value),kissingMetric:$('cycle-kissing-count-mode').checked?'count':'duration',kissingDurationSec:Number($('cycle-kissing-duration').value),kissTarget:Number($('cycle-kiss-target').value)};}
+function cycleLabels(){
+  const clock=seconds=>`${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')}`;
+  $('cycle-curated-value').textContent=clock(Number($('cycle-curated-duration').value));
+  $('cycle-kissing-value').textContent=clock(Number($('cycle-kissing-duration').value));
+  $('cycle-count-value').textContent=$('cycle-kiss-target').value;
+  $('cycle-kissing-duration').disabled=!$('cycle-kissing-duration-mode').checked;
+  $('cycle-kiss-target').disabled=!$('cycle-kissing-count-mode').checked;
 }
 const curatedTexts=()=>[$('curated-custom-a').value,$('curated-custom-b').value];
 for(const id of ['curated-custom-a','curated-custom-b'])$(id).oninput=()=>{
@@ -256,13 +266,25 @@ function render() {
   $('live-alert-toggle').checked=!!live?.liveAlertEnabled;
   $('live-alert-status').textContent=live?.liveAlertEnabled?live?.alertUpgradeRequired?.length?`Update ${live.alertUpgradeRequired.length} connected phones to app 2.4.4 for ding and vibration.`:'Ding and vibration enabled on updated phones.':'Silent when live SMS starts.';
   const transition=data.transition;
+  const cycle=data.cycle;
+  if(cycle&&!cycleEdited){
+    $('cycle-curated-duration').value=cycle.curatedDurationSec;
+    $('cycle-kissing-duration').value=cycle.kissingDurationSec;
+    $('cycle-kiss-target').value=cycle.kissTarget;
+    $('cycle-kissing-duration-mode').checked=cycle.kissingMetric==='duration';
+    $('cycle-kissing-count-mode').checked=cycle.kissingMetric==='count';
+  }
+  cycleLabels();
+  $('cycle-start').disabled=!!cycle?.enabled||!!pairing?.active||!kissing?.clips||state.layout.rows<2||!!kissing?.upgradeRequired?.length||!!data.ticker?.upgradeRequired?.length;
+  $('cycle-stop').disabled=!cycle?.enabled;
+  $('cycle-status').textContent=!cycle?.enabled?cycle?.error??'Stopped.':cycle.phase==='curated'?`Curated Mode · ${Math.ceil(cycle.remainingMs/1000)}s until transition`:cycle.phase==='kissing'?`Kissing Wall · ${cycle.kisses} of ${cycle.kissTarget} completed kisses${cycle.kissingMetric==='duration'?` · ${Math.ceil(cycle.remainingMs/1000)}s until transition`:''}`:cycle.phase?.startsWith('preparing')?'Preparing transition on phones…':'Playing transition…';
   if(transition?.settings&&!transitionSettingsEdited){
     $('sms-blinks').value=transition.settings.blinkCount;
     $('sms-scroll-speed').value=transition.settings.scrollSpeed;
     $('sms-blink-speed').value=transition.settings.blinkSpeed;
   }
   transitionLabels();
-  $('sms-transition').disabled=!!pairing?.active||state.mode!=='exhibition'||!!kissing?.enabled||!transition?.available||!!transition?.preparing||!!transition?.active;
+  $('sms-transition').disabled=!!cycle?.enabled||!!pairing?.active||state.mode!=='exhibition'||!!kissing?.enabled||!transition?.available||!!transition?.preparing||!!transition?.active;
   $('sms-transition-status').textContent=transition?.active?'Playing across the wall…':transition?.preparing?'Preparing the web artwork on connected phones…':transition?.error??(transition?.available?'Ready for a manual transition.':'Show live text artwork on connected phones first.');
   $('barthes-start').disabled=!!barthesActive||!!pairing?.active||!!live?.upgradeRequired?.length||!state.layout.slots.length;
   $('barthes-stop').disabled=!barthesActive;
@@ -774,6 +796,12 @@ $('pairing-stop').onclick=run(()=>api({action:'pairing.stop'}));
 $('barthes-start').onclick=run(()=>api({action:'barthes.start'}));
 $('live-alert-toggle').onchange=run(()=>api({action:'live.alert',enabled:$('live-alert-toggle').checked}));
 $('sms-transition').onclick=run(()=>api({action:'transition.sms'}));
+for(const id of ['cycle-curated-duration','cycle-kissing-duration','cycle-kiss-target','cycle-kissing-duration-mode','cycle-kissing-count-mode']){
+  $(id).oninput=()=>{cycleEdited=true;cycleLabels();};
+  $(id).onchange=run(async()=>{try{await api({action:'cycle.settings',settings:cycleSettings()});}finally{cycleEdited=false;}});
+}
+$('cycle-start').onclick=run(async()=>{await api({action:'cycle.start',settings:cycleSettings()});cycleEdited=false;});
+$('cycle-stop').onclick=run(()=>api({action:'cycle.stop'}));
 for(const id of ['sms-blinks','sms-scroll-speed','sms-blink-speed']){
   $(id).oninput=()=>{transitionSettingsEdited=true;transitionLabels();};
   $(id).onchange=run(async()=>{

@@ -1,0 +1,56 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {envelope} from '../../../protocol/core.mjs';
+import {createController} from '../app.mjs';
+import {SimulatedClient} from '../simulated-client.mjs';
+
+async function until(predicate){
+  const deadline=Date.now()+6000;
+  while(Date.now()<deadline){if(await predicate())return;await new Promise(resolve=>setTimeout(resolve,20));}
+  throw new Error('cycle timed out');
+}
+
+test('cycle switches through web transition and counts each completed kiss once',async t=>{
+  const directory=await mkdtemp(join(tmpdir(),'wall-cycle-'));
+  const key='cycle-operator-secret-0000000000000000';
+  const server=await createController({dataDir:directory,adminToken:key,kissingOptions:{fetchImpl:async()=>{throw new Error('offline');}}});
+  await server.app.listen({host:'127.0.0.1',port:0});
+  const endpoint=`ws://127.0.0.1:${server.app.server.address().port}/phone-wall/ws`;
+  const clients=[new SimulatedClient(endpoint),new SimulatedClient(endpoint)];
+  t.after(async()=>{clients.forEach(client=>client.stop());await server.app.close();await rm(directory,{recursive:true,force:true});});
+  clients.forEach(client=>client.connect());
+  await until(()=>clients.every(client=>client.welcome));
+  const state=server.store.current();
+  state.mode='exhibition';state.layout.rows=2;state.layout.columns=1;
+  state.layout.slots=clients.map((client,index)=>({deviceId:client.identity.deviceId,slotIndex:index,geometry:{x:0,y:index*667,width:375,height:667}}));
+  const headers={authorization:`Bearer ${key}`};
+  const action=async payload=>{
+    const result=await server.app.inject({url:'/phone-wall/api',method:'POST',headers,payload});
+    assert.equal(result.statusCode,200,result.body);
+    return result.json();
+  };
+  const status=async()=>server.app.inject({url:'/phone-wall/api',headers}).then(response=>response.json());
+  await action({action:'configure',config:state,expectedRevision:state.revision});
+  const clip={source:'https://sms-clips.samuel.ovh/test.mp4',hash:'a'.repeat(64),bytes:1000,startSec:null,endSec:null};
+  server.store.db.prepare('INSERT INTO kissing_clips(source,hash,data,added) VALUES(?,?,?,?)').run(clip.source,clip.hash,JSON.stringify(clip),Date.now());
+  const settings={curatedDurationSec:10,kissingMetric:'count',kissingDurationSec:10,kissTarget:1};
+  await action({action:'cycle.start',settings});
+  await until(()=>clients.every(client=>server.releases.snapshot(client.identity.deviceId).active?.release.definition.artworkId==='live-ticker'&&client.activeArtwork));
+  server.cycleTick(Date.now()+11000);
+  await until(async()=>['transition-to-kissing','kissing'].includes((await status()).cycle.phase));
+  server.cycleTick(Date.now()+20000);
+  assert.equal((await status()).cycle.phase,'kissing');
+  const send=(kind)=>clients[0].ws.send(JSON.stringify(envelope('kissing.status',{status:kind,hash:clip.hash})));
+  send('playing');send('ended');send('ended');
+  await until(async()=>['preparing-curated','transition-to-curated'].includes((await status()).cycle.phase));
+  assert.equal((await status()).cycle.kisses,1);
+  await until(async()=>((await status()).cycle.phase==='transition-to-curated'));
+  server.cycleTick(Date.now()+30000);
+  assert.equal((await status()).cycle.phase,'curated');
+  assert.equal((await status()).kissing.enabled,false);
+  await action({action:'cycle.stop'});
+  assert.equal((await status()).cycle.enabled,false);
+});

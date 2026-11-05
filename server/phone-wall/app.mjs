@@ -89,6 +89,27 @@ export async function createController({
   const cacheRecovery=new Set();
   const kissing=new KissingWall(store,mediaDir,{...kissingOptions,onChange:()=>broadcast()});
   await kissing.initialize();
+  store.db.exec("CREATE TABLE IF NOT EXISTS mode_cycle(id INTEGER PRIMARY KEY CHECK(id=1),data TEXT NOT NULL)");
+  const cycleDefaults={enabled:false,curatedDurationSec:180,kissingMetric:'duration',kissingDurationSec:180,kissTarget:10,phase:null,phaseStartedAt:0,kisses:0,transitionId:null,error:null};
+  const savedCycle=store.db.prepare('SELECT data FROM mode_cycle WHERE id=1').get();
+  let cycle={...cycleDefaults,...(savedCycle?JSON.parse(savedCycle.data):{})};
+  const saveCycle=()=>store.db.prepare('INSERT INTO mode_cycle(id,data) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(JSON.stringify(cycle));
+  const playingKisses=new Map();
+  if(cycle.enabled){
+    if(!kissing.settings.enabled&&!(ticker.enabled&&ticker.playbackMode==='curated'))ticker.startCurated();
+    cycle.phase=kissing.settings.enabled?'kissing':ticker.enabled&&ticker.playbackMode==='curated'?'curated':null;
+    cycle.enabled=!!cycle.phase;cycle.phaseStartedAt=Date.now();cycle.kisses=0;cycle.transitionId=null;
+    cycle.error=cycle.enabled?null:'Cycle stopped after restart because neither mode was active.';
+    saveCycle();
+  }
+  const cycleStatus=()=>({...cycle,remainingMs:cycle.enabled&&['curated','kissing'].includes(cycle.phase)&&!(cycle.phase==='kissing'&&cycle.kissingMetric==='count')?Math.max(0,cycle.phaseStartedAt+(cycle.phase==='curated'?cycle.curatedDurationSec:cycle.kissingDurationSec)*1000-Date.now()):null});
+  const stopCycle=()=>{
+    const settleCurated=cycle.enabled&&cycle.phase==='transition-to-curated';
+    cycle={...cycle,enabled:false,phase:null,transitionId:null};playingKisses.clear();
+    if(transitionRequest?.owner==='cycle')transitionRequest=null;
+    saveCycle();
+    if(settleCurated){ticker.startCurated();broadcast();tickerBroadcast();tickerTick();}
+  };
   const liveAttempts=new Map();
   const interruptedArtwork=new Map();
   const pairing=new PairingSession(store);
@@ -123,7 +144,7 @@ export async function createController({
   const tickerBroadcast=()=>{for(const [id,ws] of sessions){snapshot(id);send(ws,'ticker.snapshot',ticker.snapshot(id));}};
   const pauseTicker=()=>{ticker.pause();tickerBroadcast();};
   function tickerTick(){
-    const state=store.current(),allowed=state.mode==='exhibition'&&!pairing.status().active&&!kissing.settings.enabled;
+    const state=store.current(),allowed=state.mode==='exhibition'&&!pairing.status().active&&(!kissing.settings.enabled||cycle.enabled&&cycle.phase==='preparing-curated');
     const tickerState=ticker.dispatchState();
     const urgent=tickerState.routerQueued||tickerState.active.some(run=>run.source==='router');
     let desiredTickerVersion=null;
@@ -158,13 +179,23 @@ export async function createController({
       return store.device(id)?.capabilities?.liveTicker===1&&!!store.snapshot(id)&&!art.pending&&art.active?.release.definition.artworkId==='live-ticker'&&(!desiredTickerVersion||art.active.release.definition.artworkVersion===desiredTickerVersion)&&(activeStatus==='displayed'||status?.deploymentId===art.active.deploymentId&&status.status==='displayed');
     }));
     if(transitionRequest){
-      if(Date.now()>transitionRequest.deadline){transitionRequest=null;transitionError='Phone artwork did not become ready in time.';}
+      if(Date.now()>transitionRequest.deadline){
+        if(transitionRequest.owner==='cycle'){cycle.error='Transition artwork did not become ready in time.';stopCycle();}
+        transitionRequest=null;transitionError='Phone artwork did not become ready in time.';
+      }
       else if(transitionRequest.targets.every(id=>ready.has(id))){
+        if(transitionRequest.owner==='cycle'&&cycle.phase==='preparing-curated'){
+          kissing.configure({enabled:false});broadcast();
+        }
         ticker.transition={id:transitionRequest.id,startAtServerMs:Date.now()+250,rows:transitionRequest.rows,settings:transitionRequest.settings,durationMs:transitionRequest.durationMs};
+        if(transitionRequest.owner==='cycle'){
+          cycle.phase=cycle.phase==='preparing-curated'?'transition-to-curated':'transition-to-kissing';
+          cycle.phaseStartedAt=ticker.transition.startAtServerMs;saveCycle();
+        }
         transitionRequest=null;tickerBroadcast();
       }
     }
-    if(ticker.tick(ready,allowed))tickerBroadcast();
+    if(ticker.tick(ready,allowed&&!kissing.settings.enabled))tickerBroadcast();
     if(!ticker.status().routerQueued&&!ticker.runs().some(run=>run.source==='router')){
       for(const [id,releaseId] of interruptedArtwork){
         const art=releases.snapshot(id);
@@ -174,6 +205,34 @@ export async function createController({
         try{releases.deploy(releaseId,[id],{delayMs:1000});snapshot(id);}
         catch{phoneError(id,'ticker','router-artwork-restore-failed');}
       }
+    }
+  }
+  function requestTransition(owner='manual'){
+    const state=store.current();
+    if(transitionRequest)throw new Error('transition-already-preparing');
+    const targets=state.layout.slots.filter(slot=>sessions.has(slot.deviceId)).map(slot=>slot.deviceId);
+    if(!targets.length)throw new Error('no-connected-phones-for-transition');
+    transitionError=null;liveAttempts.clear();
+    const settings=ticker.transitionSettings;
+    const durationMs=850/settings.scrollSpeed+settings.blinkCount*200/settings.blinkSpeed+400;
+    transitionRequest={id:randomBytes(16).toString('hex'),owner,targets,rows:liveRows(state.layout).map(({row,left,right,top,height})=>({row,left,right,top,height,cells:state.layout.slots.filter(slot=>Math.floor(slot.slotIndex/state.layout.columns)===row).sort((a,b)=>a.geometry.x-b.geometry.x).map(slot=>({x:slot.geometry.x,y:slot.geometry.y,width:slot.geometry.width,height:slot.geometry.height}))})),settings,durationMs,deadline:Date.now()+30000};
+    tickerTick();
+    return transitionRequest?.id??ticker.transition?.id;
+  }
+  function cycleTick(now=Date.now()){
+    if(!cycle.enabled)return;
+    const state=store.current();
+    if(state.mode!=='exhibition'||pairing.status().active){cycle.error='Cycle stopped because exhibition mode or pairing changed.';stopCycle();return;}
+    if(cycle.phase==='curated'&&now-cycle.phaseStartedAt>=cycle.curatedDurationSec*1000){
+      cycle.phase='preparing-kissing';cycle.transitionId=requestTransition('cycle');saveCycle();
+    }else if(cycle.phase==='kissing'&&(cycle.kissingMetric==='count'?cycle.kisses>=cycle.kissTarget:now-cycle.phaseStartedAt>=cycle.kissingDurationSec*1000)){
+      cycle.phase='preparing-curated';cycle.transitionId=requestTransition('cycle');saveCycle();
+    }else if(cycle.phase==='transition-to-kissing'&&ticker.transition&&now>=ticker.transition.startAtServerMs+ticker.transition.durationMs){
+      pauseTicker();kissing.configure({enabled:true});broadcast();kissing.tick();
+      cycle.phase='kissing';cycle.phaseStartedAt=now;cycle.kisses=0;cycle.transitionId=null;playingKisses.clear();saveCycle();
+    }else if(cycle.phase==='transition-to-curated'&&ticker.transition&&now>=ticker.transition.startAtServerMs+ticker.transition.durationMs){
+      ticker.startCurated();liveAttempts.clear();broadcast();tickerBroadcast();tickerTick();
+      cycle.phase='curated';cycle.phaseStartedAt=now;cycle.transitionId=null;saveCycle();
     }
   }
   function startRouter(config){
@@ -256,6 +315,7 @@ export async function createController({
       kissing:{...kissing.status(),upgradeRequired:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.kissingWall!==1).map(slot=>slot.deviceId)},
       ticker:{...ticker.status(),router:routerStatus,upgradeRequired:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.liveTicker!==1).map(slot=>slot.deviceId),alertUpgradeRequired:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.liveAlert!==1).map(slot=>slot.deviceId)},
       transition:transitionStatus(state),
+      cycle:cycleStatus(),
       system:{controllerCpuPercent:cpuPercent},
       serverTimeMs: Date.now(),
       history: store.history(),
@@ -334,17 +394,31 @@ export async function createController({
     )
       throw new Error("expected-revision-required");
     let state = structuredClone(previous);
+    if(input.action==='cycle.settings'||input.action==='cycle.start'){
+      const settings=input.settings??{};
+      if(!Number.isInteger(settings.curatedDurationSec)||settings.curatedDurationSec<10||settings.curatedDurationSec>3600||!['duration','count'].includes(settings.kissingMetric)||!Number.isInteger(settings.kissingDurationSec)||settings.kissingDurationSec<10||settings.kissingDurationSec>3600||!Number.isInteger(settings.kissTarget)||settings.kissTarget<1||settings.kissTarget>100)throw new Error('invalid-cycle-settings');
+      cycle={...cycle,curatedDurationSec:settings.curatedDurationSec,kissingMetric:settings.kissingMetric,kissingDurationSec:settings.kissingDurationSec,kissTarget:settings.kissTarget,error:null};saveCycle();
+      if(input.action==='cycle.settings')return {cycle:cycleStatus()};
+      if(cycle.enabled)throw new Error('cycle-already-running');
+      if(pairing.status().active)throw new Error('stop-pairing-before-cycle');
+      if(liveRows(state.layout).length<2)throw new Error('two-rows-required-for-cycle');
+      if(!state.layout.slots.some(slot=>sessions.has(slot.deviceId)))throw new Error('no-connected-phones-for-cycle');
+      if(!kissing.clips().length)throw new Error('no-kissing-clips-cached');
+      if(state.layout.slots.some(slot=>sessions.has(slot.deviceId)&&(store.device(slot.deviceId)?.capabilities?.kissingWall!==1||store.device(slot.deviceId)?.capabilities?.liveTicker!==1)))throw new Error('phone-update-required-for-cycle');
+      kissing.configure({enabled:false});ticker.startCurated();liveAttempts.clear();cacheRecovery.clear();
+      store.commit({...state,mode:'exhibition',schedule:null,overrides:{}},previous.revision);
+      store.db.prepare('DELETE FROM previews').run();
+      cycle={...cycle,enabled:true,phase:'curated',phaseStartedAt:Date.now(),kisses:0,transitionId:null,error:null};saveCycle();
+      broadcast();tickerBroadcast();tickerTick();return {cycle:cycleStatus()};
+    }
+    if(input.action==='cycle.stop'){stopCycle();return {cycle:cycleStatus()};}
+    if(cycle.enabled&&['kissing.start','kissing.stop','curated.start','curated.stop','barthes.start','barthes.stop','remote.day','remote.night','live.start','mode','schedule','scene','configure','rollback','pairing.start','test.text','release.deploy','preview'].includes(input.action))stopCycle();
     if(input.action==='transition.settings')return {settings:ticker.setTransitionSettings(input.settings??{})};
     if(input.action==='transition.sms'){
+      if(cycle.enabled)throw new Error('stop-cycle-before-manual-transition');
       if(pairing.status().active||state.mode!=='exhibition'||kissing.settings.enabled)throw new Error('transition-requires-exhibition-mode');
       if(!transitionStatus(state).available)throw new Error('live-text-artwork-required-for-transition');
-      if(transitionRequest)throw new Error('transition-already-preparing');
-      transitionError=null;liveAttempts.clear();
-      const settings=ticker.transitionSettings;
-      const durationMs=850/settings.scrollSpeed+settings.blinkCount*200/settings.blinkSpeed+400;
-      transitionRequest={id:randomBytes(16).toString('hex'),targets:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)).map(slot=>slot.deviceId),rows:liveRows(state.layout).map(({row,left,right,top,height})=>({row,left,right,top,height,cells:state.layout.slots.filter(slot=>Math.floor(slot.slotIndex/state.layout.columns)===row).sort((a,b)=>a.geometry.x-b.geometry.x).map(slot=>({x:slot.geometry.x,y:slot.geometry.y,width:slot.geometry.width,height:slot.geometry.height}))})),settings,durationMs,deadline:Date.now()+30000};
-      tickerTick();
-      return {id:transitionRequest?.id??ticker.transition?.id};
+      return {id:requestTransition()};
     }
     if(['kissing.start','kissing.settings','kissing.stop'].includes(input.action)){
       if(input.settings?.enabled!==undefined)throw new Error('use-kissing-start-or-stop');
@@ -825,6 +899,12 @@ export async function createController({
           if(!['stopped','loading','playing','ended','waiting-for-clips','prefetch-error','error'].includes(p.status))throw new Error('invalid-kissing-status');
           const status={status:p.status,at:Date.now(),hash:/^[a-f0-9]{64}$/.test(p.hash??'')?p.hash:null,code:typeof p.code==='string'?p.code.slice(0,100):null,audio:p.audio===true};
           store.updateDevice(device._id,{kissingStatus:status,...(p.status==='error'?{lastError:status.code}:{})});
+          if(cycle.enabled&&cycle.phase==='kissing'){
+            if(status.status==='playing'&&status.hash)playingKisses.set(device._id,status.hash);
+            else if(status.status==='ended'){
+              if(status.hash&&playingKisses.get(device._id)===status.hash){playingKisses.delete(device._id);cycle.kisses++;saveCycle();}
+            }else if(['error','stopped'].includes(status.status))playingKisses.delete(device._id);
+          }
           if(['error','prefetch-error'].includes(p.status))phoneError(device._id,'kissing',status.code??p.status,{hash:status.hash});
         }
         else if(['ticker.ready','ticker.done'].includes(m.type)){
@@ -912,8 +992,8 @@ export async function createController({
     }
   }, 100);
   const tickerTimer = setInterval(() => {
-    try { tickerTick(); }
-    catch { app.log.error("ticker-tick-failed"); }
+    try { tickerTick();cycleTick(); }
+    catch (error) { if(cycle.enabled){cycle.error=error.message;stopCycle();}app.log.error({error},"ticker-tick-failed"); }
   }, 500);
   const cpuTimer = setInterval(() => {
     const now=process.hrtime.bigint(),currentCpu=process.cpuUsage();
@@ -955,5 +1035,5 @@ export async function createController({
   app.addHook("onClose", async () => {
     store.close();
   });
-  return { app, store, sessions, releases, ticker, kissing };
+  return { app, store, sessions, releases, ticker, kissing, cycleTick };
 }
