@@ -2,7 +2,7 @@ import Fastify from "fastify";
 import staticFiles from "@fastify/static";
 import { WebSocketServer } from "ws";
 import { createHash, randomBytes } from "node:crypto";
-import { createReadStream, createWriteStream } from "node:fs";
+import { createReadStream, createWriteStream, appendFileSync } from "node:fs";
 import { mkdir, rename, unlink, readFile, writeFile } from "node:fs/promises";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,6 +26,8 @@ import {
 } from "../../protocol/core.mjs";
 
 const root = dirname(fileURLToPath(import.meta.url));
+const tracePath = `/tmp/phone-wall-trace-${process.pid}.log`;
+const trace = name => appendFileSync(tracePath, `${Date.now()} ${name}\n`, {mode:0o644});
 const commands = [
   "reloadState",
   "restartScene",
@@ -43,6 +45,7 @@ export async function createController({
   kissingOptions = {},
   requestReset,
 } = {}) {
+  trace('controller begin');
   if (typeof adminToken !== "string" || adminToken.length < 32)
     throw new Error(
       "PHONE_WALL_ADMIN_TOKEN must contain at least 32 characters",
@@ -51,6 +54,7 @@ export async function createController({
   const mediaDir = join(dataDir, "media");
   await mkdir(mediaDir, { recursive: true, mode: 0o700 });
   const store = new Store(join(dataDir, "controller.sqlite"));
+  trace('controller store');
   const pixi = await readFile(
     join(root, "node_modules/pixi.js/dist/pixi.min.js"),
   );
@@ -64,7 +68,9 @@ export async function createController({
   await writeFile(join(mediaDir,testTextHash),testTextScript,{mode:0o600});
   store.db.prepare('INSERT OR IGNORE INTO assets VALUES(?,?,?)').run(testTextHash,'text/javascript',testTextScript.length);
   const releases = new Releases(store, pixiHash);
+  trace('controller releases');
   const ticker=new LiveTicker(store);
+  trace('controller ticker');
   const routerFile=join(dataDir,'router.json');
   let routerReader=null,routerStatus={status:'unconfigured'};
   const app = Fastify({
@@ -77,6 +83,7 @@ export async function createController({
   const cacheRecovery=new Set();
   const kissing=new KissingWall(store,mediaDir,{...kissingOptions,onChange:()=>broadcast()});
   await kissing.initialize();
+  trace('controller kissing');
   const liveAttempts=new Map();
   const interruptedArtwork=new Map();
   const pairing=new PairingSession(store);
@@ -111,8 +118,11 @@ export async function createController({
   const tickerBroadcast=()=>{for(const [id,ws] of sessions){snapshot(id);send(ws,'ticker.snapshot',ticker.snapshot(id));}};
   const pauseTicker=()=>{ticker.pause();tickerBroadcast();};
   function tickerTick(){
+    trace('ticker begin');
     const state=store.current(),allowed=state.mode==='exhibition'&&!pairing.status().active&&!kissing.settings.enabled;
+    trace('ticker state');
     const tickerState=ticker.dispatchState();
+    trace('ticker dispatch');
     const urgent=tickerState.routerQueued||tickerState.active.some(run=>run.source==='router');
     if(allowed&&(ticker.enabled||urgent)&&state.layout.slots.length&&(['barthes','curated'].includes(ticker.playbackMode)||tickerState.queued||tickerState.active.length||tickerState.routerQueued)){
       const definition=testTextDefinition(state.layout,{asset:testTextHash,color:ticker.playbackMode==='barthes'?'#00ff00':'#ff0000'});
@@ -143,7 +153,9 @@ export async function createController({
       const activeStatus=art.active&&releases.deployment(art.active.deploymentId).targets[id]?.status;
       return store.device(id)?.capabilities?.liveTicker===1&&!!store.snapshot(id)&&!art.pending&&art.active?.release.definition.artworkId==='live-ticker'&&(activeStatus==='displayed'||status?.deploymentId===art.active.deploymentId&&status.status==='displayed');
     }));
+    trace('ticker before run');
     if(ticker.tick(ready,allowed))tickerBroadcast();
+    trace('ticker after run');
     if(!ticker.status().routerQueued&&!ticker.runs().some(run=>run.source==='router')){
       for(const [id,releaseId] of interruptedArtwork){
         const art=releases.snapshot(id);
@@ -154,6 +166,7 @@ export async function createController({
         catch{phoneError(id,'ticker','router-artwork-restore-failed');}
       }
     }
+    trace('ticker end');
   }
   function startRouter(config){
     routerReader?.stop();
@@ -162,10 +175,12 @@ export async function createController({
     tickerTick();
     routerStatus={status:'starting'};
     routerReader=new TendaReader({config,onRecords:(records,options)=>{
+      trace(`router ingest begin ${records.length}`);
       const result=ticker.ingestRouter(records,options);
+      trace('router ingest end');
       if(result.inserted)tickerTick();
       return result;
-    },pendingDeletes:limit=>ticker.pendingRouterDeletes(limit),onDeleteAttempt:ids=>ticker.markRouterDeleteAttempt(ids),onDeleteConfirmed:ids=>ticker.markRouterDeleted(ids),onStatus:status=>{routerStatus=status;}}).start();
+    },pendingDeletes:limit=>{trace('router delete query begin');const result=ticker.pendingRouterDeletes(limit);trace('router delete query end');return result;},onDeleteAttempt:ids=>ticker.markRouterDeleteAttempt(ids),onDeleteConfirmed:ids=>ticker.markRouterDeleted(ids),onStatus:status=>{routerStatus=status;}}).start();
   }
   const savedRouter=await readFile(routerFile,'utf8').then(JSON.parse).catch(error=>{if(error.code==='ENOENT')return null;throw error;});
   if(savedRouter)startRouter(savedRouter);
@@ -871,7 +886,9 @@ export async function createController({
   });
   const releaseTimer = setInterval(() => {
     try {
+      trace('release begin');
       for (const id of releases.tick(sessions)) snapshot(id);
+      trace('release end');
     } catch {
       app.log.error("artwork-deployment-tick-failed");
     }
@@ -882,14 +899,17 @@ export async function createController({
   }, 500);
   const tick = setInterval(() => {
     try {
+      trace('housekeeping begin');
       if(pairing.expire())broadcastPairing();
       const expired = store.db
         .prepare("SELECT device_id FROM previews WHERE expires<=?")
         .all(Date.now());
       store.prune();
+      trace('housekeeping prune');
       expired.forEach((row) => snapshot(row.device_id));
       const state = store.current();
       kissing.tick();
+      trace('housekeeping kissing');
       if (state.schedule) {
         const mode = scheduledMode(state.schedule);
         if (state.mode !== mode) {
@@ -897,6 +917,7 @@ export async function createController({
           broadcast();
         }
       }
+      trace('housekeeping end');
     } catch {
       app.log.error("schedule-or-preview-tick-failed");
     }
