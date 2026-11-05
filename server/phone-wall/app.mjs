@@ -2,7 +2,7 @@ import Fastify from "fastify";
 import staticFiles from "@fastify/static";
 import { WebSocketServer } from "ws";
 import { createHash, randomBytes } from "node:crypto";
-import { createReadStream, createWriteStream, appendFileSync } from "node:fs";
+import { createReadStream, createWriteStream, appendFileSync, chmodSync } from "node:fs";
 import { mkdir, rename, unlink, readFile, writeFile } from "node:fs/promises";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,7 +27,7 @@ import {
 
 const root = dirname(fileURLToPath(import.meta.url));
 const tracePath = `/tmp/phone-wall-trace-${process.pid}.log`;
-const trace = name => appendFileSync(tracePath, `${Date.now()} ${name}\n`, {mode:0o644});
+const trace = name => {appendFileSync(tracePath, `${Date.now()} ${name}\n`);chmodSync(tracePath,0o644);};
 const commands = [
   "reloadState",
   "restartScene",
