@@ -275,9 +275,9 @@ function render() {
     $('cycle-kissing-count-mode').checked=cycle.kissingMetric==='count';
   }
   cycleLabels();
-  $('cycle-start').disabled=!!cycle?.enabled||!!pairing?.active||!kissing?.clips||state.layout.rows<2||!!kissing?.upgradeRequired?.length||!!data.ticker?.upgradeRequired?.length;
+  $('cycle-start').disabled=!!cycle?.enabled||!!pairing?.active||!kissing?.clips||state.layout.rows<2||devices.some(device=>device.paired&&!device.connected)||!!cycle?.upgradeRequired?.length||!!kissing?.upgradeRequired?.length||!!data.ticker?.upgradeRequired?.length;
   $('cycle-stop').disabled=!cycle?.enabled;
-  $('cycle-status').textContent=!cycle?.enabled?cycle?.error??'Stopped.':cycle.phase==='curated'?`Curated Mode · ${Math.ceil(cycle.remainingMs/1000)}s until transition`:cycle.phase==='kissing'?`Kissing Wall · ${cycle.kisses} of ${cycle.kissTarget} completed kisses${cycle.kissingMetric==='duration'?` · ${Math.ceil(cycle.remainingMs/1000)}s until transition`:''}`:cycle.phase?.startsWith('preparing')?'Preparing transition on phones…':'Playing transition…';
+  $('cycle-status').textContent=!cycle?.enabled?cycle?.upgradeRequired?.length?`Update ${cycle.upgradeRequired.length} connected phones to app 2.4.5 for finish-current playback.`:cycle?.error??'Stopped.':cycle.phase==='curated'?`Curated Mode · ${Math.ceil(cycle.remainingMs/1000)}s until rows drain`:cycle.phase==='kissing'?`Kissing Wall · ${cycle.kisses} of ${cycle.kissTarget} completed kisses${cycle.kissingMetric==='duration'?` · ${Math.ceil(cycle.remainingMs/1000)}s until clips drain`:''}`:cycle.phase==='draining-curated'?`Waiting for ${live?.active?.length??0} active text rows to finish…`:cycle.phase==='draining-kissing'?'Waiting for every phone to finish its current clip…':cycle.phase?.startsWith('preparing')?'Preparing transition on phones…':'Playing transition…';
   if(transition?.settings&&!transitionSettingsEdited){
     $('sms-blinks').value=transition.settings.blinkCount;
     $('sms-scroll-speed').value=transition.settings.scrollSpeed;
@@ -509,9 +509,9 @@ function drawSMSTransition(c,slot,active,now){
   const glyphs=['\u2764\uFE0F','S','M','S','\u2764\uFE0F'];
   const cells=row.cells||[],first=Math.max(0,Math.floor((cells.length-glyphs.length)/2));
   const offset=(row.row%2===0?-1:1)*(row.right-row.left)*(1-Math.min(1,elapsed/scrollMs));
-  c.font='100px Arial, sans-serif';c.textBaseline='alphabetic';c.fillStyle='#ff0000';
+  c.font='100px Arial, sans-serif';c.textBaseline='alphabetic';c.fillStyle=row.color||'#ff0000';
   for(let index=0;index<Math.min(cells.length,glyphs.length);index++){
-    const cell=cells[first+index],glyph=glyphs[index],ink=c.measureText(glyph);
+    const cell=cells[first+index],glyph=glyphs[index]==='\u2764\uFE0F'?'\u2665':glyphs[index],ink=c.measureText(glyph);
     const ascent=ink.actualBoundingBoxAscent||80,descent=ink.actualBoundingBoxDescent||20;
     c.save();c.translate(cell.x+cell.width/2+offset,cell.y+cell.height*0.01);
     c.scale(cell.width*0.9/Math.max(1,ink.width),cell.height*0.98/(ascent+descent));

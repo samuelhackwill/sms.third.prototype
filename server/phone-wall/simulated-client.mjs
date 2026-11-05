@@ -43,6 +43,7 @@ export class SimulatedClient extends EventEmitter {
           sceneSchemaVersions: [1],
           liveTicker:1,
           kissingWall:1,
+          kissingDrain:1,
           model: "iPhone6s-simulated",
           osVersion: "15.8",
           width: 375,

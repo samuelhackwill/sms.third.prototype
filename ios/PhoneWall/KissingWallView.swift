@@ -10,6 +10,7 @@ struct KissingConfiguration: Codable {
     }
     let v: Int
     let enabled: Bool
+    let drain: Bool?
     let trim: Bool
     let trimStartOffsetSec: Double
     let trimEndOffsetSec: Double
@@ -130,6 +131,11 @@ struct KissingConfiguration: Codable {
     }
     private func run() async {
         while !Task.isCancelled && enabled {
+            if configuration?.drain == true {
+                if status != "drained" { status = "drained"; report?(["status":status]) }
+                try? await Task.sleep(nanoseconds:200_000_000)
+                continue
+            }
             guard mode == "exhibition" else { try? await Task.sleep(nanoseconds:200_000_000); continue }
             let loaded: (KissingConfiguration.Clip,URL)?
             if let ready = prefetched { loaded = ready; prefetched = nil }
@@ -146,6 +152,7 @@ struct KissingConfiguration: Codable {
             lastHash = clip.hash; recent = Array(([clip]+recent.filter{$0.hash != clip.hash}).prefix(2))
             await protectClips()
             if Task.isCancelled { return }
+            if configuration?.drain == true { continue }
             let asset: AVURLAsset
             let duration: Double
             do {
@@ -174,6 +181,7 @@ struct KissingConfiguration: Codable {
             guard end>start else { failures.insert(clip.hash); report?(["status":"error","code":"kissing-trim-invalid","hash":clip.hash]); continue }
             await player.seek(to:CMTime(seconds:start,preferredTimescale:600),toleranceBefore:.zero,toleranceAfter:.zero)
             if Task.isCancelled { return }
+            if configuration?.drain == true { player.replaceCurrentItem(with:nil); continue }
             playbackWindow = (start,end,config.revealDurationMs/1000,config.fadeOutDurationMs/1000)
             if mode == "exhibition" { player.play() }
             status = "playing"; report?(["status":status,"hash":clip.hash,"audio":true])

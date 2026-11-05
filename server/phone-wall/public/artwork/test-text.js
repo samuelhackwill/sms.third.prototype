@@ -156,7 +156,7 @@
         const ascent=ink.actualBoundingBoxAscent||80,descent=ink.actualBoundingBoxDescent||20;
         context.translate(cell.x+cell.width/2+offset,cell.y+cell.height*0.01);
         context.scale(cell.width*0.9/Math.max(1,ink.width),cell.height*0.98/(ascent+descent));
-        drawColoredText(context,glyph,-ink.width/2,ascent,'#ff0000','#ff0000');
+        drawColoredText(context,glyph,-ink.width/2,ascent,row.color||'#ff0000',row.color||'#ff0000');
         context.restore();
       }
       context.restore();

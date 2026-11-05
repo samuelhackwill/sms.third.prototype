@@ -38,12 +38,12 @@ export class KissingWall {
     for(const name of await readdir(this.mediaDir))if(/^kissing-incoming-[a-f0-9-]{36}$/.test(name))await unlink(join(this.mediaDir,name)).catch(()=>{});
   }
   clips() {return this.store.db.prepare('SELECT data FROM kissing_clips ORDER BY added DESC,rowid DESC').all().map(row=>JSON.parse(row.data));}
-  snapshot(id) {
+  snapshot(id,drain=false) {
     const enabled=this.settings.enabled&&!!this.store.snapshot(id)&&this.store.device(id)?.capabilities?.kissingWall===1;
     const clips=this.clips();
     const offset=clips.length?createHash('sha256').update(id).digest().readUInt32BE(0)%clips.length:0;
     const phonePool=[...clips.slice(offset),...clips.slice(0,offset)].slice(0,PHONE_POOL_COUNT);
-    return {v:1,...this.settings,enabled,clips:enabled?phonePool.map(({source,...clip})=>clip):[]};
+    return {v:1,...this.settings,enabled,drain,clips:enabled?phonePool.map(({source,...clip})=>clip):[]};
   }
   status() {const clips=this.clips();return {...this.settings,busy:this.busy,clips:clips.length,bytes:clips.reduce((sum,c)=>sum+c.bytes,0),lastError:this.lastError};}
   configure(input) {

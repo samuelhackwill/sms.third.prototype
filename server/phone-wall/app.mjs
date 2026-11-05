@@ -90,24 +90,27 @@ export async function createController({
   const kissing=new KissingWall(store,mediaDir,{...kissingOptions,onChange:()=>broadcast()});
   await kissing.initialize();
   store.db.exec("CREATE TABLE IF NOT EXISTS mode_cycle(id INTEGER PRIMARY KEY CHECK(id=1),data TEXT NOT NULL)");
-  const cycleDefaults={enabled:false,curatedDurationSec:180,kissingMetric:'duration',kissingDurationSec:180,kissTarget:10,phase:null,phaseStartedAt:0,kisses:0,transitionId:null,error:null};
+  const cycleDefaults={enabled:false,curatedDurationSec:180,kissingMetric:'duration',kissingDurationSec:180,kissTarget:10,phase:null,phaseStartedAt:0,kisses:0,drainTargets:[],drainStartedAt:0,transitionId:null,error:null};
   const savedCycle=store.db.prepare('SELECT data FROM mode_cycle WHERE id=1').get();
   let cycle={...cycleDefaults,...(savedCycle?JSON.parse(savedCycle.data):{})};
+  const cycleBootAt=Date.now();
   const saveCycle=()=>store.db.prepare('INSERT INTO mode_cycle(id,data) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(JSON.stringify(cycle));
   const playingKisses=new Map();
   if(cycle.enabled){
     if(!kissing.settings.enabled&&!(ticker.enabled&&ticker.playbackMode==='curated'))ticker.startCurated();
     cycle.phase=kissing.settings.enabled?'kissing':ticker.enabled&&ticker.playbackMode==='curated'?'curated':null;
-    cycle.enabled=!!cycle.phase;cycle.phaseStartedAt=Date.now();cycle.kisses=0;cycle.transitionId=null;
+    cycle.enabled=!!cycle.phase;cycle.phaseStartedAt=Date.now();cycle.kisses=0;cycle.drainTargets=[];cycle.transitionId=null;
     cycle.error=cycle.enabled?null:'Cycle stopped after restart because neither mode was active.';
     saveCycle();
   }
-  const cycleStatus=()=>({...cycle,remainingMs:cycle.enabled&&['curated','kissing'].includes(cycle.phase)&&!(cycle.phase==='kissing'&&cycle.kissingMetric==='count')?Math.max(0,cycle.phaseStartedAt+(cycle.phase==='curated'?cycle.curatedDurationSec:cycle.kissingDurationSec)*1000-Date.now()):null});
+  const cycleStatus=()=>({...cycle,upgradeRequired:store.current().layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.kissingDrain!==1).map(slot=>slot.deviceId),remainingMs:cycle.enabled&&['curated','kissing'].includes(cycle.phase)&&!(cycle.phase==='kissing'&&cycle.kissingMetric==='count')?Math.max(0,cycle.phaseStartedAt+(cycle.phase==='curated'?cycle.curatedDurationSec:cycle.kissingDurationSec)*1000-Date.now()):null});
   const stopCycle=()=>{
     const settleCurated=cycle.enabled&&cycle.phase==='transition-to-curated';
-    cycle={...cycle,enabled:false,phase:null,transitionId:null};playingKisses.clear();
+    const resumeKissing=cycle.enabled&&['draining-kissing','preparing-curated'].includes(cycle.phase)&&kissing.settings.enabled;
+    cycle={...cycle,enabled:false,phase:null,drainTargets:[],transitionId:null};playingKisses.clear();
     if(transitionRequest?.owner==='cycle')transitionRequest=null;
     saveCycle();
+    if(resumeKissing)broadcast();
     if(settleCurated){ticker.startCurated();broadcast();tickerBroadcast();tickerTick();}
   };
   const liveAttempts=new Map();
@@ -127,7 +130,7 @@ export async function createController({
       state = store.snapshot(id);
     if (ws && state){
       const urgent=ticker.snapshot(id).runs.some(run=>run.source==='router');
-      const kissingState=kissing.snapshot(id);
+      const kissingState=kissing.snapshot(id,cycle.enabled&&['draining-kissing','preparing-curated'].includes(cycle.phase));
       send(
         ws,
         "state.snapshot",
@@ -195,7 +198,8 @@ export async function createController({
         transitionRequest=null;tickerBroadcast();
       }
     }
-    if(ticker.tick(ready,allowed&&!kissing.settings.enabled))tickerBroadcast();
+    const dispatch=!(cycle.enabled&&['draining-curated','preparing-kissing','transition-to-kissing'].includes(cycle.phase));
+    if(ticker.tick(ready,allowed&&!kissing.settings.enabled,Date.now(),dispatch))tickerBroadcast();
     if(!ticker.status().routerQueued&&!ticker.runs().some(run=>run.source==='router')){
       for(const [id,releaseId] of interruptedArtwork){
         const art=releases.snapshot(id);
@@ -215,7 +219,8 @@ export async function createController({
     transitionError=null;liveAttempts.clear();
     const settings=ticker.transitionSettings;
     const durationMs=850/settings.scrollSpeed+settings.blinkCount*200/settings.blinkSpeed+400;
-    transitionRequest={id:randomBytes(16).toString('hex'),owner,targets,rows:liveRows(state.layout).map(({row,left,right,top,height})=>({row,left,right,top,height,cells:state.layout.slots.filter(slot=>Math.floor(slot.slotIndex/state.layout.columns)===row).sort((a,b)=>a.geometry.x-b.geometry.x).map(slot=>({x:slot.geometry.x,y:slot.geometry.y,width:slot.geometry.width,height:slot.geometry.height}))})),settings,durationMs,deadline:Date.now()+30000};
+    const bands=liveRows(state.layout),colorOffset=Math.floor(Math.random()*360);
+    transitionRequest={id:randomBytes(16).toString('hex'),owner,targets,rows:bands.map(({row,left,right,top,height},index)=>({row,left,right,top,height,color:`hsl(${Math.round((colorOffset+index*360/bands.length)%360)}, 85%, 55%)`,cells:state.layout.slots.filter(slot=>Math.floor(slot.slotIndex/state.layout.columns)===row).sort((a,b)=>a.geometry.x-b.geometry.x).map(slot=>({x:slot.geometry.x,y:slot.geometry.y,width:slot.geometry.width,height:slot.geometry.height}))})),settings,durationMs,deadline:Date.now()+30000};
     tickerTick();
     return transitionRequest?.id??ticker.transition?.id;
   }
@@ -223,9 +228,26 @@ export async function createController({
     if(!cycle.enabled)return;
     const state=store.current();
     if(state.mode!=='exhibition'||pairing.status().active){cycle.error='Cycle stopped because exhibition mode or pairing changed.';stopCycle();return;}
+    if(state.layout.slots.some(slot=>!sessions.has(slot.deviceId))){
+      if(Date.now()-cycleBootAt<30000)return;
+      cycle.error='Cycle stopped because a phone disconnected.';stopCycle();return;
+    }
+    if(state.layout.slots.some(slot=>store.device(slot.deviceId)?.capabilities?.kissingDrain!==1)){
+      cycle.error='Cycle stopped because a phone needs app 2.4.5 for clip finishing.';stopCycle();return;
+    }
     if(cycle.phase==='curated'&&now-cycle.phaseStartedAt>=cycle.curatedDurationSec*1000){
+      cycle.phase='draining-curated';cycle.phaseStartedAt=now;
+      if(ticker.retireCuratedFlash())tickerBroadcast();
+      saveCycle();
+    }else if(cycle.phase==='draining-curated'&&!ticker.runs().length){
       cycle.phase='preparing-kissing';cycle.transitionId=requestTransition('cycle');saveCycle();
     }else if(cycle.phase==='kissing'&&(cycle.kissingMetric==='count'?cycle.kisses>=cycle.kissTarget:now-cycle.phaseStartedAt>=cycle.kissingDurationSec*1000)){
+      cycle.phase='draining-kissing';cycle.phaseStartedAt=now;cycle.drainStartedAt=Date.now();
+      cycle.drainTargets=state.layout.slots.map(slot=>slot.deviceId);saveCycle();broadcast();
+    }else if(cycle.phase==='draining-kissing'&&cycle.drainTargets.every(id=>{
+      const status=store.device(id)?.kissingStatus;
+      return status?.status==='drained'&&status.at>=cycle.drainStartedAt;
+    })){
       cycle.phase='preparing-curated';cycle.transitionId=requestTransition('cycle');saveCycle();
     }else if(cycle.phase==='transition-to-kissing'&&ticker.transition&&now>=ticker.transition.startAtServerMs+ticker.transition.durationMs){
       pauseTicker();kissing.configure({enabled:true});broadcast();kissing.tick();
@@ -402,13 +424,13 @@ export async function createController({
       if(cycle.enabled)throw new Error('cycle-already-running');
       if(pairing.status().active)throw new Error('stop-pairing-before-cycle');
       if(liveRows(state.layout).length<2)throw new Error('two-rows-required-for-cycle');
-      if(!state.layout.slots.some(slot=>sessions.has(slot.deviceId)))throw new Error('no-connected-phones-for-cycle');
+      if(!state.layout.slots.every(slot=>sessions.has(slot.deviceId)))throw new Error('all-phones-must-be-online-for-cycle');
       if(!kissing.clips().length)throw new Error('no-kissing-clips-cached');
-      if(state.layout.slots.some(slot=>sessions.has(slot.deviceId)&&(store.device(slot.deviceId)?.capabilities?.kissingWall!==1||store.device(slot.deviceId)?.capabilities?.liveTicker!==1)))throw new Error('phone-update-required-for-cycle');
+      if(state.layout.slots.some(slot=>store.device(slot.deviceId)?.capabilities?.kissingDrain!==1||store.device(slot.deviceId)?.capabilities?.liveTicker!==1))throw new Error('phone-update-required-for-cycle-drain');
       kissing.configure({enabled:false});ticker.startCurated();liveAttempts.clear();cacheRecovery.clear();
       store.commit({...state,mode:'exhibition',schedule:null,overrides:{}},previous.revision);
       store.db.prepare('DELETE FROM previews').run();
-      cycle={...cycle,enabled:true,phase:'curated',phaseStartedAt:Date.now(),kisses:0,transitionId:null,error:null};saveCycle();
+      cycle={...cycle,enabled:true,phase:'curated',phaseStartedAt:Date.now(),kisses:0,drainTargets:[],transitionId:null,error:null};saveCycle();
       broadcast();tickerBroadcast();tickerTick();return {cycle:cycleStatus()};
     }
     if(input.action==='cycle.stop'){stopCycle();return {cycle:cycleStatus()};}
@@ -896,7 +918,7 @@ export async function createController({
         else if (m.type === "state.request") {snapshot(device._id);pairingState(device._id);send(ws,'ticker.snapshot',ticker.snapshot(device._id));}
         else if(m.type==='kissing.status'){
           if(device.capabilities?.kissingWall!==1||!store.snapshot(device._id))throw new Error('unauthorized-kissing-status');
-          if(!['stopped','loading','playing','ended','waiting-for-clips','prefetch-error','error'].includes(p.status))throw new Error('invalid-kissing-status');
+          if(!['stopped','loading','playing','ended','drained','waiting-for-clips','prefetch-error','error'].includes(p.status))throw new Error('invalid-kissing-status');
           const status={status:p.status,at:Date.now(),hash:/^[a-f0-9]{64}$/.test(p.hash??'')?p.hash:null,code:typeof p.code==='string'?p.code.slice(0,100):null,audio:p.audio===true};
           store.updateDevice(device._id,{kissingStatus:status,...(p.status==='error'?{lastError:status.code}:{})});
           if(cycle.enabled&&cycle.phase==='kissing'){
