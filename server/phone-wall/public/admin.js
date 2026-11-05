@@ -226,6 +226,8 @@ function renderErrors() {
 function render() {
   const state = data.state,
     devices = data.devices;
+  const cpu=data.system?.controllerCpuPercent;
+  $('controller-cpu').textContent=`Controller CPU ${Number.isFinite(cpu)?`${cpu}%`:'—'}`;
   const pairing=data.pairing;
   const kissing=data.kissing;
   $('kissing-start').disabled=!kissing||kissing.enabled||!!pairing?.active||!!kissing.upgradeRequired?.length;

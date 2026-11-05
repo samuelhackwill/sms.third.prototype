@@ -84,8 +84,14 @@ main {
 header {
   border-bottom: 1px solid var(--line);
   margin-bottom: 24px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 header #status { font: 12px/1.5 Menlo, monospace; margin-top: 0; }
+header #controller-cpu { font: 12px/1.5 Menlo, monospace; color: var(--muted); margin-top: 0; }
 h1 {
   font-size: clamp(48px, 7vw, 94px);
   font-weight: normal;

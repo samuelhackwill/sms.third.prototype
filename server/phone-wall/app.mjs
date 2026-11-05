@@ -74,6 +74,9 @@ export async function createController({
   });
   const sessions = new Map();
   let closing=false;
+  let cpuPercent=null;
+  let previousCpu=process.cpuUsage();
+  let previousCpuAt=process.hrtime.bigint();
   const cacheRecovery=new Set();
   const kissing=new KissingWall(store,mediaDir,{...kissingOptions,onChange:()=>broadcast()});
   await kissing.initialize();
@@ -234,6 +237,7 @@ export async function createController({
       pairing:pairing.status(),
       kissing:{...kissing.status(),upgradeRequired:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.kissingWall!==1).map(slot=>slot.deviceId)},
       ticker:{...ticker.status(),router:routerStatus,upgradeRequired:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.liveTicker!==1).map(slot=>slot.deviceId),alertUpgradeRequired:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.liveAlert!==1).map(slot=>slot.deviceId)},
+      system:{controllerCpuPercent:cpuPercent},
       serverTimeMs: Date.now(),
       history: store.history(),
       errors: store.errors(),
@@ -880,6 +884,12 @@ export async function createController({
     try { tickerTick(); }
     catch { app.log.error("ticker-tick-failed"); }
   }, 500);
+  const cpuTimer = setInterval(() => {
+    const now=process.hrtime.bigint(),currentCpu=process.cpuUsage();
+    const elapsedMicros=Number(now-previousCpuAt)/1000;
+    if(elapsedMicros>0)cpuPercent=Math.round((currentCpu.user-previousCpu.user+currentCpu.system-previousCpu.system)/elapsedMicros*100);
+    previousCpu=currentCpu;previousCpuAt=now;
+  }, 1000);
   const tick = setInterval(() => {
     try {
       if(pairing.expire())broadcastPairing();
@@ -906,6 +916,7 @@ export async function createController({
     clearInterval(tick);
     clearInterval(releaseTimer);
     clearInterval(tickerTimer);
+    clearInterval(cpuTimer);
     await kissing.close();
     for (const ws of wss.clients) ws.terminate();
     wss.close();
