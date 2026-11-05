@@ -44,6 +44,7 @@ test('manual SMS transition uses the existing live web artwork on alternating ro
   const result=await action({action:'transition.sms'});
   await until(()=>clients.every(client=>client.ticker?.transition?.id===result.id));
   assert.deepEqual(clients[0].ticker.transition.rows.map(row=>row.row),[0,1]);
+  assert.deepEqual(clients[0].ticker.transition.rows.map(row=>row.cells.map(cell=>cell.width)),[[375],[375]]);
   assert.equal(clients[0].ticker.transition.startAtServerMs,clients[1].ticker.transition.startAtServerMs);
   assert.deepEqual(clients[0].ticker.transition.settings,{blinkCount:4,scrollSpeed:2,blinkSpeed:2});
   assert.equal(clients[0].ticker.transition.durationMs,1225);

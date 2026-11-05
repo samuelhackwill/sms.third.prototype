@@ -137,26 +137,28 @@
     if (elapsed < 0 || elapsed >= transition.durationMs) return false;
     const blinking = elapsed >= scrollMs && elapsed < blinkEndMs && (elapsed - scrollMs) % blinkPeriodMs >= blinkPeriodMs * 0.55;
     const alpha = blinking ? 0 : elapsed >= blinkEndMs ? Math.max(0, (transition.durationMs - elapsed) / 400) : 1;
-    const phrase = '\u2764\uFE0F SMS \u2764\uFE0F';
+    const glyphs = ['\u2764\uFE0F', 'S', 'M', 'S', '\u2764\uFE0F'];
     context.fillStyle = '#000000';
     context.fillRect(viewport.x, viewport.y, viewport.width, viewport.height);
     for (const row of transition.rows) {
       if (row.top >= viewport.y + viewport.height || row.top + row.height <= viewport.y) continue;
-      const fontSize = (row.right - row.left) * 0.17;
       context.save();
       context.beginPath();context.rect(row.left,row.top,row.right-row.left,row.height);context.clip();
-      context.font = `${fontSize}px Arial, Helvetica, sans-serif`;
-      const ink = context.measureText(phrase), textWidth = ink.width;
-      const startX = row.row % 2 === 0 ? row.left - textWidth : row.right;
-      const targetX = (row.left + row.right - textWidth) / 2;
-      const x = startX + (targetX - startX) * Math.min(1, elapsed / scrollMs);
-      const ascent = ink.actualBoundingBoxAscent || fontSize * 0.8;
-      const descent = ink.actualBoundingBoxDescent || fontSize * 0.2;
-      const stretch = row.height * 0.98 / (ascent + descent);
-      context.translate(0, row.top + row.height * 0.01);
-      context.scale(1, stretch);
       context.globalAlpha = alpha;
-      drawColoredText(context, phrase, x, ascent, '#ff0000', '#ff0000');
+      const offset = (row.row % 2 === 0 ? -1 : 1) * (row.right-row.left) * (1-Math.min(1,elapsed/scrollMs));
+      const cells = row.cells || [];
+      const first = Math.max(0, Math.floor((cells.length-glyphs.length)/2));
+      for(let index=0;index<Math.min(cells.length,glyphs.length);index++){
+        const cell=cells[first+index],glyph=glyphs[index];
+        context.save();
+        context.font='100px Arial, Helvetica, sans-serif';
+        const ink=context.measureText(glyph);
+        const ascent=ink.actualBoundingBoxAscent||80,descent=ink.actualBoundingBoxDescent||20;
+        context.translate(cell.x+cell.width/2+offset,cell.y+cell.height*0.01);
+        context.scale(cell.width*0.9/Math.max(1,ink.width),cell.height*0.98/(ascent+descent));
+        drawColoredText(context,glyph,-ink.width/2,ascent,'#ff0000','#ff0000');
+        context.restore();
+      }
       context.restore();
     }
     return true;

@@ -342,7 +342,7 @@ export async function createController({
       transitionError=null;liveAttempts.clear();
       const settings=ticker.transitionSettings;
       const durationMs=850/settings.scrollSpeed+settings.blinkCount*200/settings.blinkSpeed+400;
-      transitionRequest={id:randomBytes(16).toString('hex'),targets:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)).map(slot=>slot.deviceId),rows:liveRows(state.layout).map(({row,left,right,top,height})=>({row,left,right,top,height})),settings,durationMs,deadline:Date.now()+30000};
+      transitionRequest={id:randomBytes(16).toString('hex'),targets:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)).map(slot=>slot.deviceId),rows:liveRows(state.layout).map(({row,left,right,top,height})=>({row,left,right,top,height,cells:state.layout.slots.filter(slot=>Math.floor(slot.slotIndex/state.layout.columns)===row).sort((a,b)=>a.geometry.x-b.geometry.x).map(slot=>({x:slot.geometry.x,y:slot.geometry.y,width:slot.geometry.width,height:slot.geometry.height}))})),settings,durationMs,deadline:Date.now()+30000};
       tickerTick();
       return {id:transitionRequest?.id??ticker.transition?.id};
     }

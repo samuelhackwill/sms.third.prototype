@@ -478,20 +478,23 @@ function drawSMSTransition(c,slot,active,now){
   if(elapsed<0||elapsed>=active.durationMs)return;
   const row=active.rows.find(item=>item.row===Math.floor(slot.slotIndex/data.state.layout.columns));
   if(!row)return;
-  const g=slot.geometry,fontSize=(row.right-row.left)*0.17;
+  const g=slot.geometry;
   c.save();c.setTransform(1,0,0,1,0,0);c.fillStyle='#000';c.fillRect(0,0,300,400);
   c.scale(300/g.width,400/g.height);c.translate(-g.x,-g.y);
   c.beginPath();c.rect(row.left,row.top,row.right-row.left,row.height);c.clip();
-  c.font=`${fontSize}px Arial, sans-serif`;c.textBaseline='alphabetic';
-  const text='\u2764\uFE0F SMS \u2764\uFE0F',ink=c.measureText(text),textWidth=ink.width;
-  const startX=row.row%2===0?row.left-textWidth:row.right;
-  const targetX=(row.left+row.right-textWidth)/2;
-  const x=startX+(targetX-startX)*Math.min(1,elapsed/scrollMs);
   const blinking=elapsed>=scrollMs&&elapsed<blinkEndMs&&(elapsed-scrollMs)%blinkPeriodMs>=blinkPeriodMs*0.55;
   c.globalAlpha=blinking?0:elapsed>=blinkEndMs?Math.max(0,(active.durationMs-elapsed)/400):1;
-  const ascent=ink.actualBoundingBoxAscent||fontSize*0.8,descent=ink.actualBoundingBoxDescent||fontSize*0.2;
-  c.translate(0,row.top+row.height*0.01);c.scale(1,row.height*0.98/(ascent+descent));
-  c.fillStyle='#ff0000';c.fillText(text,x,ascent);
+  const glyphs=['\u2764\uFE0F','S','M','S','\u2764\uFE0F'];
+  const cells=row.cells||[],first=Math.max(0,Math.floor((cells.length-glyphs.length)/2));
+  const offset=(row.row%2===0?-1:1)*(row.right-row.left)*(1-Math.min(1,elapsed/scrollMs));
+  c.font='100px Arial, sans-serif';c.textBaseline='alphabetic';c.fillStyle='#ff0000';
+  for(let index=0;index<Math.min(cells.length,glyphs.length);index++){
+    const cell=cells[first+index],glyph=glyphs[index],ink=c.measureText(glyph);
+    const ascent=ink.actualBoundingBoxAscent||80,descent=ink.actualBoundingBoxDescent||20;
+    c.save();c.translate(cell.x+cell.width/2+offset,cell.y+cell.height*0.01);
+    c.scale(cell.width*0.9/Math.max(1,ink.width),cell.height*0.98/(ascent+descent));
+    c.fillText(glyph,-ink.width/2,ascent);c.restore();
+  }
   c.restore();
 }
 function draw(time) {
