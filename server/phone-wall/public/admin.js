@@ -461,7 +461,7 @@ let lastFrame = 0;
 function drawSMSTransition(c,slot,active,now){
   if(!slot||!active)return;
   const elapsed=(now-active.startAtServerMs)/1000;
-  if(elapsed<0||elapsed>=3.3)return;
+  if(elapsed<0||elapsed>=1.65)return;
   const row=active.rows.find(item=>item.row===Math.floor(slot.slotIndex/data.state.layout.columns));
   if(!row)return;
   const g=slot.geometry,fontSize=Math.min(row.height*0.5,(row.right-row.left)*0.17);
@@ -469,12 +469,12 @@ function drawSMSTransition(c,slot,active,now){
   c.scale(300/g.width,400/g.height);c.translate(-g.x,-g.y);
   c.beginPath();c.rect(row.left,row.top,row.right-row.left,row.height);c.clip();
   c.font=`${fontSize}px Arial, sans-serif`;c.textBaseline='top';
-  const text='❤️ SMS ❤️',textWidth=c.measureText(text).width;
+  const text='\u2764\uFE0F SMS \u2764\uFE0F',textWidth=c.measureText(text).width;
   const startX=row.row%2===0?row.left-textWidth:row.right;
   const targetX=(row.left+row.right-textWidth)/2;
-  const x=startX+(targetX-startX)*Math.min(1,elapsed/1.7);
-  const blinking=elapsed>=1.7&&elapsed<2.5&&(elapsed-1.7)%0.4>=0.22;
-  c.globalAlpha=blinking?0:elapsed>=2.5?Math.max(0,(3.3-elapsed)/0.8):1;
+  const x=startX+(targetX-startX)*Math.min(1,elapsed/0.85);
+  const blinking=elapsed>=0.85&&elapsed<1.25&&(elapsed-0.85)%0.2>=0.11;
+  c.globalAlpha=blinking?0:elapsed>=1.25?Math.max(0,(1.65-elapsed)/0.4):1;
   c.fillStyle='#ff0000';c.fillText(text,x,row.top+(row.height-fontSize)/2);
   c.restore();
 }

@@ -131,10 +131,10 @@
   function drawTransition(serverNow) {
     if (!transition) return false;
     const elapsed = (serverNow - transition.startAtServerMs) / 1000;
-    if (elapsed < 0 || elapsed >= 3.3) return false;
-    const blinking = elapsed >= 1.7 && elapsed < 2.5 && (elapsed - 1.7) % 0.4 >= 0.22;
-    const alpha = blinking ? 0 : elapsed >= 2.5 ? Math.max(0, (3.3 - elapsed) / 0.8) : 1;
-    const phrase = '❤️ SMS ❤️';
+    if (elapsed < 0 || elapsed >= 1.65) return false;
+    const blinking = elapsed >= 0.85 && elapsed < 1.25 && (elapsed - 0.85) % 0.2 >= 0.11;
+    const alpha = blinking ? 0 : elapsed >= 1.25 ? Math.max(0, (1.65 - elapsed) / 0.4) : 1;
+    const phrase = '\u2764\uFE0F SMS \u2764\uFE0F';
     context.fillStyle = '#000000';
     context.fillRect(viewport.x, viewport.y, viewport.width, viewport.height);
     for (const row of transition.rows) {
@@ -146,7 +146,7 @@
       const ink = context.measureText(phrase), textWidth = ink.width;
       const startX = row.row % 2 === 0 ? row.left - textWidth : row.right;
       const targetX = (row.left + row.right - textWidth) / 2;
-      const x = startX + (targetX - startX) * Math.min(1, elapsed / 1.7);
+      const x = startX + (targetX - startX) * Math.min(1, elapsed / 0.85);
       const ascent = ink.actualBoundingBoxAscent || fontSize * 0.8;
       const descent = ink.actualBoundingBoxDescent || fontSize * 0.2;
       const baseline = row.top + (row.height - ascent - descent) / 2 + ascent;

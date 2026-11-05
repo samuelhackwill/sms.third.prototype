@@ -292,7 +292,7 @@ export class LiveTicker {
       queued:!!this.db.prepare("SELECT 1 FROM ticker_messages WHERE status='queued' AND (source=? OR ?='curated' AND source IN ('custom','archive')) LIMIT 1").get(mode,mode),
     };
   }
-  snapshot(deviceId){const runs=this.runs().filter(run=>run.targets.includes(deviceId));return {enabled:this.enabled||runs.some(run=>run.source==='router'),alertEnabled:this.liveAlertEnabled,runs,transition:this.transition&&Date.now()<this.transition.startAtServerMs+3300?this.transition:null};}
+  snapshot(deviceId){const runs=this.runs().filter(run=>run.targets.includes(deviceId));return {enabled:this.enabled||runs.some(run=>run.source==='router'),alertEnabled:this.liveAlertEnabled,runs,transition:this.transition&&Date.now()<this.transition.startAtServerMs+1650?this.transition:null};}
   save(run,status){const {seq,text,...data}=run;this.db.prepare('UPDATE ticker_messages SET status=?,run=? WHERE seq=?').run(status,JSON.stringify(data),seq);}
   tick(ready,allowed=true,now=Date.now()) {
     if(this.enabled&&allowed)this.refillBarthes();

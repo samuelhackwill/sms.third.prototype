@@ -80,7 +80,7 @@ export async function createController({
       const art=releases.snapshot(slot.deviceId);
       return !art.pending&&store.device(slot.deviceId)?.capabilities?.liveTicker===1&&art.active?.release.definition.artworkId==='live-ticker';
     });
-    return {online:connected.length,available,preparing:!!transitionRequest,error:transitionError,active:ticker.transition&&Date.now()<ticker.transition.startAtServerMs+3300?ticker.transition:null};
+    return {online:connected.length,available,preparing:!!transitionRequest,error:transitionError,active:ticker.transition&&Date.now()<ticker.transition.startAtServerMs+1650?ticker.transition:null};
   };
   let closing=false;
   let cpuPercent=null;
@@ -160,7 +160,7 @@ export async function createController({
     if(transitionRequest){
       if(Date.now()>transitionRequest.deadline){transitionRequest=null;transitionError='Phone artwork did not become ready in time.';}
       else if(transitionRequest.targets.every(id=>ready.has(id))){
-        ticker.transition={id:transitionRequest.id,startAtServerMs:Date.now()+500,rows:transitionRequest.rows};
+        ticker.transition={id:transitionRequest.id,startAtServerMs:Date.now()+250,rows:transitionRequest.rows};
         transitionRequest=null;tickerBroadcast();
       }
     }
