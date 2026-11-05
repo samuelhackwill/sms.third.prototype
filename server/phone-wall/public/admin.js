@@ -249,6 +249,9 @@ function render() {
   $('live-status').textContent=`Always watching · ${live?.routerQueued??0} SMS waiting · ${smsActive} SMS active · ${live?.routerArchive?.total??0} archived · ${live?.routerArchive?.pending??0} awaiting router cleanup${live?.routerArchive?.missingId?` · ${live.routerArchive.missingId} lack router IDs`:''}`;
   $('live-alert-toggle').checked=!!live?.liveAlertEnabled;
   $('live-alert-status').textContent=live?.liveAlertEnabled?live?.alertUpgradeRequired?.length?`Update ${live.alertUpgradeRequired.length} connected phones to app 2.4.4 for ding and vibration.`:'Ding and vibration enabled on updated phones.':'Silent when live SMS starts.';
+  const transition=data.transition;
+  $('sms-transition').disabled=!!pairing?.active||state.mode!=='exhibition'||!!kissing?.enabled||!transition?.online||!!transition?.upgradeRequired?.length;
+  $('sms-transition-status').textContent=transition?.upgradeRequired?.length?`Install phone app 2.4.5 on ${transition.upgradeRequired.length} connected phones.`:transition?.active?'Playing across the wall…':transition?.online?'Ready for a manual transition.':'Connect phones to play the transition.';
   $('barthes-start').disabled=!!barthesActive||!!pairing?.active||!!live?.upgradeRequired?.length||!state.layout.slots.length;
   $('barthes-stop').disabled=!barthesActive;
   $('barthes-status').textContent=live?.upgradeRequired?.length?`Install phone app 2.3 on ${live.upgradeRequired.length} connected phones.`:
@@ -455,6 +458,24 @@ function render() {
   }
 }
 let lastFrame = 0;
+function drawSMSTransition(c,slot,active,now){
+  if(!slot||!active)return;
+  const elapsed=(now-active.startAtServerMs)/1000;
+  if(elapsed<0||elapsed>=3.3)return;
+  const row=active.rows.find(item=>item.row===Math.floor(slot.slotIndex/data.state.layout.columns));
+  if(!row)return;
+  const g=slot.geometry,fontSize=Math.min(row.height*0.5,(row.right-row.left)*0.17);
+  c.save();c.scale(300/g.width,400/g.height);c.translate(-g.x,-g.y);
+  c.font=`900 ${fontSize}px Arial, sans-serif`;c.textBaseline='top';
+  const text='❤️ SMS ❤️',textWidth=c.measureText(text).width;
+  const startX=row.row%2===0?row.left-textWidth:row.right;
+  const targetX=(row.left+row.right-textWidth)/2;
+  const x=startX+(targetX-startX)*Math.min(1,elapsed/1.7);
+  const blinking=elapsed>=1.7&&elapsed<2.5&&(elapsed-1.7)%0.4>=0.22;
+  c.globalAlpha=blinking?0:elapsed>=2.5?Math.max(0,(3.3-elapsed)/0.8):1;
+  c.fillStyle='#ff0000';c.fillText(text,x,row.top+(row.height-fontSize)/2);
+  c.restore();
+}
 function draw(time) {
   requestAnimationFrame(draw);
   if (!data || time - lastFrame < 33) return;
@@ -531,6 +552,7 @@ function draw(time) {
         c.fillText('Web artwork preview off', 10, 355);
         c.fillText('Select phone + enable below', 10, 380);
       }
+      if(!virtualDraft)drawSMSTransition(c,slot,data.transition?.active,now);
       continue;
     }
     c.save();
@@ -562,6 +584,7 @@ function draw(time) {
         60,
       );
     c.restore();
+    if(!virtualDraft)drawSMSTransition(c,slot,data.transition?.active,now);
   }
 }
 requestAnimationFrame(draw);
@@ -729,6 +752,7 @@ $('pairing-start').onclick=run(()=>api({action:'pairing.start'}));
 $('pairing-stop').onclick=run(()=>api({action:'pairing.stop'}));
 $('barthes-start').onclick=run(()=>api({action:'barthes.start'}));
 $('live-alert-toggle').onchange=run(()=>api({action:'live.alert',enabled:$('live-alert-toggle').checked}));
+$('sms-transition').onclick=run(()=>api({action:'transition.sms'}));
 $('barthes-stop').onclick=run(()=>api({action:'barthes.stop'}));
 $('curated-start').onclick=run(async()=>{clearTimeout(curatedSaveTimer);await api({action:data.ticker?.enabled&&data.ticker.mode==='curated'?'curated.messages':'curated.start',messages:curatedTexts()});curatedEdited=false;});
 $('curated-stop').onclick=run(()=>api({action:'curated.stop'}));

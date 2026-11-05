@@ -73,6 +73,11 @@ export async function createController({
     logController: new Fastify.LogController({ disableRequestLogging: true }),
   });
   const sessions = new Map();
+  let smsTransition=null;
+  const transitionStatus=state=>{
+    const connected=state.layout.slots.filter(slot=>sessions.has(slot.deviceId));
+    return {online:connected.length,upgradeRequired:connected.filter(slot=>store.device(slot.deviceId)?.capabilities?.transitionOverlay!==1).map(slot=>slot.deviceId),active:smsTransition&&Date.now()<smsTransition.startAtServerMs+3300?smsTransition:null};
+  };
   let closing=false;
   let cpuPercent=null;
   let previousCpu=process.cpuUsage();
@@ -239,6 +244,7 @@ export async function createController({
       pairing:pairing.status(),
       kissing:{...kissing.status(),upgradeRequired:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.kissingWall!==1).map(slot=>slot.deviceId)},
       ticker:{...ticker.status(),router:routerStatus,upgradeRequired:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.liveTicker!==1).map(slot=>slot.deviceId),alertUpgradeRequired:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.liveAlert!==1).map(slot=>slot.deviceId)},
+      transition:transitionStatus(state),
       system:{controllerCpuPercent:cpuPercent},
       serverTimeMs: Date.now(),
       history: store.history(),
@@ -317,6 +323,19 @@ export async function createController({
     )
       throw new Error("expected-revision-required");
     let state = structuredClone(previous);
+    if(input.action==='transition.sms'){
+      if(pairing.status().active||state.mode!=='exhibition'||kissing.settings.enabled)throw new Error('transition-requires-exhibition-mode');
+      const connected=state.layout.slots.filter(slot=>sessions.has(slot.deviceId));
+      if(!connected.length)throw new Error('no-connected-phones');
+      if(connected.some(slot=>store.device(slot.deviceId)?.capabilities?.transitionOverlay!==1))throw new Error('phone-app-2.4.5-required-for-transition');
+      const rows=liveRows(state.layout).map(({row,left,right,top,height})=>({row,left,right,top,height}));
+      smsTransition={id:randomBytes(16).toString('hex'),startAtServerMs:Date.now()+500,rows};
+      for(const slot of connected){
+        const row=rows.find(item=>item.row===Math.floor(slot.slotIndex/state.layout.columns));
+        send(sessions.get(slot.deviceId),'transition.play',{kind:'sms-hearts',id:smsTransition.id,startAtServerMs:smsTransition.startAtServerMs,row,slot:slot.geometry});
+      }
+      return {transition:smsTransition,phones:connected.length};
+    }
     if(['kissing.start','kissing.settings','kissing.stop'].includes(input.action)){
       if(input.settings?.enabled!==undefined)throw new Error('use-kissing-start-or-stop');
       if(input.action!=='kissing.stop'&&pairing.status().active)throw new Error('stop-pairing-before-kissing-wall');

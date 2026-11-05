@@ -7,6 +7,7 @@ final class StableWallController: UIViewController {
     private lazy var runtime = ArtworkRuntime(host:host,library:library)
     private lazy var kissing = KissingWallView(media:media)
     private let liveAlert = LiveMessageAlert()
+    private let smsTransition = SMSTransitionView(frame: .zero)
     private let discovery = ServerDiscovery()
     private var displayLink: CADisplayLink?
     private let boot = ProcessInfo.processInfo.systemUptime
@@ -43,7 +44,7 @@ final class StableWallController: UIViewController {
     override var prefersStatusBarHidden: Bool { true }
     override func viewDidLoad() {
         super.viewDidLoad(); view.backgroundColor = .black
-        for child in [legacy,host,kissing,blackout] { child.frame = view.bounds; child.autoresizingMask = [.flexibleWidth,.flexibleHeight]; view.addSubview(child) }
+        for child in [legacy,host,kissing,blackout,smsTransition] { child.frame = view.bounds; child.autoresizingMask = [.flexibleWidth,.flexibleHeight]; view.addSubview(child) }
         blackout.backgroundColor = .black; blackout.isHidden = true
         label.text = "PHONE WALL\nDiscovering the local controller…"; label.textColor = .white; label.numberOfLines = 0
         let savedAddress = UserDefaults.standard.string(forKey:"serverURL")
@@ -62,6 +63,7 @@ final class StableWallController: UIViewController {
         NSLayoutConstraint.activate([debugOverlay.topAnchor.constraint(equalTo:view.safeAreaLayoutGuide.topAnchor,constant:8),debugOverlay.leadingAnchor.constraint(equalTo:view.leadingAnchor,constant:8),debugOverlay.trailingAnchor.constraint(equalTo:view.trailingAnchor,constant:-8)])
         setup.isHidden = !state.state.isEmpty
         runtime.clockOffset = { [weak self] in guard let self = self else { return 0 }; return self.connection.hasClockSample ? self.connection.offset : self.runtime.restoredOffset }
+        smsTransition.clockOffsetMs = { [weak self] in guard let self = self else { return 0 }; return self.connection.hasClockSample ? self.connection.offset : self.runtime.restoredOffset }
         liveAlert.canPlay = { [weak self] in
             guard let self = self else { return false }
             return self.connection.isConnected && self.state.state["mode"] as? String == "exhibition" && !self.kissing.enabled && !self.identifying && self.pairingSessionId == nil
@@ -136,6 +138,7 @@ final class StableWallController: UIViewController {
             return
         }
         if beforePairingBrightness == nil { beforePairingBrightness = UIScreen.main.brightness }
+        smsTransition.cancel()
         UIScreen.main.brightness = max(0.4,UIScreen.main.brightness)
         pairingSessionId = id; pairingScreen.isHidden = false; view.bringSubviewToFront(pairingScreen)
         kissing.setMode("night")
@@ -168,6 +171,10 @@ final class StableWallController: UIViewController {
         if type == "ticker.snapshot" {
             liveAlert.receive(payload,clockOffsetMs:connection.hasClockSample ? connection.offset : runtime.restoredOffset)
             runtime.receiveTicker(payload); return
+        }
+        if type == "transition.play" {
+            if pairingSessionId == nil && !identifying && !kissing.enabled && state.state["mode"] as? String == "exhibition" { smsTransition.play(payload) }
+            return
         }
         if type == "command", let name = payload["name"] as? String, let id = payload["commandId"] as? String {
             var completed = UserDefaults.standard.stringArray(forKey:"completedCommands") ?? []
@@ -205,6 +212,7 @@ final class StableWallController: UIViewController {
         if let config = payload["kissing"] as? [String:Any] { kissing.receive(config) }
         kissing.setMode(identifying || pairingSessionId != nil ? "night" : mode)
         runtime.setMode(identifying || kissing.enabled ? "night" : mode); blackout.isHidden = mode == "exhibition"
+        if mode != "exhibition" || identifying || kissing.enabled { smsTransition.cancel() }
         kissing.isHidden = !kissing.enabled || identifying
         host.isHidden = identifying; legacy.isHidden = !identifying && runtime.activeReleaseId != nil
         UIScreen.main.brightness = CGFloat(mode == "night" ? payload["nightBrightness"] as? Double ?? 0 : payload["brightness"] as? Double ?? 0.6)
@@ -221,6 +229,7 @@ final class StableWallController: UIViewController {
         let lead = max(0,min(0.1,link.targetTimestamp-CACurrentMediaTime()))*1000
         runtime.tick(presentationLeadMs:lead)
         kissing.tick()
+        smsTransition.tick()
         if identifying || runtime.activeReleaseId == nil { legacy.setNeedsDisplay() }
     }
 }
