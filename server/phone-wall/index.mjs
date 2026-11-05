@@ -3,6 +3,7 @@ import { configuration } from './installation.mjs';
 import { startDiscovery } from './discovery.mjs';
 import { prepareInstallation } from './reset.mjs';
 import { readFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -15,10 +16,14 @@ const buildInfo=await readFile(join(dirname(fileURLToPath(import.meta.url)),'../
   throw error;
 });
 const prepared=await prepareInstallation(dataDir,buildInfo?.gitCommit??buildInfo?.version);
+const bootTime=spawnSync('/usr/sbin/sysctl',['-n','kern.boottime'],{encoding:'utf8',timeout:2000});
+const machineBootId=bootTime.status===0?bootTime.stdout.match(/sec\s*=\s*(\d+)/)?.[1]:null;
+if(process.platform==='darwin'&&!machineBootId)throw new Error('Cannot identify this Mac boot');
 const { app } = await createController({
   dataDir,
   adminToken: config.adminToken,
   logger: true,
+  machineBootId,
   requestReset: async()=>{
     discovery.stop();
     await app.close();

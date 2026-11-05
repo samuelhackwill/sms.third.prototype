@@ -43,6 +43,7 @@ export async function createController({
   logger = false,
   kissingOptions = {},
   requestReset,
+  machineBootId,
 } = {}) {
   if (typeof adminToken !== "string" || adminToken.length < 32)
     throw new Error(
@@ -52,9 +53,16 @@ export async function createController({
   const mediaDir = join(dataDir, "media");
   await mkdir(mediaDir, { recursive: true, mode: 0o700 });
   const store = new Store(join(dataDir, "controller.sqlite"));
-  const bootState=store.current();
-  if(bootState.mode!=='exhibition'||bootState.schedule)
-    store.commit({...bootState,mode:'exhibition',schedule:null},bootState.revision);
+  if(machineBootId){
+    store.db.exec('CREATE TABLE IF NOT EXISTS machine_boot(id INTEGER PRIMARY KEY CHECK(id=1),boot_id TEXT NOT NULL)');
+    const previousBoot=store.db.prepare('SELECT boot_id FROM machine_boot WHERE id=1').get()?.boot_id;
+    if(previousBoot!==machineBootId){
+      const bootState=store.current();
+      if(bootState.mode!=='exhibition'||bootState.schedule)
+        store.commit({...bootState,mode:'exhibition',schedule:null},bootState.revision);
+      store.db.prepare('INSERT INTO machine_boot(id,boot_id) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET boot_id=excluded.boot_id').run(machineBootId);
+    }
+  }
   const pixi = await readFile(
     join(root, "node_modules/pixi.js/dist/pixi.min.js"),
   );
