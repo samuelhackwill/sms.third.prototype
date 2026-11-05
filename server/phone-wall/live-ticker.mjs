@@ -53,7 +53,7 @@ export class LiveTicker {
     if(!this.db.prepare('PRAGMA table_info(router_state)').all().some(column=>column.name==='detail_initialized'))this.db.exec('ALTER TABLE router_state ADD COLUMN detail_initialized INTEGER NOT NULL DEFAULT 0');
     if(!this.db.prepare('PRAGMA table_info(ticker_settings)').all().some(column=>column.name==='mode'))this.db.exec("ALTER TABLE ticker_settings ADD COLUMN mode TEXT NOT NULL DEFAULT 'messages'");
     if(!this.db.prepare('PRAGMA table_info(ticker_settings)').all().some(column=>column.name==='barthes_cursor'))this.db.exec('ALTER TABLE ticker_settings ADD COLUMN barthes_cursor INTEGER NOT NULL DEFAULT 0');
-    for(const [name,definition] of [['custom_a',"TEXT NOT NULL DEFAULT ''"],['custom_b',"TEXT NOT NULL DEFAULT ''"],['curated_next_at','INTEGER NOT NULL DEFAULT 0'],['curated_injection_enabled','INTEGER NOT NULL DEFAULT 0'],['curated_second_enabled','INTEGER NOT NULL DEFAULT 0'],['archive_replay_enabled','INTEGER NOT NULL DEFAULT 0'],['live_alert_enabled','INTEGER NOT NULL DEFAULT 0'],['archive_density','INTEGER NOT NULL DEFAULT 1'],['barthes_min_speed','INTEGER NOT NULL DEFAULT 1000'],['barthes_max_speed','INTEGER NOT NULL DEFAULT 6000'],['curated_min_speed','INTEGER NOT NULL DEFAULT 240'],['curated_max_speed','INTEGER NOT NULL DEFAULT 240']])if(!this.db.prepare('PRAGMA table_info(ticker_settings)').all().some(column=>column.name===name))this.db.exec(`ALTER TABLE ticker_settings ADD COLUMN ${name} ${definition}`);
+    for(const [name,definition] of [['custom_a',"TEXT NOT NULL DEFAULT ''"],['custom_b',"TEXT NOT NULL DEFAULT ''"],['curated_next_at','INTEGER NOT NULL DEFAULT 0'],['curated_injection_enabled','INTEGER NOT NULL DEFAULT 0'],['curated_second_enabled','INTEGER NOT NULL DEFAULT 0'],['archive_replay_enabled','INTEGER NOT NULL DEFAULT 0'],['live_alert_enabled','INTEGER NOT NULL DEFAULT 0'],['transition_blinks','INTEGER NOT NULL DEFAULT 2'],['transition_scroll_speed','REAL NOT NULL DEFAULT 1'],['transition_blink_speed','REAL NOT NULL DEFAULT 1'],['archive_density','INTEGER NOT NULL DEFAULT 1'],['barthes_min_speed','INTEGER NOT NULL DEFAULT 1000'],['barthes_max_speed','INTEGER NOT NULL DEFAULT 6000'],['curated_min_speed','INTEGER NOT NULL DEFAULT 240'],['curated_max_speed','INTEGER NOT NULL DEFAULT 240']])if(!this.db.prepare('PRAGMA table_info(ticker_settings)').all().some(column=>column.name===name))this.db.exec(`ALTER TABLE ticker_settings ADD COLUMN ${name} ${definition}`);
     if(!this.db.prepare('PRAGMA table_info(ticker_messages)').all().some(column=>column.name==='source'))this.db.exec("ALTER TABLE ticker_messages ADD COLUMN source TEXT NOT NULL DEFAULT 'messages'");
     this.db.exec("CREATE INDEX IF NOT EXISTS ticker_source_status ON ticker_messages(source,status,seq)");
     if(!this.db.prepare('PRAGMA table_info(ticker_messages)').all().some(column=>column.name==='target_row'))this.db.exec('ALTER TABLE ticker_messages ADD COLUMN target_row INTEGER');
@@ -124,6 +124,12 @@ export class LiveTicker {
   get archiveReplayEnabled(){return this.db.prepare('SELECT archive_replay_enabled FROM ticker_settings WHERE id=1').get().archive_replay_enabled===1;}
   get liveAlertEnabled(){return this.db.prepare('SELECT live_alert_enabled FROM ticker_settings WHERE id=1').get().live_alert_enabled===1;}
   setLiveAlert(enabled){if(typeof enabled!=='boolean')throw new Error('invalid-live-alert-setting');this.db.prepare('UPDATE ticker_settings SET live_alert_enabled=? WHERE id=1').run(enabled?1:0);return this.liveAlertEnabled;}
+  get transitionSettings(){const row=this.db.prepare('SELECT transition_blinks,transition_scroll_speed,transition_blink_speed FROM ticker_settings WHERE id=1').get();return {blinkCount:row.transition_blinks,scrollSpeed:row.transition_scroll_speed,blinkSpeed:row.transition_blink_speed};}
+  setTransitionSettings({blinkCount,scrollSpeed,blinkSpeed}){
+    if(!Number.isInteger(blinkCount)||blinkCount<0||blinkCount>100||!Number.isFinite(scrollSpeed)||scrollSpeed<0.25||scrollSpeed>4||!Number.isFinite(blinkSpeed)||blinkSpeed<0.25||blinkSpeed>4)throw new Error('invalid-transition-settings');
+    this.db.prepare('UPDATE ticker_settings SET transition_blinks=?,transition_scroll_speed=?,transition_blink_speed=? WHERE id=1').run(blinkCount,scrollSpeed,blinkSpeed);
+    return this.transitionSettings;
+  }
   get archiveDensity(){return this.db.prepare('SELECT archive_density FROM ticker_settings WHERE id=1').get().archive_density;}
   get speedRanges(){const s=this.db.prepare('SELECT barthes_min_speed,barthes_max_speed,curated_min_speed,curated_max_speed FROM ticker_settings WHERE id=1').get();return {barthes:{min:s.barthes_min_speed,max:s.barthes_max_speed},curated:{min:s.curated_min_speed,max:s.curated_max_speed}};}
   speedFor(mode){const {min,max}=this.speedRanges[mode];return randomSpeed(min,max);}
@@ -292,7 +298,7 @@ export class LiveTicker {
       queued:!!this.db.prepare("SELECT 1 FROM ticker_messages WHERE status='queued' AND (source=? OR ?='curated' AND source IN ('custom','archive')) LIMIT 1").get(mode,mode),
     };
   }
-  snapshot(deviceId){const runs=this.runs().filter(run=>run.targets.includes(deviceId));return {enabled:this.enabled||runs.some(run=>run.source==='router'),alertEnabled:this.liveAlertEnabled,runs,transition:this.transition&&Date.now()<this.transition.startAtServerMs+1650?this.transition:null};}
+  snapshot(deviceId){const runs=this.runs().filter(run=>run.targets.includes(deviceId));return {enabled:this.enabled||runs.some(run=>run.source==='router'),alertEnabled:this.liveAlertEnabled,runs,transition:this.transition&&Date.now()<this.transition.startAtServerMs+this.transition.durationMs?this.transition:null};}
   save(run,status){const {seq,text,...data}=run;this.db.prepare('UPDATE ticker_messages SET status=?,run=? WHERE seq=?').run(status,JSON.stringify(data),seq);}
   tick(ready,allowed=true,now=Date.now()) {
     if(this.enabled&&allowed)this.refillBarthes();

@@ -16,6 +16,7 @@ let testDeployment = null, testOffline = 0, sendingTest = false;
 let testSpeedEdited=false;
 let testMessageEdited=false;
 let kissingEdited=false;
+let transitionSettingsEdited=false;
 let curatedEdited=false,curatedLoadedCount=-1,curatedLoadedSelected=-1,curatedLoading=false;
 let curatedLoadedGeneration=null;
 let curatedSaveTimer=null,curatedEditVersion=0;
@@ -26,6 +27,11 @@ function speedLabels(mode){
   $(`${mode}-max-value`).textContent=`${max} px/s`;
 }
 function densityLabel(){$('curated-archive-density-value').textContent=$('curated-archive-density').value==='6'?'Saturate':$('curated-archive-density').value;}
+function transitionLabels(){
+  $('sms-blinks-value').textContent=$('sms-blinks').value;
+  $('sms-scroll-speed-value').textContent=`${$('sms-scroll-speed').value}×`;
+  $('sms-blink-speed-value').textContent=`${$('sms-blink-speed').value}×`;
+}
 const curatedTexts=()=>[$('curated-custom-a').value,$('curated-custom-b').value];
 for(const id of ['curated-custom-a','curated-custom-b'])$(id).oninput=()=>{
   curatedEdited=true;const version=++curatedEditVersion;
@@ -250,6 +256,12 @@ function render() {
   $('live-alert-toggle').checked=!!live?.liveAlertEnabled;
   $('live-alert-status').textContent=live?.liveAlertEnabled?live?.alertUpgradeRequired?.length?`Update ${live.alertUpgradeRequired.length} connected phones to app 2.4.4 for ding and vibration.`:'Ding and vibration enabled on updated phones.':'Silent when live SMS starts.';
   const transition=data.transition;
+  if(transition?.settings&&!transitionSettingsEdited){
+    $('sms-blinks').value=transition.settings.blinkCount;
+    $('sms-scroll-speed').value=transition.settings.scrollSpeed;
+    $('sms-blink-speed').value=transition.settings.blinkSpeed;
+  }
+  transitionLabels();
   $('sms-transition').disabled=!!pairing?.active||state.mode!=='exhibition'||!!kissing?.enabled||!transition?.available||!!transition?.preparing||!!transition?.active;
   $('sms-transition-status').textContent=transition?.active?'Playing across the wall…':transition?.preparing?'Preparing the web artwork on connected phones…':transition?.error??(transition?.available?'Ready for a manual transition.':'Show live text artwork on connected phones first.');
   $('barthes-start').disabled=!!barthesActive||!!pairing?.active||!!live?.upgradeRequired?.length||!state.layout.slots.length;
@@ -460,22 +472,26 @@ function render() {
 let lastFrame = 0;
 function drawSMSTransition(c,slot,active,now){
   if(!slot||!active)return;
-  const elapsed=(now-active.startAtServerMs)/1000;
-  if(elapsed<0||elapsed>=1.65)return;
+  const elapsed=now-active.startAtServerMs;
+  const scrollMs=850/active.settings.scrollSpeed,blinkPeriodMs=200/active.settings.blinkSpeed;
+  const blinkEndMs=scrollMs+active.settings.blinkCount*blinkPeriodMs;
+  if(elapsed<0||elapsed>=active.durationMs)return;
   const row=active.rows.find(item=>item.row===Math.floor(slot.slotIndex/data.state.layout.columns));
   if(!row)return;
-  const g=slot.geometry,fontSize=Math.min(row.height*0.5,(row.right-row.left)*0.17);
+  const g=slot.geometry,fontSize=(row.right-row.left)*0.17;
   c.save();c.setTransform(1,0,0,1,0,0);c.fillStyle='#000';c.fillRect(0,0,300,400);
   c.scale(300/g.width,400/g.height);c.translate(-g.x,-g.y);
   c.beginPath();c.rect(row.left,row.top,row.right-row.left,row.height);c.clip();
-  c.font=`${fontSize}px Arial, sans-serif`;c.textBaseline='top';
-  const text='\u2764\uFE0F SMS \u2764\uFE0F',textWidth=c.measureText(text).width;
+  c.font=`${fontSize}px Arial, sans-serif`;c.textBaseline='alphabetic';
+  const text='\u2764\uFE0F SMS \u2764\uFE0F',ink=c.measureText(text),textWidth=ink.width;
   const startX=row.row%2===0?row.left-textWidth:row.right;
   const targetX=(row.left+row.right-textWidth)/2;
-  const x=startX+(targetX-startX)*Math.min(1,elapsed/0.85);
-  const blinking=elapsed>=0.85&&elapsed<1.25&&(elapsed-0.85)%0.2>=0.11;
-  c.globalAlpha=blinking?0:elapsed>=1.25?Math.max(0,(1.65-elapsed)/0.4):1;
-  c.fillStyle='#ff0000';c.fillText(text,x,row.top+(row.height-fontSize)/2);
+  const x=startX+(targetX-startX)*Math.min(1,elapsed/scrollMs);
+  const blinking=elapsed>=scrollMs&&elapsed<blinkEndMs&&(elapsed-scrollMs)%blinkPeriodMs>=blinkPeriodMs*0.55;
+  c.globalAlpha=blinking?0:elapsed>=blinkEndMs?Math.max(0,(active.durationMs-elapsed)/400):1;
+  const ascent=ink.actualBoundingBoxAscent||fontSize*0.8,descent=ink.actualBoundingBoxDescent||fontSize*0.2;
+  c.translate(0,row.top+row.height*0.01);c.scale(1,row.height*0.98/(ascent+descent));
+  c.fillStyle='#ff0000';c.fillText(text,x,ascent);
   c.restore();
 }
 function draw(time) {
@@ -755,6 +771,13 @@ $('pairing-stop').onclick=run(()=>api({action:'pairing.stop'}));
 $('barthes-start').onclick=run(()=>api({action:'barthes.start'}));
 $('live-alert-toggle').onchange=run(()=>api({action:'live.alert',enabled:$('live-alert-toggle').checked}));
 $('sms-transition').onclick=run(()=>api({action:'transition.sms'}));
+for(const id of ['sms-blinks','sms-scroll-speed','sms-blink-speed']){
+  $(id).oninput=()=>{transitionSettingsEdited=true;transitionLabels();};
+  $(id).onchange=run(async()=>{
+    try{await api({action:'transition.settings',settings:{blinkCount:Number($('sms-blinks').value),scrollSpeed:Number($('sms-scroll-speed').value),blinkSpeed:Number($('sms-blink-speed').value)}});}
+    finally{transitionSettingsEdited=false;}
+  });
+}
 $('barthes-stop').onclick=run(()=>api({action:'barthes.stop'}));
 $('curated-start').onclick=run(async()=>{clearTimeout(curatedSaveTimer);await api({action:data.ticker?.enabled&&data.ticker.mode==='curated'?'curated.messages':'curated.start',messages:curatedTexts()});curatedEdited=false;});
 $('curated-stop').onclick=run(()=>api({action:'curated.stop'}));

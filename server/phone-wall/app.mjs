@@ -80,7 +80,7 @@ export async function createController({
       const art=releases.snapshot(slot.deviceId);
       return !art.pending&&store.device(slot.deviceId)?.capabilities?.liveTicker===1&&art.active?.release.definition.artworkId==='live-ticker';
     });
-    return {online:connected.length,available,preparing:!!transitionRequest,error:transitionError,active:ticker.transition&&Date.now()<ticker.transition.startAtServerMs+1650?ticker.transition:null};
+    return {online:connected.length,available,preparing:!!transitionRequest,error:transitionError,settings:ticker.transitionSettings,active:ticker.transition&&Date.now()<ticker.transition.startAtServerMs+ticker.transition.durationMs?ticker.transition:null};
   };
   let closing=false;
   let cpuPercent=null;
@@ -160,7 +160,7 @@ export async function createController({
     if(transitionRequest){
       if(Date.now()>transitionRequest.deadline){transitionRequest=null;transitionError='Phone artwork did not become ready in time.';}
       else if(transitionRequest.targets.every(id=>ready.has(id))){
-        ticker.transition={id:transitionRequest.id,startAtServerMs:Date.now()+250,rows:transitionRequest.rows};
+        ticker.transition={id:transitionRequest.id,startAtServerMs:Date.now()+250,rows:transitionRequest.rows,settings:transitionRequest.settings,durationMs:transitionRequest.durationMs};
         transitionRequest=null;tickerBroadcast();
       }
     }
@@ -334,12 +334,15 @@ export async function createController({
     )
       throw new Error("expected-revision-required");
     let state = structuredClone(previous);
+    if(input.action==='transition.settings')return {settings:ticker.setTransitionSettings(input.settings??{})};
     if(input.action==='transition.sms'){
       if(pairing.status().active||state.mode!=='exhibition'||kissing.settings.enabled)throw new Error('transition-requires-exhibition-mode');
       if(!transitionStatus(state).available)throw new Error('live-text-artwork-required-for-transition');
       if(transitionRequest)throw new Error('transition-already-preparing');
       transitionError=null;liveAttempts.clear();
-      transitionRequest={id:randomBytes(16).toString('hex'),targets:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)).map(slot=>slot.deviceId),rows:liveRows(state.layout).map(({row,left,right,top,height})=>({row,left,right,top,height})),deadline:Date.now()+30000};
+      const settings=ticker.transitionSettings;
+      const durationMs=850/settings.scrollSpeed+settings.blinkCount*200/settings.blinkSpeed+400;
+      transitionRequest={id:randomBytes(16).toString('hex'),targets:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)).map(slot=>slot.deviceId),rows:liveRows(state.layout).map(({row,left,right,top,height})=>({row,left,right,top,height})),settings,durationMs,deadline:Date.now()+30000};
       tickerTick();
       return {id:transitionRequest?.id??ticker.transition?.id};
     }

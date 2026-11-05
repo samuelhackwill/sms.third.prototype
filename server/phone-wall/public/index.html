@@ -58,6 +58,11 @@
         <p id="live-status" role="status"></p>
         <p id="reader-status" role="status"></p>
         <div class="actions"><button id="sms-transition" type="button" disabled>Play ❤️ SMS ❤️ transition</button></div>
+        <div class="speed-controls">
+          <label>Number of blinks <output id="sms-blinks-value">2</output><input id="sms-blinks" type="range" min="0" max="100" step="1" value="2" /></label>
+          <label>Scroll-in speed <output id="sms-scroll-speed-value">1×</output><input id="sms-scroll-speed" type="range" min="0.25" max="4" step="0.25" value="1" /></label>
+          <label>Blink speed <output id="sms-blink-speed-value">1×</output><input id="sms-blink-speed" type="range" min="0.25" max="4" step="0.25" value="1" /></label>
+        </div>
         <p id="sms-transition-status" role="status"></p>
       </section>
       <section class="operator-step">

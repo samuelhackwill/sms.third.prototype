@@ -130,28 +130,33 @@
   }
   function drawTransition(serverNow) {
     if (!transition) return false;
-    const elapsed = (serverNow - transition.startAtServerMs) / 1000;
-    if (elapsed < 0 || elapsed >= 1.65) return false;
-    const blinking = elapsed >= 0.85 && elapsed < 1.25 && (elapsed - 0.85) % 0.2 >= 0.11;
-    const alpha = blinking ? 0 : elapsed >= 1.25 ? Math.max(0, (1.65 - elapsed) / 0.4) : 1;
+    const elapsed = serverNow - transition.startAtServerMs;
+    const scrollMs = 850 / transition.settings.scrollSpeed;
+    const blinkPeriodMs = 200 / transition.settings.blinkSpeed;
+    const blinkEndMs = scrollMs + transition.settings.blinkCount * blinkPeriodMs;
+    if (elapsed < 0 || elapsed >= transition.durationMs) return false;
+    const blinking = elapsed >= scrollMs && elapsed < blinkEndMs && (elapsed - scrollMs) % blinkPeriodMs >= blinkPeriodMs * 0.55;
+    const alpha = blinking ? 0 : elapsed >= blinkEndMs ? Math.max(0, (transition.durationMs - elapsed) / 400) : 1;
     const phrase = '\u2764\uFE0F SMS \u2764\uFE0F';
     context.fillStyle = '#000000';
     context.fillRect(viewport.x, viewport.y, viewport.width, viewport.height);
     for (const row of transition.rows) {
       if (row.top >= viewport.y + viewport.height || row.top + row.height <= viewport.y) continue;
-      const fontSize = Math.min(row.height * 0.5, (row.right - row.left) * 0.17);
+      const fontSize = (row.right - row.left) * 0.17;
       context.save();
       context.beginPath();context.rect(row.left,row.top,row.right-row.left,row.height);context.clip();
       context.font = `${fontSize}px Arial, Helvetica, sans-serif`;
       const ink = context.measureText(phrase), textWidth = ink.width;
       const startX = row.row % 2 === 0 ? row.left - textWidth : row.right;
       const targetX = (row.left + row.right - textWidth) / 2;
-      const x = startX + (targetX - startX) * Math.min(1, elapsed / 0.85);
+      const x = startX + (targetX - startX) * Math.min(1, elapsed / scrollMs);
       const ascent = ink.actualBoundingBoxAscent || fontSize * 0.8;
       const descent = ink.actualBoundingBoxDescent || fontSize * 0.2;
-      const baseline = row.top + (row.height - ascent - descent) / 2 + ascent;
+      const stretch = row.height * 0.98 / (ascent + descent);
+      context.translate(0, row.top + row.height * 0.01);
+      context.scale(1, stretch);
       context.globalAlpha = alpha;
-      drawColoredText(context, phrase, x, baseline, '#ff0000', '#ff0000');
+      drawColoredText(context, phrase, x, ascent, '#ff0000', '#ff0000');
       context.restore();
     }
     return true;
