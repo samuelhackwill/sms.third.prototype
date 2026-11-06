@@ -108,7 +108,7 @@ export class Releases {
   deploy(
     releaseId,
     ids,
-    { delayMs = 3000, timeoutMs = 60000, operationId, startAtServerMs = null } = {},
+    { delayMs = 3000, timeoutMs = 60000, operationId, startAtServerMs = null, minimumReady = null } = {},
   ) {
     this.tick(new Set(), Date.now());
     const release = this.release(releaseId);
@@ -120,7 +120,8 @@ export class Releases {
       !Number.isInteger(timeoutMs) ||
       timeoutMs < 1000 ||
       timeoutMs > 120000 ||
-      (startAtServerMs!==null&&(!Number.isFinite(startAtServerMs)||startAtServerMs>Date.now()+600000))
+      (startAtServerMs!==null&&(!Number.isFinite(startAtServerMs)||startAtServerMs>Date.now()+600000)) ||
+      (minimumReady!==null&&(!Number.isInteger(minimumReady)||minimumReady<1||minimumReady>ids.length))
     )
       throw new Error("invalid-deployment");
     for (const id of ids) {
@@ -168,6 +169,7 @@ export class Releases {
         deadlineMs: Date.now() + timeoutMs,
         delayMs,
         requestedStartAtServerMs:startAtServerMs,
+        minimumReady,
         startAtServerMs: null,
         targets: Object.fromEntries(
           ids.map((id) => [id, { status: "pending" }]),
@@ -245,7 +247,7 @@ export class Releases {
         ...d.targets[deviceId],
       },
     });
-    if (p.status === "error" && d.phase === "preparing")
+    if (p.status === "error" && d.phase === "preparing" && d.minimumReady == null)
       this.fail(d, "target-preparation-failed");
   }
   fail(d, reason, phase = "failed") {
@@ -279,7 +281,7 @@ export class Releases {
           this.fail(d, "preparation-timeout");
           ids.forEach((id) => changed.add(id));
         } else if (
-          ids.every((id) => d.targets[id].status === "ready" && online.has(id))
+          ids.filter((id) => d.targets[id].status === "ready" && online.has(id)).length >= (d.minimumReady ?? ids.length)
         ) {
           d.phase = "scheduled";
           d.startAtServerMs = Math.max(now+1000,d.requestedStartAtServerMs??now+d.delayMs);

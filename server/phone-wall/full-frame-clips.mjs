@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import { releaseHash } from './scenes.mjs';
 
 const execFileAsync=promisify(execFile);
-const defaults={trim:false,trimStartOffsetSec:1,trimEndOffsetSec:1,revealDurationMs:1200,fadeOutDurationMs:1000};
+const defaults={trim:false,trimStartOffsetSec:1,trimEndOffsetSec:1,revealDurationMs:1200,fadeOutDurationMs:1000,startWhenReady:false};
 
 export function probeVideo(file) {
   const binary=['/opt/homebrew/bin/ffprobe','/usr/local/bin/ffprobe'].find(existsSync);
@@ -37,7 +37,8 @@ export function fullFrameDefinition(layout,clip,video,settings=defaults) {
   const elements=[{id:'wall-video',type:'video',asset:clip.hash,frame}];
   if(fadeIn>=16)elements[0].animation={property:'opacity',from:0,to:1,durationMs:fadeIn,delayMs:0,easing:'linear',repeat:false};
   if(fadeOut>=16)elements.push({id:'fade-to-black',type:'rect',frame:{x:left,y:top,width:wallWidth,height:wallHeight},color:'#000000',opacity:0,animation:{property:'opacity',from:0,to:1,durationMs:fadeOut,delayMs:video.durationMs-fadeOut,easing:'linear',repeat:false}});
-  return {sceneSchemaVersion:1,artworkId:'full-frame-clips',artworkVersion:releaseHash({hash:clip.hash,layout,frame,settings}),canvas:{width:right,height:bottom},background:'#000000',transition:{type:'cut',durationMs:0},elements};
+  const {startWhenReady:_,...visualSettings}=settings;
+  return {sceneSchemaVersion:1,artworkId:'full-frame-clips',artworkVersion:releaseHash({hash:clip.hash,layout,frame,settings:visualSettings}),canvas:{width:right,height:bottom},background:'#000000',transition:{type:'cut',durationMs:0},elements};
 }
 
 export class FullFrameClips {
@@ -56,6 +57,7 @@ export class FullFrameClips {
   configure(input){
     const next={...this.state.settings};
     if(input.trim!==undefined){if(typeof input.trim!=='boolean')throw new Error('invalid-full-frame-setting');next.trim=input.trim;}
+    if(input.startWhenReady!==undefined){if(typeof input.startWhenReady!=='boolean')throw new Error('invalid-full-frame-setting');next.startWhenReady=input.startWhenReady;}
     for(const [key,max] of [['trimStartOffsetSec',30],['trimEndOffsetSec',30],['revealDurationMs',5000],['fadeOutDurationMs',5000]]){
       if(input[key]!==undefined){if(!Number.isFinite(input[key])||input[key]<0||input[key]>max)throw new Error('invalid-full-frame-setting');next[key]=input[key];}
     }
@@ -140,7 +142,7 @@ export class FullFrameClips {
         }
         const definition=fullFrameDefinition(state.layout,clip,video,this.state.settings);
         const release=this.releases.create(definition);
-        const deployment=this.releases.deploy(release.id,targets,{delayMs:1500,timeoutMs:120000,startAtServerMs:endAt});
+        const deployment=this.releases.deploy(release.id,targets,{delayMs:1500,timeoutMs:120000,startAtServerMs:endAt,minimumReady:this.state.settings.startWhenReady?Math.min(5,targets.length):null});
         this.state.next={id:deployment.id,hash:original.hash,durationMs:video.durationMs};
         this.state.lastHash=original.hash;this.state.error=null;this.save();
         return targets;

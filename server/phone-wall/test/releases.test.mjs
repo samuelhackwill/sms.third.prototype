@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { createController } from "../app.mjs";
 import { SimulatedClient } from "../simulated-client.mjs";
 import { validateDefinition, animationValue } from "../scenes.mjs";
+import { envelope } from "../../../protocol/core.mjs";
 
 export function sample(version = "1") {
   return {
@@ -44,6 +45,30 @@ async function until(fn) {
   }
   throw new Error("timed out");
 }
+test('readiness threshold schedules a shared start while another phone is pending', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'phone-wall-release-threshold-'));
+  const server = await createController({ dataDir: dir, adminToken: 'release-threshold-test-0000000000000000' });
+  await server.app.listen({ host: '127.0.0.1', port: 0 });
+  const endpoint = `ws://127.0.0.1:${server.app.server.address().port}/phone-wall/ws`;
+  const clients = Array.from({ length: 3 }, () => new SimulatedClient(endpoint));
+  t.after(async () => { clients.forEach(client => client.stop()); await server.app.close(); await rm(dir, { recursive: true, force: true }); });
+  clients[2].autoPrepare = false;
+  clients.forEach(client => client.connect());
+  await until(() => clients.every(client => client.welcome));
+  const config = server.store.current();
+  config.mode = 'exhibition'; config.layout.rows = 1; config.layout.columns = 3;
+  config.layout.slots = clients.map((client, index) => ({deviceId: client.identity.deviceId, slotIndex: index, geometry: {x: index * 375, y: 0, width: 375, height: 667}}));
+  server.store.commit(config, config.revision);
+  const release = server.releases.create(sample('readiness-threshold'));
+  const deployment = server.releases.deploy(release.id, clients.map(client => client.identity.deviceId), {delayMs: 1000, minimumReady: 2});
+  clients.forEach(client => client.ws.send(JSON.stringify(envelope('state.request', {}))));
+  await until(() => server.releases.deployment(deployment.id).phase === 'scheduled');
+  const scheduled = server.releases.deployment(deployment.id);
+  assert.equal(scheduled.targets[clients[2].identity.deviceId].status, 'pending');
+  assert.ok(scheduled.startAtServerMs);
+  await until(() => server.releases.deployment(deployment.id).phase === 'active');
+  assert.equal(server.releases.snapshot(clients[2].identity.deviceId).active?.deploymentId, deployment.id);
+});
 test("scene contract rejects incompatible schemas, unsafe paths and invalid animations", () => {
   assert.equal(validateDefinition(sample()).sceneSchemaVersion, 1);
   for (const change of [
