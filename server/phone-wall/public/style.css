@@ -22,6 +22,9 @@
 #matrix-panel #wall article::after { content: ''; position: absolute; top: 6px; right: 6px; width: 5px; height: 5px; border-radius: 50%; background: var(--line); }
 #matrix-panel #wall article[data-connection="online"]::after { background: #4de0ce; }
 #matrix-panel #wall article[data-connection="offline"]::after { background: var(--accent); }
+#matrix-panel #wall article[data-connection="offline"] canvas,
+#matrix-panel #wall article[data-connection="offline"] iframe { filter: grayscale(1) brightness(.28); }
+#matrix-panel #wall article[data-connection="offline"]::before { content: 'OFFLINE'; position: absolute; z-index: 2; top: 38%; left: 3px; right: 3px; padding: 5px 1px; background: var(--accent); color: #fff; text-align: center; font: bold clamp(8px,1vw,12px)/1.2 system-ui,sans-serif; letter-spacing: .04em; pointer-events: none; }
 #matrix-panel #wall article.inspected { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
 #matrix-panel #wall article[data-connection="empty"] { cursor: default; }
 #phone-details { margin: 16px 0; border-top: 1px solid var(--line); padding-top: 12px; }

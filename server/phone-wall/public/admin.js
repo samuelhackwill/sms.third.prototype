@@ -214,10 +214,9 @@ function renderPhoneDetails() {
 }
 
 function deviceLines(device, index) {
-  const age = Date.now() + offset - new Date(device?.lastSeenAt).getTime();
   return [
     `R${Math.floor(index / data.state.layout.columns) + 1} C${index % data.state.layout.columns + 1} · Slot ${index}`,
-    device ? device.connected ? 'ONLINE' : age < 60000 ? 'STALE' : 'OFFLINE' : 'EMPTY · no phone assigned',
+    device ? device.connected ? 'ONLINE' : 'OFFLINE' : 'EMPTY · no phone assigned',
     device ? `App ${device.appVersion ?? '?'}` : '',
     device?.lastError ? `Error ${device.lastError}` : '',
   ];
