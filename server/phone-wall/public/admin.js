@@ -35,15 +35,18 @@ function transitionLabels(){
   $('sms-scroll-speed-value').textContent=`${$('sms-scroll-speed').value}×`;
   $('sms-blink-speed-value').textContent=`${$('sms-blink-speed').value}×`;
 }
-function cycleSettings(){return {curatedDurationSec:Number($('cycle-curated-duration').value),kissingMetric:$('cycle-kissing-count-mode').checked?'count':'duration',kissingDurationSec:Number($('cycle-kissing-duration').value),kissTarget:Number($('cycle-kiss-target').value),fullFrameKissTarget:Number($('cycle-full-frame-target').value)};}
+function cycleSettings(){return {curatedDurationSec:Number($('cycle-curated-duration').value),kissingMetric:$('cycle-kissing-count-mode').checked?'count':'duration',kissingDurationSec:Number($('cycle-kissing-duration').value),kissTarget:Number($('cycle-kiss-target').value),fullFrameKissTarget:Number($('cycle-full-frame-target').value),barthesMetric:$('cycle-barthes-lines-mode').checked?'lines':'chapter',barthesLineTarget:Number($('cycle-barthes-target').value)};}
 function cycleLabels(){
   const clock=seconds=>`${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')}`;
   $('cycle-curated-value').textContent=clock(Number($('cycle-curated-duration').value));
   $('cycle-kissing-value').textContent=clock(Number($('cycle-kissing-duration').value));
   $('cycle-count-value').textContent=$('cycle-kiss-target').value;
   $('cycle-full-frame-value').textContent=$('cycle-full-frame-target').value;
+  $('cycle-barthes-value').textContent=$('cycle-barthes-target').value;
+  $('cycle-barthes-chapter-info').textContent=$('cycle-barthes-lines-mode').checked?`Fixed length: ${$('cycle-barthes-target').value} lines`:`Next chapter: ${data?.cycle?.nextBarthesChapter?.title??'—'} · ${data?.cycle?.nextBarthesChapter?.count??0} lines`;
   $('cycle-kissing-duration').disabled=!$('cycle-kissing-duration-mode').checked;
   $('cycle-kiss-target').disabled=!$('cycle-kissing-count-mode').checked;
+  $('cycle-barthes-target').disabled=!$('cycle-barthes-lines-mode').checked;
 }
 const curatedTexts=()=>[$('curated-custom-a').value,$('curated-custom-b').value];
 for(const id of ['curated-custom-a','curated-custom-b'])$(id).oninput=()=>{
@@ -288,13 +291,16 @@ function render() {
     $('cycle-kissing-duration').value=cycle.kissingDurationSec;
     $('cycle-kiss-target').value=cycle.kissTarget;
     $('cycle-full-frame-target').value=cycle.fullFrameKissTarget;
+    $('cycle-barthes-target').value=cycle.barthesLineTarget;
     $('cycle-kissing-duration-mode').checked=cycle.kissingMetric==='duration';
     $('cycle-kissing-count-mode').checked=cycle.kissingMetric==='count';
+    $('cycle-barthes-chapter-mode').checked=cycle.barthesMetric==='chapter';
+    $('cycle-barthes-lines-mode').checked=cycle.barthesMetric==='lines';
   }
   cycleLabels();
   $('cycle-start').disabled=!!cycle?.enabled||!!pairing?.active||!kissing?.clips||state.layout.rows<2||!!cycle?.upgradeRequired?.length||!!kissing?.upgradeRequired?.length||!!data.ticker?.upgradeRequired?.length;
   $('cycle-stop').disabled=!cycle?.enabled;
-  $('cycle-status').textContent=!cycle?.enabled?cycle?.upgradeRequired?.length?`Update ${cycle.upgradeRequired.length} connected phones to app 2.4.5 for finish-current playback.`:cycle?.error??'Stopped.':cycle.phase==='curated'?`Curated Mode · ${Math.ceil(cycle.remainingMs/1000)}s until rows drain`:cycle.phase==='kissing'?`Kissing Wall · ${cycle.kisses} of ${cycle.kissTarget} completed kisses${cycle.kissingMetric==='duration'?` · ${Math.ceil(cycle.remainingMs/1000)}s until clips drain`:''}`:cycle.phase==='full-frame'?`Full Frame · ${fullFrame?.playedCount??0} of ${cycle.fullFrameKissTarget} clips`:cycle.phase==='barthes'?`Barthes · ${cycle.barthesChapter??'chapter'} · ${live?.completed??0}/${cycle.barthesChapterCount} sentences`:cycle.phase==='draining-curated'||cycle.phase==='draining-barthes'?`Waiting for active text rows to finish…`:cycle.phase==='draining-kissing'?'Waiting for every phone to finish its current clip…':cycle.phase?.startsWith('preparing')?'Preparing transition on phones…':'Playing transition…';
+  $('cycle-status').textContent=!cycle?.enabled?cycle?.upgradeRequired?.length?`Update ${cycle.upgradeRequired.length} connected phones to app 2.4.5 for finish-current playback.`:cycle?.error??'Stopped.':cycle.phase==='curated'?`Curated Mode · ${Math.ceil(cycle.remainingMs/1000)}s until rows drain`:cycle.phase==='kissing'?`Kissing Wall · ${cycle.kisses} of ${cycle.kissTarget} completed kisses${cycle.kissingMetric==='duration'?` · ${Math.ceil(cycle.remainingMs/1000)}s until clips drain`:''}`:cycle.phase==='full-frame'?`Full Frame · ${fullFrame?.playedCount??0} of ${cycle.fullFrameKissTarget} clips`:cycle.phase==='barthes'?`Barthes · ${cycle.barthesMetric==='chapter'?`${cycle.barthesChapter??'chapter'} · `:''}${live?.completed??0}/${cycle.barthesChapterCount} lines`:cycle.phase==='draining-curated'||cycle.phase==='draining-barthes'?`Waiting for active text rows to finish…`:cycle.phase==='draining-kissing'?'Waiting for every phone to finish its current clip…':cycle.phase?.startsWith('preparing')?'Preparing transition on phones…':'Playing transition…';
   if(transition?.settings&&!transitionSettingsEdited){
     $('sms-blinks').value=transition.settings.blinkCount;
     $('sms-scroll-speed').value=transition.settings.scrollSpeed;
@@ -816,7 +822,7 @@ $('pairing-stop').onclick=run(()=>api({action:'pairing.stop'}));
 $('barthes-start').onclick=run(()=>api({action:'barthes.start'}));
 $('live-alert-toggle').onchange=run(()=>api({action:'live.alert',enabled:$('live-alert-toggle').checked}));
 $('sms-transition').onclick=run(()=>api({action:'transition.sms'}));
-for(const id of ['cycle-curated-duration','cycle-kissing-duration','cycle-kiss-target','cycle-full-frame-target','cycle-kissing-duration-mode','cycle-kissing-count-mode']){
+for(const id of ['cycle-curated-duration','cycle-kissing-duration','cycle-kiss-target','cycle-full-frame-target','cycle-barthes-target','cycle-barthes-chapter-mode','cycle-barthes-lines-mode','cycle-kissing-duration-mode','cycle-kissing-count-mode']){
   $(id).oninput=()=>{cycleEdited=true;cycleLabels();};
   $(id).onchange=run(async()=>{try{await api({action:'cycle.settings',settings:cycleSettings()});}finally{cycleEdited=false;}});
 }

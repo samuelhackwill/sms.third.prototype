@@ -107,7 +107,7 @@ export async function createController({
   await kissing.initialize();
   const fullFrame=new FullFrameClips({store,releases,kissing,mediaDir,sessions,...fullFrameOptions});
   store.db.exec("CREATE TABLE IF NOT EXISTS mode_cycle(id INTEGER PRIMARY KEY CHECK(id=1),data TEXT NOT NULL)");
-  const cycleDefaults={enabled:false,curatedDurationSec:180,kissingMetric:'duration',kissingDurationSec:180,kissTarget:10,fullFrameKissTarget:10,barthesCursor:0,barthesChapter:null,barthesChapterCount:0,phase:null,phaseStartedAt:0,kisses:0,drainTargets:[],drainStartedAt:0,transitionId:null,error:null};
+  const cycleDefaults={enabled:false,curatedDurationSec:180,kissingMetric:'duration',kissingDurationSec:180,kissTarget:10,fullFrameKissTarget:10,barthesMetric:'chapter',barthesLineTarget:20,barthesCursor:0,barthesChapter:null,barthesChapterCount:0,phase:null,phaseStartedAt:0,kisses:0,drainTargets:[],drainStartedAt:0,transitionId:null,error:null};
   const savedCycle=store.db.prepare('SELECT data FROM mode_cycle WHERE id=1').get();
   let cycle={...cycleDefaults,...(savedCycle?JSON.parse(savedCycle.data):{})};
   const saveCycle=()=>store.db.prepare('INSERT INTO mode_cycle(id,data) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(JSON.stringify(cycle));
@@ -117,7 +117,7 @@ export async function createController({
     cycle.phase='curated';cycle.phaseStartedAt=Date.now();cycle.kisses=0;cycle.drainTargets=[];cycle.transitionId=null;cycle.error=null;
     saveCycle();
   }
-  const cycleStatus=()=>({...cycle,upgradeRequired:store.current().layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.kissingDrain!==1).map(slot=>slot.deviceId),remainingMs:cycle.enabled&&['curated','kissing'].includes(cycle.phase)&&!(cycle.phase==='kissing'&&cycle.kissingMetric==='count')?Math.max(0,cycle.phaseStartedAt+(cycle.phase==='curated'?cycle.curatedDurationSec:cycle.kissingDurationSec)*1000-Date.now()):null});
+  const cycleStatus=()=>({...cycle,nextBarthesChapter:ticker.barthesChapter(cycle.barthesCursor),upgradeRequired:store.current().layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.kissingDrain!==1).map(slot=>slot.deviceId),remainingMs:cycle.enabled&&['curated','kissing'].includes(cycle.phase)&&!(cycle.phase==='kissing'&&cycle.kissingMetric==='count')?Math.max(0,cycle.phaseStartedAt+(cycle.phase==='curated'?cycle.curatedDurationSec:cycle.kissingDurationSec)*1000-Date.now()):null});
   const stopCycle=()=>{
     const settleCurated=cycle.enabled&&cycle.phase==='transition-to-curated';
     const resumeKissing=cycle.enabled&&['draining-kissing','preparing-full-frame'].includes(cycle.phase)&&kissing.settings.enabled;
@@ -275,7 +275,8 @@ export async function createController({
     }else if(cycle.phase==='transition-to-barthes'&&ticker.transition&&now>=ticker.transition.startAtServerMs+ticker.transition.durationMs){
       const chapter=ticker.barthesChapter(cycle.barthesCursor);
       ticker.startBarthes(chapter.start);liveAttempts.clear();
-      cycle.phase='barthes';cycle.phaseStartedAt=now;cycle.transitionId=null;cycle.barthesChapter=chapter.title;cycle.barthesChapterCount=chapter.count;cycle.barthesCursor=chapter.next;saveCycle();
+      const target=cycle.barthesMetric==='lines'?cycle.barthesLineTarget:chapter.count;
+      cycle.phase='barthes';cycle.phaseStartedAt=now;cycle.transitionId=null;cycle.barthesChapter=chapter.title;cycle.barthesChapterCount=target;cycle.barthesCursor=cycle.barthesMetric==='lines'?chapter.start+target:chapter.next;saveCycle();
       broadcast();tickerBroadcast();tickerTick();
     }else if(cycle.phase==='barthes'&&ticker.status().completed>=cycle.barthesChapterCount){
       cycle.phase='draining-barthes';cycle.phaseStartedAt=now;saveCycle();
@@ -496,8 +497,8 @@ export async function createController({
     }
     if(input.action==='cycle.settings'||input.action==='cycle.start'){
       const settings={...cycle,...(input.settings??{})};
-      if(!Number.isInteger(settings.curatedDurationSec)||settings.curatedDurationSec<10||settings.curatedDurationSec>3600||!['duration','count'].includes(settings.kissingMetric)||!Number.isInteger(settings.kissingDurationSec)||settings.kissingDurationSec<10||settings.kissingDurationSec>3600||!Number.isInteger(settings.kissTarget)||settings.kissTarget<1||settings.kissTarget>100||!Number.isInteger(settings.fullFrameKissTarget)||settings.fullFrameKissTarget<1||settings.fullFrameKissTarget>100)throw new Error('invalid-cycle-settings');
-      cycle={...cycle,curatedDurationSec:settings.curatedDurationSec,kissingMetric:settings.kissingMetric,kissingDurationSec:settings.kissingDurationSec,kissTarget:settings.kissTarget,fullFrameKissTarget:settings.fullFrameKissTarget,error:null};saveCycle();
+      if(!Number.isInteger(settings.curatedDurationSec)||settings.curatedDurationSec<10||settings.curatedDurationSec>3600||!['duration','count'].includes(settings.kissingMetric)||!Number.isInteger(settings.kissingDurationSec)||settings.kissingDurationSec<10||settings.kissingDurationSec>3600||!Number.isInteger(settings.kissTarget)||settings.kissTarget<1||settings.kissTarget>100||!Number.isInteger(settings.fullFrameKissTarget)||settings.fullFrameKissTarget<1||settings.fullFrameKissTarget>100||!['chapter','lines'].includes(settings.barthesMetric)||!Number.isInteger(settings.barthesLineTarget)||settings.barthesLineTarget<1||settings.barthesLineTarget>200)throw new Error('invalid-cycle-settings');
+      cycle={...cycle,curatedDurationSec:settings.curatedDurationSec,kissingMetric:settings.kissingMetric,kissingDurationSec:settings.kissingDurationSec,kissTarget:settings.kissTarget,fullFrameKissTarget:settings.fullFrameKissTarget,barthesMetric:settings.barthesMetric,barthesLineTarget:settings.barthesLineTarget,error:null};saveCycle();
       if(input.action==='cycle.settings')return {cycle:cycleStatus()};
       return beginCycle(state,previous);
     }

@@ -135,7 +135,7 @@
       <section class="operator-step">
         <p class="eyebrow">AUTOMATIC CYCLE</p>
         <h2>Curated → Kissing → Full Frame → Barthes</h2>
-        <p>Cycle through all four modes. Active text rows and video clips finish before the ❤️ SMS ❤️ transition plays at each switch. Barthes plays one complete chapter per pass.</p>
+        <p>Cycle through all four modes. Active text rows and video clips finish before the ❤️ SMS ❤️ transition plays at each switch.</p>
         <div class="speed-controls">
           <label>Curated duration <output id="cycle-curated-value">3:00</output><input id="cycle-curated-duration" type="range" min="10" max="3600" step="10" value="180" /></label>
         </div>
@@ -147,6 +147,14 @@
           <label>Kissing duration <output id="cycle-kissing-value">3:00</output><input id="cycle-kissing-duration" type="range" min="10" max="3600" step="10" value="180" /></label>
           <label>Completed kisses across all phones <output id="cycle-count-value">10</output><input id="cycle-kiss-target" type="range" min="1" max="100" step="1" value="10" /></label>
           <label>Full Frame kisses (clips) <output id="cycle-full-frame-value">10</output><input id="cycle-full-frame-target" type="range" min="1" max="100" step="1" value="10" /></label>
+        </div>
+        <div class="condition-group" role="group" aria-label="When to leave Roland Barthes Mode">
+          <label class="condition-toggle"><input id="cycle-barthes-chapter-mode" name="cycle-barthes-metric" type="radio" value="chapter" checked />One complete chapter</label>
+          <label class="condition-toggle"><input id="cycle-barthes-lines-mode" name="cycle-barthes-metric" type="radio" value="lines" />Fixed number of lines</label>
+        </div>
+        <p id="cycle-barthes-chapter-info">Next chapter: loading…</p>
+        <div class="speed-controls">
+          <label>Barthes lines <output id="cycle-barthes-value">20</output><input id="cycle-barthes-target" type="range" min="1" max="200" step="1" value="20" /></label>
         </div>
         <div class="actions"><button id="cycle-start" type="button">Start cycle</button><button id="cycle-stop" type="button" disabled>Stop cycle</button></div>
         <p id="cycle-status" role="status">Stopped.</p>

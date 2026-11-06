@@ -104,6 +104,9 @@ test('cycle switches through web transition and counts each completed kiss once'
   assert.equal((await status()).cycle.enabled,false);
   assert.equal((await status()).state.mode,'night');
   assert.equal((await status()).state.nightBrightness,0);
+  await action({action:'cycle.settings',settings:{...settings,barthesMetric:'lines',barthesLineTarget:7}});
+  assert.equal((await status()).cycle.barthesMetric,'lines');
+  assert.equal((await status()).cycle.barthesLineTarget,7);
   await action({action:'remote.day'});
   assert.equal((await status()).cycle.enabled,true);
   assert.equal((await status()).cycle.phase,'curated');
