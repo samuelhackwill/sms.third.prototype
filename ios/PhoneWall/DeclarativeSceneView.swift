@@ -15,6 +15,8 @@ final class DeclarativeSceneView: UIView {
     private var observers: [NSKeyValueObservation] = []
     private var started = false
     private var mode = "exhibition"
+    private var audioVolume: Float = 1
+    private var fullFrameVideo: Bool { manifest.definition.artworkId == "full-frame-clips" }
     private var textWidths: [String:Double] = [:]
     private var viewportSize = CGSize(width:-1,height:-1)
     var onFailure: ((String)->Void)?
@@ -56,10 +58,12 @@ final class DeclarativeSceneView: UIView {
                 let imageView = UIImageView(image:UIImage(cgImage:image)); imageView.contentMode = .scaleAspectFit; view = imageView
             case "video":
                 guard let asset = e.asset, let file = files[asset] else { throw ArtworkFailure.missingAsset }
-                let player = AVQueuePlayer(); player.isMuted = true
+                let player = AVQueuePlayer(); player.isMuted = !fullFrameVideo; player.volume = audioVolume
                 observers.append(player.observe(\.status,options:[.new]) { [weak self] player,_ in if player.status == .failed { DispatchQueue.main.async { self?.failed = true; self?.onFailure?("video-renderer-failed") } } })
                 let playable = try await library.media.videoFile(file)
-                let looper = AVPlayerLooper(player:player,templateItem:AVPlayerItem(url:playable)); loopers.append(looper); players.append(player)
+                if fullFrameVideo { player.insert(AVPlayerItem(url:playable),after:nil) }
+                else { let looper = AVPlayerLooper(player:player,templateItem:AVPlayerItem(url:playable)); loopers.append(looper) }
+                players.append(player)
                 view = UIView(); let layer = AVPlayerLayer(player:player); layer.videoGravity = .resizeAspect; view.layer.addSublayer(layer); videos.append((view,layer))
             case "web":
                 let file = try await library.bundle(manifest,element:e,files:files)
@@ -132,12 +136,28 @@ final class DeclarativeSceneView: UIView {
         started = true
         for player in players {
             let duration = player.currentItem?.duration.seconds ?? 0
-            if duration.isFinite && duration>0 { player.seek(to:CMTime(seconds:(max(0,serverMs-startAt)/1000).truncatingRemainder(dividingBy:duration),preferredTimescale:600),toleranceBefore:.zero,toleranceAfter:.zero) }
-            if mode == "exhibition" { player.play() }
+            let elapsed=max(0,serverMs-startAt)/1000
+            if duration.isFinite && duration>0 {
+                let position=fullFrameVideo ? min(elapsed,max(0,duration-0.05)) : elapsed.truncatingRemainder(dividingBy:duration)
+                player.seek(to:CMTime(seconds:position,preferredTimescale:600),toleranceBefore:.zero,toleranceAfter:.zero)
+            }
+            if mode == "exhibition" && (!fullFrameVideo || !duration.isFinite || elapsed<duration) { player.play() }
+            else { player.pause() }
         }
         render(serverMs:serverMs,startAt:startAt,offset:offset)
     }
-    func setMode(_ mode: String) { self.mode = mode; players.forEach{mode == "exhibition" && started ? $0.play() : $0.pause()} }
+    func setMode(_ mode: String) {
+        self.mode = mode
+        if fullFrameVideo && mode == "exhibition" {
+            do {
+                try AVAudioSession.sharedInstance().setCategory(.playback,mode:.moviePlayback)
+                try AVAudioSession.sharedInstance().setActive(true)
+            } catch { onDiagnostic?("full-frame-audio-session-failed") }
+        }
+        if fullFrameVideo { if mode != "exhibition" { players.forEach{$0.pause()} }; return }
+        players.forEach{mode == "exhibition" && started ? $0.play() : $0.pause()}
+    }
+    func setVolume(_ value: Float) { audioVolume=min(1,max(0,value)); players.forEach{$0.volume=audioVolume} }
     func receiveTicker(_ payload: [String:Any]) { webs.forEach { $0.receiveTicker(payload) } }
     func stop() { players.forEach{$0.pause()}; webs.forEach{$0.stop()}; removeFromSuperview() }
 }

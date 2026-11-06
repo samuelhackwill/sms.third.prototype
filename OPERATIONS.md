@@ -30,7 +30,7 @@ Optional **Play only the kiss** uses the API kiss timestamps and the before/afte
 
 ## Full Frame Clips
 
-Use **Control > Full Frame Clips > Start** on the desktop dashboard to play one cached kissing clip across the entire phone matrix. Each connected phone displays its portion of the same muted video. The controller prepares the next clip near the end of the current one; if preparation is late, the current clip loops until the next is ready. **Stop** returns to Roland Barthes Mode. Incoming SMS continue to be archived and queued while this mode is active, then resume display when it stops. The mode uses the existing video artwork runtime, so it does not require a new phone app build. Clip metadata is read locally with `ffprobe` on the Mac mini.
+Use **Control > Full Frame Clips > Start** on the desktop dashboard to play one cached kissing clip across the entire phone matrix. Each connected phone displays its portion of the same video. With phone app 2.4.7, sound plays on every phone at the dashboard volume and clips do not repeat while the next one prepares. The controller schedules the next clip at the current clip's end; if preparation is late, the finished frame waits. **Stop** returns to Roland Barthes Mode. Incoming SMS continue to be archived and queued while this mode is active, then resume display when it stops. Clip metadata is read locally with `ffprobe` on the Mac mini.
 
 ## Live Incoming Messages
 

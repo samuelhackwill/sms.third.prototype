@@ -108,7 +108,7 @@ export class Releases {
   deploy(
     releaseId,
     ids,
-    { delayMs = 3000, timeoutMs = 60000, operationId } = {},
+    { delayMs = 3000, timeoutMs = 60000, operationId, startAtServerMs = null } = {},
   ) {
     this.tick(new Set(), Date.now());
     const release = this.release(releaseId);
@@ -119,7 +119,8 @@ export class Releases {
       delayMs > 30000 ||
       !Number.isInteger(timeoutMs) ||
       timeoutMs < 1000 ||
-      timeoutMs > 120000
+      timeoutMs > 120000 ||
+      (startAtServerMs!==null&&(!Number.isFinite(startAtServerMs)||startAtServerMs>Date.now()+600000))
     )
       throw new Error("invalid-deployment");
     for (const id of ids) {
@@ -166,6 +167,7 @@ export class Releases {
         createdAt: Date.now(),
         deadlineMs: Date.now() + timeoutMs,
         delayMs,
+        requestedStartAtServerMs:startAtServerMs,
         startAtServerMs: null,
         targets: Object.fromEntries(
           ids.map((id) => [id, { status: "pending" }]),
@@ -280,7 +282,7 @@ export class Releases {
           ids.every((id) => d.targets[id].status === "ready" && online.has(id))
         ) {
           d.phase = "scheduled";
-          d.startAtServerMs = now + d.delayMs;
+          d.startAtServerMs = Math.max(now+1000,d.requestedStartAtServerMs??now+d.delayMs);
           this.save(d);
           ids.forEach((id) => changed.add(id));
         }

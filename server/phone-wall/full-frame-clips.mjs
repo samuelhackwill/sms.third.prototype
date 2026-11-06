@@ -63,11 +63,11 @@ export class FullFrameClips {
       }
     }
     if(this.state.next||now<this.state.retryAt)return [];
-    let remaining=0;
+    let endAt=null;
     if(this.state.current){
       const deployment=this.releases.deployment(this.state.current.id);
-      remaining=deployment.startAtServerMs+this.state.current.durationMs-now;
-      if(remaining>20000)return [];
+      endAt=deployment.startAtServerMs+this.state.current.durationMs;
+      if(endAt-now>20000)return [];
     }
     const state=this.store.current();
     const targets=state.layout.slots.filter(slot=>this.sessions.has(slot.deviceId)&&!this.releases.snapshot(slot.deviceId).pending&&this.store.device(slot.deviceId)?.capabilities?.sceneSchemaVersions?.includes(1)).map(slot=>slot.deviceId);
@@ -81,7 +81,7 @@ export class FullFrameClips {
         if(!video){video=this.probe(join(this.mediaDir,clip.hash));this.metadata.set(clip.hash,video);}
         const definition=fullFrameDefinition(state.layout,clip,video);
         const release=this.releases.create(definition);
-        const deployment=this.releases.deploy(release.id,targets,{delayMs:Math.max(1000,Math.min(30000,Math.round(remaining)||1500)),timeoutMs:120000});
+        const deployment=this.releases.deploy(release.id,targets,{delayMs:1500,timeoutMs:120000,startAtServerMs:endAt});
         this.state.next={id:deployment.id,hash:clip.hash,durationMs:video.durationMs};
         this.state.lastHash=clip.hash;this.state.error=null;this.save();
         return targets;

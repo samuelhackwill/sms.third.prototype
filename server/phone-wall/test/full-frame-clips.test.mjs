@@ -40,8 +40,10 @@ test('desktop action cycles cached clips across connected phones and Stop resume
   const request=async action=>{const response=await server.app.inject({method:'POST',url:'/phone-wall/api',headers:{authorization:`Bearer ${key}`},payload:{action}});assert.equal(response.statusCode,200,response.body);return response.json();};
   await request('full-frame.start');
   await until(()=>server.fullFrame.state.current&&clients.every(client=>client.activeArtwork?.release?.definition?.artworkId==='full-frame-clips'));
-  const first=server.fullFrame.state.current.hash;
+  const first=server.fullFrame.state.current.hash,firstDeployment=server.releases.deployment(server.fullFrame.state.current.id);
   await until(()=>server.fullFrame.state.current?.hash!==first);
+  const secondDeployment=server.releases.deployment(server.fullFrame.state.current.id);
+  assert.equal(secondDeployment.startAtServerMs-firstDeployment.startAtServerMs,3000);
   assert.ok(clients.every(client=>client.activeArtwork?.release?.definition?.artworkId==='full-frame-clips'));
   await request('full-frame.stop');
   assert.equal(server.fullFrame.state.enabled,false);

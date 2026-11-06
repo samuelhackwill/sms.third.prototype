@@ -263,7 +263,7 @@ function render() {
   const fullFrame=data.fullFrame;
   $('full-frame-start').disabled=!fullFrame||fullFrame.enabled||!fullFrame.clips||!!pairing?.active;
   $('full-frame-stop').disabled=!fullFrame?.enabled;
-  $('full-frame-status').textContent=fullFrame?.enabled?`${fullFrame.phase==='playing'?'PLAYING ACROSS MATRIX'+(fullFrame.next?' · preparing next clip':''):'PREPARING CLIP'} · ${fullFrame.clips} clips cached${fullFrame.error?' · '+fullFrame.error:''}`:`STOPPED · ${fullFrame?.clips??0} clips cached`;
+  $('full-frame-status').textContent=(fullFrame?.enabled?`${fullFrame.phase==='playing'?'PLAYING ACROSS MATRIX'+(fullFrame.next?' · preparing next clip':''):'PREPARING CLIP'} · ${fullFrame.clips} clips cached${fullFrame.error?' · '+fullFrame.error:''}`:`STOPPED · ${fullFrame?.clips??0} clips cached`)+(fullFrame?.audioUpgradeRequired?.length?` · ${fullFrame.audioUpgradeRequired.length} connected phones need app 2.4.7 for sound and no repeats`:'');
   renderPhoneDetails();
   renderErrors();
   $('debug-toggle').checked=!!state.debugEnabled;

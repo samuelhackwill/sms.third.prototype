@@ -11,6 +11,7 @@ import UIKit
     private var restoreGeneration = 0
     private var blocked = Set(UserDefaults.standard.stringArray(forKey:"failedDeployments") ?? [])
     private var mode = "exhibition"
+    private var audioVolume: Float = 1
     private var fadeOld: DeclarativeSceneView?
     private var fadeStart = 0.0
     var deviceId = ""
@@ -85,6 +86,7 @@ import UIKit
         let files = try await library.prepare(deployment.release,endpoint:endpoint,token:token,deviceId:deviceId)
         try Task.checkCancellation()
         let view = try DeclarativeSceneView(manifest:deployment.release,deviceId:deviceId)
+        view.setVolume(audioVolume)
         view.frame = host?.bounds ?? .zero; view.autoresizingMask = [.flexibleWidth,.flexibleHeight]; view.alpha = 0; host?.addSubview(view)
         view.onFailure = { [weak self,weak view] code in
             guard let self = self else { return }
@@ -148,5 +150,9 @@ import UIKit
     }
     func receiveTicker(_ payload: [String:Any]) {
         tickerState = payload; active?.view.receiveTicker(payload); candidate?.view.receiveTicker(payload)
+    }
+    func setVolume(_ value: Float) {
+        audioVolume=min(1,max(0,value))
+        active?.view.setVolume(audioVolume); candidate?.view.setVolume(audioVolume); fadeOld?.setVolume(audioVolume)
     }
 }
