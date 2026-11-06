@@ -6,7 +6,7 @@ const barthesFile=new URL('./public/artwork/barthes-sentences.ndjson',import.met
 let barthesSentences;
 function sentences() {
   if(!barthesSentences) {
-    barthesSentences=readFileSync(barthesFile,'utf8').split(/\r?\n/u).filter(Boolean).map(line=>JSON.parse(line)).map(record=>record.text?.trim()).filter(Boolean);
+    barthesSentences=readFileSync(barthesFile,'utf8').split(/\r?\n/u).filter(Boolean).map(line=>JSON.parse(line)).map(record=>({text:record.text?.trim(),chapter:record.chapter?.trim()})).filter(record=>record.text);
     if(!barthesSentences.length)throw new Error('barthes-source-empty');
   }
   return barthesSentences;
@@ -225,12 +225,19 @@ export class LiveTicker {
     if(!selected)this.db.prepare("DELETE FROM ticker_messages WHERE source='curated' AND origin_id=?").run(`messages:${id}`);
     return selected;
   }
-  startBarthes(){
+  barthesChapter(cursor=0){
+    const source=sentences(),start=cursor%source.length,title=source[start].chapter;
+    let end=start+1;
+    while(end<source.length&&source[end].chapter===title)end++;
+    return {title,start,count:end-start,next:end%source.length};
+  }
+  startBarthes(cursor=0){
     sentences();
+    if(!Number.isInteger(cursor)||cursor<0)throw new Error('invalid-barthes-cursor');
     this.store.transaction(()=>{
       this.requeue(true);
       this.db.prepare("DELETE FROM ticker_messages WHERE source='barthes' OR source IN ('custom','curated','curated-click','archive') AND status!='completed'").run();
-      this.db.prepare("UPDATE ticker_settings SET enabled=1,mode='barthes',barthes_cursor=0 WHERE id=1").run();
+      this.db.prepare("UPDATE ticker_settings SET enabled=1,mode='barthes',barthes_cursor=? WHERE id=1").run(cursor);
     });
     this.refillBarthes();
   }
@@ -254,7 +261,7 @@ export class LiveTicker {
       let cursor=this.db.prepare('SELECT barthes_cursor FROM ticker_settings WHERE id=1').get().barthes_cursor;
       const insert=this.db.prepare("INSERT INTO ticker_messages(external_id,text,source) VALUES(?,?,'barthes')");
       for(let i=queued;i<12;i++){
-        insert.run(`barthes-${cursor}`,source[cursor%source.length]);cursor++;
+        insert.run(`barthes-${cursor}`,source[cursor%source.length].text);cursor++;
       }
       this.db.prepare('UPDATE ticker_settings SET barthes_cursor=? WHERE id=1').run(cursor);
     });
@@ -318,7 +325,7 @@ export class LiveTicker {
   }
   snapshot(deviceId){const runs=this.runs().filter(run=>run.targets.includes(deviceId));return {enabled:this.enabled||runs.some(run=>run.source==='router'),alertEnabled:this.liveAlertEnabled,runs,transition:this.transition&&Date.now()<this.transition.startAtServerMs+this.transition.durationMs?this.transition:null};}
   save(run,status){const {seq,text,...data}=run;this.db.prepare('UPDATE ticker_messages SET status=?,run=? WHERE seq=?').run(status,JSON.stringify(data),seq);}
-  tick(ready,allowed=true,now=Date.now(),dispatch=true) {
+  tick(ready,allowed=true,now=Date.now(),dispatch=true,ambientLimit=null) {
     const canStart=allowed&&dispatch;
     if(this.enabled&&canStart)this.refillBarthes();
     if(this.enabled&&canStart)this.refillCurated(now);
@@ -355,8 +362,13 @@ export class LiveTicker {
       }
       const message=this.db.prepare("SELECT seq,source FROM ticker_messages WHERE status='queued' AND ((source='router' AND ?) OR (source=? AND ?)) ORDER BY CASE WHEN source='router' THEN 0 ELSE 1 END,seq LIMIT 1").get(canStart?1:0,this.playbackMode,this.enabled&&canStart?1:0);
       if(!message)break;
+      if(message.source==='barthes'&&ambientLimit!==null){
+        const completed=this.db.prepare("SELECT COUNT(*) AS n FROM ticker_messages WHERE source='barthes' AND status='completed'").get().n;
+        const activeBarthes=active.filter(run=>run.source==='barthes').length;
+        if(completed+activeBarthes>=ambientLimit)break;
+      }
       this.save({seq:message.seq,id:randomUUID(),row:band.row,band,targets:band.targets.filter(id=>ready.has(id)),ready:{},done:[],phase:'preparing',speed:message.source==='barthes'?this.speedFor('barthes'):state.testTextSpeed??240,startAtServerMs:null,deadline:now+30000},'preparing');
-      busy.add(band.row);changed=true;
+      busy.add(band.row);changed=true;active=this.runs();
     }
     if(changed)this.refillBarthes();
     return changed;

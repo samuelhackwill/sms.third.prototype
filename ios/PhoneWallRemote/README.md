@@ -5,10 +5,10 @@ Open `../PhoneWallRemote.xcodeproj` in Xcode on the Mac that will build the cont
 The app has three main controls:
 
 - **Night mode** sets the installation's night brightness to zero and enters night mode.
-- **Day mode** sets the installation's brightness to one, enters exhibition mode, and starts Roland Barthes from the beginning.
+- **Day mode** sets the installation's brightness to one, enters exhibition mode, and starts the automatic Curated → Kissing → Full Frame → Barthes cycle.
 - **Shut down installation** asks for confirmation, sends all connected phones to Night mode, and then cleanly shuts down macOS after an eight-second delay. Wait for the Mac mini's power light to go off before unplugging it. This M1 Mac mini needs its physical power button pressed after reconnecting power.
 
-The main screen shows only the three controls, a connection indicator and the Connection settings button. It checks the controller connection every five seconds.
+The main screen shows the three controls, controller CPU, a compact matrix, and unplugged phone errors. It checks the controller every five seconds. After a shutdown request, the controls return after 15 seconds so the remote can reconnect when the Mac mini boots again.
 
 On first launch, tap Connection and enter `sms-ingestor.local` (or simply `sms-ingestor`) and the Phone Wall operator key. The app uses `http://sms-ingestor.local:3100` on the installation LAN. Approve the iPhone's Local Network permission prompt. A private HTTPS Tailscale Serve URL also remains supported when both devices are on the same tailnet. The URL is saved in app preferences and the key in the iPhone Keychain. The code contains no operator key. LAN HTTP sends the operator key without transport encryption, so keep the installation Wi-Fi private and trusted.
 

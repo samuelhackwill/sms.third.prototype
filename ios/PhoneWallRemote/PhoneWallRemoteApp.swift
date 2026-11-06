@@ -62,14 +62,41 @@ private enum OperatorKey {
 
 private struct APIError: Decodable { let error: String }
 private struct Action: Encodable { let action: String }
+private struct RemoteSnapshot: Decodable {
+    struct Slot: Decodable { let deviceId: String; let slotIndex: Int }
+    struct Layout: Decodable { let rows: Int; let columns: Int; let slots: [Slot] }
+    struct State: Decodable { let layout: Layout }
+    struct System: Decodable { let controllerCpuPercent: Double? }
+    struct Device: Decodable {
+        let id: String
+        let connected: Bool
+        let lastError: String?
+        private enum CodingKeys: String, CodingKey { case id = "_id", connected, lastError }
+    }
+    let state: State
+    let system: System
+    let devices: [Device]
+    func device(at index: Int) -> Device? {
+        guard let slot = state.layout.slots.first(where: { $0.slotIndex == index }) else { return nil }
+        return devices.first(where: { $0.id == slot.deviceId })
+    }
+    var unplugged: [(Int, Device)] {
+        state.layout.slots.compactMap { slot in
+            guard let device = devices.first(where: { $0.id == slot.deviceId }), !device.connected else { return nil }
+            return (slot.slotIndex, device)
+        }.sorted { $0.0 < $1.0 }
+    }
+}
 
 @MainActor
 private final class RemoteModel: ObservableObject {
     @Published var controllerURL = UserDefaults.standard.string(forKey: "controllerURL")
         ?? "http://sms-ingestor.local:3100"
     @Published var connection = "Waiting for controller"
+    @Published var snapshot: RemoteSnapshot?
     @Published var isBusy = false
     @Published var shuttingDown = false
+    private var shutdownStartedAt: Date?
 
     var hasKey: Bool { !(OperatorKey.load() ?? "").isEmpty }
 
@@ -113,7 +140,7 @@ private final class RemoteModel: ObservableObject {
     private func request(action: String? = nil) async throws -> Data {
         guard let key = OperatorKey.load(), !key.isEmpty else { throw RemoteError.missingKey }
         let base = try normalizedAddress(controllerURL)
-        var request = URLRequest(url: base.appendingPathComponent("phone-wall/api"))
+        var request = URLRequest(url: base.appendingPathComponent(action == nil ? "phone-wall/remote/status" : "phone-wall/api"))
         request.timeoutInterval = 12
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         if let action {
@@ -131,15 +158,21 @@ private final class RemoteModel: ObservableObject {
     }
 
     func refresh() async {
-        if shuttingDown { return }
+        if shuttingDown {
+            if let shutdownStartedAt, Date().timeIntervalSince(shutdownStartedAt) < 15 { return }
+            shuttingDown = false
+            shutdownStartedAt = nil
+            connection = "Waiting for Mac mini to come back online…"
+        }
         guard hasKey else {
             connection = "Set up the controller connection"
             return
         }
         do {
-            _ = try await request()
+            snapshot = try JSONDecoder().decode(RemoteSnapshot.self, from: await request())
             connection = "Connected · updated \(Date().formatted(date: .omitted, time: .shortened))"
         } catch {
+            snapshot = nil
             connection = "Cannot reach controller: \(error.localizedDescription)"
         }
     }
@@ -152,6 +185,7 @@ private final class RemoteModel: ObservableObject {
             _ = try await request(action: action)
             if action == "remote.shutdown" {
                 shuttingDown = true
+                shutdownStartedAt = Date()
                 connection = "Mac mini shutting down. Wait until its power light is off before unplugging."
             } else {
                 await refresh()
@@ -175,8 +209,11 @@ private struct RemoteView: View {
     @State private var showingShutdownConfirmation = false
 
     var body: some View {
+        ScrollView {
         VStack(alignment: .leading, spacing: 22) {
                 HStack {
+                    Text("CPU \(model.snapshot?.system.controllerCpuPercent.map { "\(Int($0.rounded()))%" } ?? "—")")
+                        .font(.footnote.monospacedDigit())
                     Spacer()
                     Button { showingSettings = true } label: {
                         Image(systemName: "gearshape").accessibilityLabel("Connection")
@@ -215,9 +252,41 @@ private struct RemoteView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
+                if let snapshot = model.snapshot {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Phone matrix")
+                            .font(.headline)
+                        Text(snapshot.unplugged.isEmpty ? "All paired phones are connected" : "\(snapshot.unplugged.count) unplugged phone\(snapshot.unplugged.count == 1 ? "" : "s")")
+                            .font(.subheadline)
+                            .foregroundColor(snapshot.unplugged.isEmpty ? .secondary : .red)
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 5), count: max(1, snapshot.state.layout.columns)), spacing: 5) {
+                            ForEach(0..<(snapshot.state.layout.rows * snapshot.state.layout.columns), id: \.self) { index in
+                                let device = snapshot.device(at: index)
+                                let row = index / max(1, snapshot.state.layout.columns) + 1
+                                let column = index % max(1, snapshot.state.layout.columns) + 1
+                                Text("\(row):\(column)")
+                                    .font(.caption2.monospacedDigit())
+                                    .frame(maxWidth: .infinity, minHeight: 42)
+                                    .background(device == nil ? Color.gray.opacity(0.2) : device!.connected ? Color.green.opacity(0.25) : Color.red.opacity(0.8))
+                                    .foregroundColor(device?.connected == false ? .white : .primary)
+                                    .clipShape(RoundedRectangle(cornerRadius: 5))
+                                    .accessibilityLabel("Row \(row), column \(column): \(device == nil ? "empty" : device!.connected ? "connected" : "unplugged")")
+                            }
+                        }
+                        ForEach(snapshot.unplugged.map { $0.0 }, id: \.self) { index in
+                            let row = index / max(1, snapshot.state.layout.columns) + 1
+                            let column = index % max(1, snapshot.state.layout.columns) + 1
+                            Text("R\(row) C\(column) · unplugged\(snapshot.device(at: index)?.lastError.map { " · \($0)" } ?? "")")
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                        }
+                    }
+                }
+
                 Spacer(minLength: 0)
             }
             .padding()
+        }
             .sheet(isPresented: $showingSettings) {
                 SettingsView(model: model)
             }

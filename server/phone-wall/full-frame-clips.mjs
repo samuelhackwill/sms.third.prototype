@@ -83,11 +83,12 @@ export class FullFrameClips {
       return {clip:{...clip,hash},video:{...video,durationMs}};
     }finally{await unlink(temporary).catch(()=>{});}
   }
-  start(){
+  start(limit=null){
+    if(limit!==null&&(!Number.isInteger(limit)||limit<1||limit>100))throw new Error('invalid-full-frame-limit');
     if(!this.kissing.clips().length)throw new Error('no-kissing-clips-cached');
     if(!this.store.current().layout.slots.some(slot=>this.sessions.has(slot.deviceId)))throw new Error('no-paired-phones-online');
     this.generation++;this.preparing=null;this.prepared=null;
-    this.state={...this.state,enabled:true,current:null,next:null,error:null,retryAt:0};this.save();
+    this.state={...this.state,enabled:true,current:null,next:null,error:null,retryAt:0,limit,playedCount:0};this.save();
     return this.tick();
   }
   stop(){
@@ -103,12 +104,13 @@ export class FullFrameClips {
     if(this.state.next){
       const deployment=this.releases.deployment(this.state.next.id);
       if(deployment.phase==='active'){
-        this.state.current=this.state.next;this.state.next=null;this.state.error=null;this.save();
+        this.state.current=this.state.next;this.state.next=null;this.state.playedCount=(this.state.playedCount??0)+1;this.state.error=null;this.save();
       }else if(['failed','cancelled'].includes(deployment.phase)){
         this.state.next=null;this.state.error=deployment.reason??'full-frame-deployment-failed';this.state.retryAt=now+5000;this.save();
       }
     }
     if(this.state.next||now<this.state.retryAt||this.preparing)return [];
+    if(this.state.limit!==null&&this.state.limit!==undefined&&(this.state.playedCount??0)>=this.state.limit)return [];
     let endAt=null;
     if(this.state.current){
       const deployment=this.releases.deployment(this.state.current.id);

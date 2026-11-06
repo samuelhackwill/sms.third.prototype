@@ -107,22 +107,20 @@ export async function createController({
   await kissing.initialize();
   const fullFrame=new FullFrameClips({store,releases,kissing,mediaDir,sessions,...fullFrameOptions});
   store.db.exec("CREATE TABLE IF NOT EXISTS mode_cycle(id INTEGER PRIMARY KEY CHECK(id=1),data TEXT NOT NULL)");
-  const cycleDefaults={enabled:false,curatedDurationSec:180,kissingMetric:'duration',kissingDurationSec:180,kissTarget:10,phase:null,phaseStartedAt:0,kisses:0,drainTargets:[],drainStartedAt:0,transitionId:null,error:null};
+  const cycleDefaults={enabled:false,curatedDurationSec:180,kissingMetric:'duration',kissingDurationSec:180,kissTarget:10,fullFrameKissTarget:10,barthesCursor:0,barthesChapter:null,barthesChapterCount:0,phase:null,phaseStartedAt:0,kisses:0,drainTargets:[],drainStartedAt:0,transitionId:null,error:null};
   const savedCycle=store.db.prepare('SELECT data FROM mode_cycle WHERE id=1').get();
   let cycle={...cycleDefaults,...(savedCycle?JSON.parse(savedCycle.data):{})};
   const saveCycle=()=>store.db.prepare('INSERT INTO mode_cycle(id,data) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(JSON.stringify(cycle));
   const playingKisses=new Map();
   if(cycle.enabled){
-    if(!kissing.settings.enabled&&!(ticker.enabled&&ticker.playbackMode==='curated'))ticker.startCurated();
-    cycle.phase=kissing.settings.enabled?'kissing':ticker.enabled&&ticker.playbackMode==='curated'?'curated':null;
-    cycle.enabled=!!cycle.phase;cycle.phaseStartedAt=Date.now();cycle.kisses=0;cycle.drainTargets=[];cycle.transitionId=null;
-    cycle.error=cycle.enabled?null:'Cycle stopped after restart because neither mode was active.';
+    fullFrame.stop();kissing.configure({enabled:false});ticker.startCurated();
+    cycle.phase='curated';cycle.phaseStartedAt=Date.now();cycle.kisses=0;cycle.drainTargets=[];cycle.transitionId=null;cycle.error=null;
     saveCycle();
   }
   const cycleStatus=()=>({...cycle,upgradeRequired:store.current().layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.kissingDrain!==1).map(slot=>slot.deviceId),remainingMs:cycle.enabled&&['curated','kissing'].includes(cycle.phase)&&!(cycle.phase==='kissing'&&cycle.kissingMetric==='count')?Math.max(0,cycle.phaseStartedAt+(cycle.phase==='curated'?cycle.curatedDurationSec:cycle.kissingDurationSec)*1000-Date.now()):null});
   const stopCycle=()=>{
     const settleCurated=cycle.enabled&&cycle.phase==='transition-to-curated';
-    const resumeKissing=cycle.enabled&&['draining-kissing','preparing-curated'].includes(cycle.phase)&&kissing.settings.enabled;
+    const resumeKissing=cycle.enabled&&['draining-kissing','preparing-full-frame'].includes(cycle.phase)&&kissing.settings.enabled;
     cycle={...cycle,enabled:false,phase:null,drainTargets:[],transitionId:null};playingKisses.clear();
     if(transitionRequest?.owner==='cycle')transitionRequest=null;
     saveCycle();
@@ -146,7 +144,7 @@ export async function createController({
       state = store.snapshot(id);
     if (ws && state){
       const urgent=state.mode==='exhibition'&&ticker.snapshot(id).runs.some(run=>run.source==='router');
-      const kissingState=kissing.snapshot(id,cycle.enabled&&['draining-kissing','preparing-curated'].includes(cycle.phase));
+      const kissingState=kissing.snapshot(id,cycle.enabled&&['draining-kissing','preparing-full-frame'].includes(cycle.phase));
       send(
         ws,
         "state.snapshot",
@@ -164,7 +162,7 @@ export async function createController({
   const tickerBroadcast=()=>{for(const [id,ws] of sessions){snapshot(id);send(ws,'ticker.snapshot',ticker.snapshot(id));}};
   const pauseTicker=()=>{ticker.pause();tickerBroadcast();};
   function tickerTick(){
-    const state=store.current(),allowed=state.mode==='exhibition'&&!pairing.status().active&&!fullFrame.state.enabled&&(!kissing.settings.enabled||cycle.enabled&&cycle.phase==='preparing-curated');
+    const state=store.current(),allowed=state.mode==='exhibition'&&!pairing.status().active&&!fullFrame.state.enabled&&(!kissing.settings.enabled||cycle.enabled&&cycle.phase==='preparing-full-frame');
     const tickerState=ticker.dispatchState();
     const urgent=tickerState.routerQueued||tickerState.active.some(run=>run.source==='router');
     let desiredTickerVersion=null;
@@ -204,19 +202,19 @@ export async function createController({
         transitionRequest=null;transitionError='Phone artwork did not become ready in time.';
       }
       else if(transitionRequest.targets.some(id=>ready.has(id))){
-        if(transitionRequest.owner==='cycle'&&cycle.phase==='preparing-curated'){
+        if(transitionRequest.owner==='cycle'&&cycle.phase==='preparing-full-frame'){
           kissing.configure({enabled:false});broadcast();
         }
         ticker.transition={id:transitionRequest.id,startAtServerMs:Date.now()+250,rows:transitionRequest.rows,settings:transitionRequest.settings,durationMs:transitionRequest.durationMs};
         if(transitionRequest.owner==='cycle'){
-          cycle.phase=cycle.phase==='preparing-curated'?'transition-to-curated':'transition-to-kissing';
+          cycle.phase=`transition-to-${cycle.phase.slice('preparing-'.length)}`;
           cycle.phaseStartedAt=ticker.transition.startAtServerMs;saveCycle();
         }
         transitionRequest=null;tickerBroadcast();
       }
     }
-    const dispatch=!(cycle.enabled&&['draining-curated','preparing-kissing','transition-to-kissing'].includes(cycle.phase));
-    if(ticker.tick(ready,allowed&&!kissing.settings.enabled,Date.now(),dispatch))tickerBroadcast();
+    const dispatch=!(cycle.enabled&&/^(draining|preparing|transition)-/.test(cycle.phase??''));
+    if(ticker.tick(ready,allowed&&!kissing.settings.enabled,Date.now(),dispatch,cycle.enabled&&cycle.phase==='barthes'?cycle.barthesChapterCount:null))tickerBroadcast();
     if(!ticker.status().routerQueued&&!ticker.runs().some(run=>run.source==='router')){
       for(const [id,releaseId] of interruptedArtwork){
         const art=releases.snapshot(id);
@@ -262,14 +260,45 @@ export async function createController({
       const status=store.device(id)?.kissingStatus;
       return !sessions.has(id)||status?.status==='drained'&&status.at>=cycle.drainStartedAt;
     })){
-      cycle.phase='preparing-curated';cycle.transitionId=requestTransition('cycle');saveCycle();
+      cycle.phase='preparing-full-frame';cycle.transitionId=requestTransition('cycle');saveCycle();
     }else if(cycle.phase==='transition-to-kissing'&&ticker.transition&&now>=ticker.transition.startAtServerMs+ticker.transition.durationMs){
       pauseTicker();kissing.configure({enabled:true});broadcast();kissing.tick();
       cycle.phase='kissing';cycle.phaseStartedAt=now;cycle.kisses=0;cycle.transitionId=null;playingKisses.clear();saveCycle();
+    }else if(cycle.phase==='transition-to-full-frame'&&ticker.transition&&now>=ticker.transition.startAtServerMs+ticker.transition.durationMs){
+      pauseTicker();for(const id of fullFrame.start(cycle.fullFrameKissTarget))snapshot(id);
+      cycle.phase='full-frame';cycle.phaseStartedAt=now;cycle.transitionId=null;saveCycle();
+    }else if(cycle.phase==='full-frame'&&fullFrame.state.playedCount>=cycle.fullFrameKissTarget&&fullFrame.state.current){
+      const current=fullFrame.state.current,deployment=releases.deployment(current.id);
+      if(now>=deployment.startAtServerMs+current.durationMs){
+        fullFrame.stop();ticker.startBarthes(ticker.barthesChapter(cycle.barthesCursor).start);cycle.phase='preparing-barthes';cycle.transitionId=requestTransition('cycle');saveCycle();
+      }
+    }else if(cycle.phase==='transition-to-barthes'&&ticker.transition&&now>=ticker.transition.startAtServerMs+ticker.transition.durationMs){
+      const chapter=ticker.barthesChapter(cycle.barthesCursor);
+      ticker.startBarthes(chapter.start);liveAttempts.clear();
+      cycle.phase='barthes';cycle.phaseStartedAt=now;cycle.transitionId=null;cycle.barthesChapter=chapter.title;cycle.barthesChapterCount=chapter.count;cycle.barthesCursor=chapter.next;saveCycle();
+      broadcast();tickerBroadcast();tickerTick();
+    }else if(cycle.phase==='barthes'&&ticker.status().completed>=cycle.barthesChapterCount){
+      cycle.phase='draining-barthes';cycle.phaseStartedAt=now;saveCycle();
+    }else if(cycle.phase==='draining-barthes'&&!ticker.runs().length){
+      ticker.startCurated();cycle.phase='preparing-curated';cycle.transitionId=requestTransition('cycle');saveCycle();
     }else if(cycle.phase==='transition-to-curated'&&ticker.transition&&now>=ticker.transition.startAtServerMs+ticker.transition.durationMs){
       ticker.startCurated();liveAttempts.clear();broadcast();tickerBroadcast();tickerTick();
       cycle.phase='curated';cycle.phaseStartedAt=now;cycle.transitionId=null;saveCycle();
     }
+  }
+  function beginCycle(state,previous,{day=false}={}){
+    if(cycle.enabled)throw new Error('cycle-already-running');
+    if(pairing.status().active)throw new Error('stop-pairing-before-cycle');
+    if(liveRows(state.layout).length<2)throw new Error('two-rows-required-for-cycle');
+    if(!state.layout.slots.some(slot=>sessions.has(slot.deviceId)))throw new Error('no-connected-phones-for-cycle');
+    if(!kissing.clips().length)throw new Error('no-kissing-clips-cached');
+    if(state.layout.slots.some(slot=>sessions.has(slot.deviceId)&&(store.device(slot.deviceId)?.capabilities?.kissingDrain!==1||store.device(slot.deviceId)?.capabilities?.liveTicker!==1)))throw new Error('phone-update-required-for-cycle-drain');
+    if(fullFrame.state.enabled)fullFrame.stop();
+    kissing.configure({enabled:false});ticker.startCurated();liveAttempts.clear();cacheRecovery.clear();
+    store.commit({...state,mode:'exhibition',...(day?{brightness:1}:{}),schedule:null,overrides:{}},previous.revision);
+    store.db.prepare('DELETE FROM previews').run();
+    cycle={...cycle,enabled:true,phase:'curated',phaseStartedAt:Date.now(),kisses:0,drainTargets:[],transitionId:null,error:null};saveCycle();
+    broadcast();tickerBroadcast();tickerTick();return {cycle:cycleStatus()};
   }
   function startRouter(config){
     routerReader?.stop();
@@ -383,6 +412,10 @@ export async function createController({
       }),
     };
   });
+  app.get('/phone-wall/remote/status',{preHandler:authorize},async()=>{
+    const layout=store.current().layout;
+    return {state:{layout:{rows:layout.rows,columns:layout.columns,slots:layout.slots.map(({deviceId,slotIndex})=>({deviceId,slotIndex}))}},system:{controllerCpuPercent:cpuPercent},devices:store.devices().map(device=>({_id:device._id,connected:sessions.has(device._id),lastError:device.lastError??null}))};
+  });
   app.get('/phone-wall/reader/:sourceId',{preHandler:authorize},async(req)=>{
     const id=req.params.sourceId;if(!validId(id))throw new Error('invalid-reader-id');
     if(!ticker.source(id))ticker.reader(id);
@@ -462,24 +495,17 @@ export async function createController({
       broadcast();return {volume:input.volume};
     }
     if(input.action==='cycle.settings'||input.action==='cycle.start'){
-      const settings=input.settings??{};
-      if(!Number.isInteger(settings.curatedDurationSec)||settings.curatedDurationSec<10||settings.curatedDurationSec>3600||!['duration','count'].includes(settings.kissingMetric)||!Number.isInteger(settings.kissingDurationSec)||settings.kissingDurationSec<10||settings.kissingDurationSec>3600||!Number.isInteger(settings.kissTarget)||settings.kissTarget<1||settings.kissTarget>100)throw new Error('invalid-cycle-settings');
-      cycle={...cycle,curatedDurationSec:settings.curatedDurationSec,kissingMetric:settings.kissingMetric,kissingDurationSec:settings.kissingDurationSec,kissTarget:settings.kissTarget,error:null};saveCycle();
+      const settings={...cycle,...(input.settings??{})};
+      if(!Number.isInteger(settings.curatedDurationSec)||settings.curatedDurationSec<10||settings.curatedDurationSec>3600||!['duration','count'].includes(settings.kissingMetric)||!Number.isInteger(settings.kissingDurationSec)||settings.kissingDurationSec<10||settings.kissingDurationSec>3600||!Number.isInteger(settings.kissTarget)||settings.kissTarget<1||settings.kissTarget>100||!Number.isInteger(settings.fullFrameKissTarget)||settings.fullFrameKissTarget<1||settings.fullFrameKissTarget>100)throw new Error('invalid-cycle-settings');
+      cycle={...cycle,curatedDurationSec:settings.curatedDurationSec,kissingMetric:settings.kissingMetric,kissingDurationSec:settings.kissingDurationSec,kissTarget:settings.kissTarget,fullFrameKissTarget:settings.fullFrameKissTarget,error:null};saveCycle();
       if(input.action==='cycle.settings')return {cycle:cycleStatus()};
-      if(cycle.enabled)throw new Error('cycle-already-running');
-      if(pairing.status().active)throw new Error('stop-pairing-before-cycle');
-      if(liveRows(state.layout).length<2)throw new Error('two-rows-required-for-cycle');
-      if(!state.layout.slots.some(slot=>sessions.has(slot.deviceId)))throw new Error('no-connected-phones-for-cycle');
-      if(!kissing.clips().length)throw new Error('no-kissing-clips-cached');
-      if(state.layout.slots.some(slot=>sessions.has(slot.deviceId)&&(store.device(slot.deviceId)?.capabilities?.kissingDrain!==1||store.device(slot.deviceId)?.capabilities?.liveTicker!==1)))throw new Error('phone-update-required-for-cycle-drain');
-      if(fullFrame.state.enabled)fullFrame.stop();
-      kissing.configure({enabled:false});ticker.startCurated();liveAttempts.clear();cacheRecovery.clear();
-      store.commit({...state,mode:'exhibition',schedule:null,overrides:{}},previous.revision);
-      store.db.prepare('DELETE FROM previews').run();
-      cycle={...cycle,enabled:true,phase:'curated',phaseStartedAt:Date.now(),kisses:0,drainTargets:[],transitionId:null,error:null};saveCycle();
-      broadcast();tickerBroadcast();tickerTick();return {cycle:cycleStatus()};
+      return beginCycle(state,previous);
     }
-    if(input.action==='cycle.stop'){stopCycle();return {cycle:cycleStatus()};}
+    if(input.action==='cycle.stop'){
+      stopCycle();
+      if(fullFrame.state.enabled){fullFrame.stop();ticker.startBarthes();broadcast();tickerBroadcast();tickerTick();}
+      return {cycle:cycleStatus()};
+    }
     if(input.action==='full-frame.start'){
       if(fullFrame.state.enabled)throw new Error('full-frame-already-running');
       if(pairing.status().active)throw new Error('stop-pairing-before-full-frame-clips');
@@ -582,12 +608,15 @@ export async function createController({
       store.db.prepare('DELETE FROM previews').run();
       broadcast();return {ok:true};
     }
-    if(input.action==='barthes.start'||input.action==='remote.day'){
+    if(input.action==='remote.day'){
+      return beginCycle(state,previous,{day:true});
+    }
+    if(input.action==='barthes.start'){
       if(pairing.status().active)throw new Error('stop-pairing-before-barthes-mode');
       if(!state.layout.slots.length)throw new Error('pair-phones-before-barthes-mode');
       if(state.layout.slots.some(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.liveTicker!==1))throw new Error('phone-app-2.3-required-for-barthes-mode');
       kissing.configure({enabled:false});liveAttempts.clear();cacheRecovery.clear();ticker.startBarthes();
-      store.commit({...state,mode:'exhibition',...(input.action==='remote.day'?{brightness:1}:{}),schedule:null,overrides:{}},previous.revision);
+      store.commit({...state,mode:'exhibition',schedule:null,overrides:{}},previous.revision);
       store.db.prepare('DELETE FROM previews').run();broadcast();tickerTick();return {ok:true};
     }
     if(input.action==='barthes.stop'){
