@@ -60,46 +60,14 @@ private enum OperatorKey {
     }
 }
 
-private struct WallStatus: Decodable {
-    struct State: Decodable { let mode: String }
-    struct Ticker: Decodable { let mode: String; let enabled: Bool }
-    struct Device: Decodable {
-        let id: String
-        let connected: Bool
-        let paired: Bool
-        let slotIndex: Int?
-        let telemetryAt: Double?
-        let telemetry: Telemetry?
-
-        enum CodingKeys: String, CodingKey {
-            case id = "_id", connected, paired, slotIndex, telemetryAt, telemetry
-        }
-    }
-    struct Telemetry: Decodable { let battery: Double?; let charging: Bool? }
-
-    let state: State
-    let ticker: Ticker
-    let devices: [Device]
-    let serverTimeMs: Double
-}
-
 private struct APIError: Decodable { let error: String }
 private struct Action: Encodable { let action: String }
-
-private struct UnpluggedPhone: Identifiable {
-    let id: String
-    let slot: Int?
-    let battery: Double?
-}
 
 @MainActor
 private final class RemoteModel: ObservableObject {
     @Published var controllerURL = UserDefaults.standard.string(forKey: "controllerURL")
         ?? "http://sms-ingestor.local:3100"
-    @Published var unplugged: [UnpluggedPhone] = []
-    @Published var mode = "Unknown"
     @Published var connection = "Waiting for controller"
-    @Published var unknownPowerCount = 0
     @Published var isBusy = false
     @Published var shuttingDown = false
 
@@ -169,21 +137,9 @@ private final class RemoteModel: ObservableObject {
             return
         }
         do {
-            let data = try await request()
-            let status = try JSONDecoder().decode(WallStatus.self, from: data)
-            let now = status.serverTimeMs
-            let paired = status.devices.filter(\.paired)
-            let fresh = paired.filter { $0.connected && ($0.telemetryAt ?? 0) >= now - 60_000 }
-            unplugged = fresh.filter { $0.telemetry?.charging == false }
-                .sorted { ($0.slotIndex ?? Int.max) < ($1.slotIndex ?? Int.max) }
-                .map { UnpluggedPhone(id: $0.id, slot: $0.slotIndex, battery: $0.telemetry?.battery) }
-            unknownPowerCount = paired.count - fresh.filter { $0.telemetry?.charging != nil }.count
-            mode = status.state.mode == "night" ? "Night" :
-                status.state.mode == "exhibition" && status.ticker.mode == "barthes" && status.ticker.enabled ? "Day · Barthes" : "Other artwork"
+            _ = try await request()
             connection = "Connected · updated \(Date().formatted(date: .omitted, time: .shortened))"
         } catch {
-            unplugged = []
-            unknownPowerCount = 0
             connection = "Cannot reach controller: \(error.localizedDescription)"
         }
     }
@@ -196,7 +152,6 @@ private final class RemoteModel: ObservableObject {
             _ = try await request(action: action)
             if action == "remote.shutdown" {
                 shuttingDown = true
-                mode = "Night"
                 connection = "Mac mini shutting down. Wait until its power light is off before unplugging."
             } else {
                 await refresh()
@@ -260,29 +215,6 @@ private struct RemoteView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
-                Divider()
-                Text("Unplugged phones")
-                    .font(.headline)
-                if model.unplugged.isEmpty {
-                    Text(model.connection.hasPrefix("Connected") ? "No currently unplugged phones reported." : "Waiting for current power readings.")
-                        .foregroundStyle(.secondary)
-                } else {
-                    List(model.unplugged) { phone in
-                        HStack {
-                            Text(phone.slot.map { "Slot \($0 + 1)" } ?? "Phone")
-                            Spacer()
-                            if let battery = phone.battery, battery >= 0 {
-                                Text("\(Int((battery * 100).rounded()))%")
-                            }
-                        }
-                    }
-                    .listStyle(.plain)
-                }
-                if model.unknownPowerCount > 0 {
-                    Text("Power status unavailable for \(model.unknownPowerCount) paired phone(s).")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
                 Spacer(minLength: 0)
             }
             .padding()
