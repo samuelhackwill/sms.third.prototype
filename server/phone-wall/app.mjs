@@ -120,11 +120,11 @@ export async function createController({
   const cycleStatus=()=>({...cycle,nextBarthesChapter:ticker.barthesChapter(cycle.barthesCursor),upgradeRequired:store.current().layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.kissingDrain!==1).map(slot=>slot.deviceId),remainingMs:cycle.enabled&&['curated','kissing'].includes(cycle.phase)&&!(cycle.phase==='kissing'&&cycle.kissingMetric==='count')?Math.max(0,cycle.phaseStartedAt+(cycle.phase==='curated'?cycle.curatedDurationSec:cycle.kissingDurationSec)*1000-Date.now()):null});
   const stopCycle=()=>{
     const settleCurated=cycle.enabled&&cycle.phase==='transition-to-curated';
-    const resumeKissing=cycle.enabled&&['draining-kissing','preparing-full-frame'].includes(cycle.phase)&&kissing.settings.enabled;
+    const resumeKissing=cycle.enabled&&['draining-kissing','preparing-barthes'].includes(cycle.phase)&&kissing.settings.enabled;
     cycle={...cycle,enabled:false,phase:null,drainTargets:[],transitionId:null};playingKisses.clear();
     if(transitionRequest?.owner==='cycle')transitionRequest=null;
     saveCycle();
-    if(resumeKissing)broadcast();
+    if(resumeKissing){ticker.pause();broadcast();}
     if(settleCurated){ticker.startCurated();broadcast();tickerBroadcast();tickerTick();}
   };
   const liveAttempts=new Map();
@@ -144,7 +144,7 @@ export async function createController({
       state = store.snapshot(id);
     if (ws && state){
       const urgent=state.mode==='exhibition'&&ticker.snapshot(id).runs.some(run=>run.source==='router');
-      const kissingState=kissing.snapshot(id,cycle.enabled&&['draining-kissing','preparing-full-frame'].includes(cycle.phase));
+      const kissingState=kissing.snapshot(id,cycle.enabled&&['draining-kissing','preparing-barthes'].includes(cycle.phase));
       send(
         ws,
         "state.snapshot",
@@ -162,7 +162,7 @@ export async function createController({
   const tickerBroadcast=()=>{for(const [id,ws] of sessions){snapshot(id);send(ws,'ticker.snapshot',ticker.snapshot(id));}};
   const pauseTicker=()=>{ticker.pause();tickerBroadcast();};
   function tickerTick(){
-    const state=store.current(),allowed=state.mode==='exhibition'&&!pairing.status().active&&!fullFrame.state.enabled&&(!kissing.settings.enabled||cycle.enabled&&cycle.phase==='preparing-full-frame');
+    const state=store.current(),allowed=state.mode==='exhibition'&&!pairing.status().active&&!fullFrame.state.enabled&&(!kissing.settings.enabled||cycle.enabled&&cycle.phase==='preparing-barthes');
     const tickerState=ticker.dispatchState();
     const urgent=tickerState.routerQueued||tickerState.active.some(run=>run.source==='router');
     let desiredTickerVersion=null;
@@ -202,7 +202,7 @@ export async function createController({
         transitionRequest=null;transitionError='Phone artwork did not become ready in time.';
       }
       else if(transitionRequest.targets.some(id=>ready.has(id))){
-        if(transitionRequest.owner==='cycle'&&cycle.phase==='preparing-full-frame'){
+        if(transitionRequest.owner==='cycle'&&cycle.phase==='preparing-barthes'){
           kissing.configure({enabled:false});broadcast();
         }
         ticker.transition={id:transitionRequest.id,startAtServerMs:Date.now()+250,rows:transitionRequest.rows,settings:transitionRequest.settings,durationMs:transitionRequest.durationMs};
@@ -260,18 +260,11 @@ export async function createController({
       const status=store.device(id)?.kissingStatus;
       return !sessions.has(id)||status?.status==='drained'&&status.at>=cycle.drainStartedAt;
     })){
-      cycle.phase='preparing-full-frame';cycle.transitionId=requestTransition('cycle');saveCycle();
+      ticker.startBarthes(ticker.barthesChapter(cycle.barthesCursor).start);
+      cycle.phase='preparing-barthes';cycle.transitionId=requestTransition('cycle');saveCycle();
     }else if(cycle.phase==='transition-to-kissing'&&ticker.transition&&now>=ticker.transition.startAtServerMs+ticker.transition.durationMs){
       pauseTicker();kissing.configure({enabled:true});broadcast();kissing.tick();
       cycle.phase='kissing';cycle.phaseStartedAt=now;cycle.kisses=0;cycle.transitionId=null;playingKisses.clear();saveCycle();
-    }else if(cycle.phase==='transition-to-full-frame'&&ticker.transition&&now>=ticker.transition.startAtServerMs+ticker.transition.durationMs){
-      pauseTicker();for(const id of fullFrame.start(cycle.fullFrameKissTarget))snapshot(id);
-      cycle.phase='full-frame';cycle.phaseStartedAt=now;cycle.transitionId=null;saveCycle();
-    }else if(cycle.phase==='full-frame'&&fullFrame.state.playedCount>=cycle.fullFrameKissTarget&&fullFrame.state.current){
-      const current=fullFrame.state.current,deployment=releases.deployment(current.id);
-      if(now>=deployment.startAtServerMs+current.durationMs){
-        fullFrame.stop();ticker.startBarthes(ticker.barthesChapter(cycle.barthesCursor).start);cycle.phase='preparing-barthes';cycle.transitionId=requestTransition('cycle');saveCycle();
-      }
     }else if(cycle.phase==='transition-to-barthes'&&ticker.transition&&now>=ticker.transition.startAtServerMs+ticker.transition.durationMs){
       const chapter=ticker.barthesChapter(cycle.barthesCursor);
       ticker.startBarthes(chapter.start);liveAttempts.clear();
@@ -281,7 +274,15 @@ export async function createController({
     }else if(cycle.phase==='barthes'&&ticker.status().completed>=cycle.barthesChapterCount){
       cycle.phase='draining-barthes';cycle.phaseStartedAt=now;saveCycle();
     }else if(cycle.phase==='draining-barthes'&&!ticker.runs().length){
-      ticker.startCurated();cycle.phase='preparing-curated';cycle.transitionId=requestTransition('cycle');saveCycle();
+      cycle.phase='preparing-full-frame';cycle.transitionId=requestTransition('cycle');saveCycle();
+    }else if(cycle.phase==='transition-to-full-frame'&&ticker.transition&&now>=ticker.transition.startAtServerMs+ticker.transition.durationMs){
+      pauseTicker();for(const id of fullFrame.start(cycle.fullFrameKissTarget))snapshot(id);
+      cycle.phase='full-frame';cycle.phaseStartedAt=now;cycle.transitionId=null;saveCycle();
+    }else if(cycle.phase==='full-frame'&&fullFrame.state.playedCount>=cycle.fullFrameKissTarget&&fullFrame.state.current){
+      const current=fullFrame.state.current,deployment=releases.deployment(current.id);
+      if(now>=deployment.startAtServerMs+current.durationMs){
+        fullFrame.stop();ticker.startCurated();cycle.phase='preparing-curated';cycle.transitionId=requestTransition('cycle');saveCycle();
+      }
     }else if(cycle.phase==='transition-to-curated'&&ticker.transition&&now>=ticker.transition.startAtServerMs+ticker.transition.durationMs){
       ticker.startCurated();liveAttempts.clear();broadcast();tickerBroadcast();tickerTick();
       cycle.phase='curated';cycle.phaseStartedAt=now;cycle.transitionId=null;saveCycle();

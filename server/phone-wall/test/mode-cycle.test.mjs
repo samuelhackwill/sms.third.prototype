@@ -64,13 +64,8 @@ test('cycle switches through web transition and counts each completed kiss once'
   await new Promise(resolve=>setTimeout(resolve,50));
   assert.equal((await status()).cycle.phase,'draining-kissing');
   send(clients[1],'drained');
-  await until(async()=>['preparing-full-frame','transition-to-full-frame'].includes((await status()).cycle.phase));
+  await until(async()=>['preparing-barthes','transition-to-barthes'].includes((await status()).cycle.phase));
   assert.equal((await status()).cycle.kisses,1);
-  await until(async()=>((await status()).cycle.phase==='transition-to-full-frame'));
-  server.cycleTick(Date.now()+30000);
-  assert.equal((await status()).cycle.phase,'full-frame');
-  await until(()=>server.fullFrame.state.playedCount===1);
-  server.cycleTick(Date.now()+5000);
   await until(async()=>((await status()).cycle.phase==='transition-to-barthes'));
   server.cycleTick(Date.now()+30000);
   assert.equal((await status()).cycle.phase,'barthes');
@@ -85,6 +80,11 @@ test('cycle switches through web transition and counts each completed kiss once'
   server.cycleTick();
   assert.equal((await status()).cycle.phase,'draining-barthes');
   server.cycleTick();
+  await until(async()=>((await status()).cycle.phase==='transition-to-full-frame'));
+  server.cycleTick(Date.now()+30000);
+  assert.equal((await status()).cycle.phase,'full-frame');
+  await until(()=>server.fullFrame.state.playedCount===1);
+  server.cycleTick(Date.now()+5000);
   await until(async()=>((await status()).cycle.phase==='transition-to-curated'));
   server.cycleTick(Date.now()+30000);
   assert.equal((await status()).cycle.phase,'curated');

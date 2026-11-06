@@ -5,7 +5,7 @@ Open `../PhoneWallRemote.xcodeproj` in Xcode on the Mac that will build the cont
 The app has three main controls:
 
 - **Night mode** sets the installation's night brightness to zero and enters night mode.
-- **Day mode** sets the installation's brightness to one, enters exhibition mode, and starts the automatic Curated → Kissing → Full Frame → Barthes cycle.
+- **Day mode** sets the installation's brightness to one, enters exhibition mode, and starts the automatic Curated → Kissing → Barthes → Full Frame cycle.
 - **Shut down installation** asks for confirmation, sends all connected phones to Night mode, and then cleanly shuts down macOS after an eight-second delay. Wait for the Mac mini's power light to go off before unplugging it. This M1 Mac mini needs its physical power button pressed after reconnecting power.
 
 The French interface has two tabs. **Contrôles** shows the three controls, controller CPU, a compact matrix, and offline phone errors. **Messages** shows the curated library; tapping a message includes or excludes it from Curated Mode. Search, a selected-only filter, and pull-to-refresh help navigate the list. The remote checks the controller every five seconds. After a shutdown request, the controls return after 15 seconds so it can reconnect when the Mac mini boots again.
