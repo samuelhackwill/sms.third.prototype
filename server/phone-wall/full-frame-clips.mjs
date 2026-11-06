@@ -52,7 +52,7 @@ export class FullFrameClips {
     this.generation=0;this.preparing=null;this.prepared=null;
   }
   save(){this.store.db.prepare('INSERT INTO full_frame_clips(id,data) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(JSON.stringify(this.state));}
-  status(){return {...this.state,clips:this.kissing.clips().length,phase:this.state.current?'playing':this.state.next?'preparing':'waiting'};}
+  status(){return {...this.state,clips:this.kissing.clips().length,phase:this.state.current?'playing':this.state.next?'preparing':'waiting',preparingOnMac:!!this.preparing};}
   configure(input){
     const next={...this.state.settings};
     if(input.trim!==undefined){if(typeof input.trim!=='boolean')throw new Error('invalid-full-frame-setting');next.trim=input.trim;}

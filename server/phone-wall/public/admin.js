@@ -390,17 +390,32 @@ function render() {
     web: $("web-previews").checked,
     live: data.ticker?.active.map(run=>[run.id,run.phase,run.startAtServerMs]),
   });
+  const nextDeployment = data.fullFrame?.next && data.artwork?.deployments?.find(deployment => deployment.id === data.fullFrame.next.id);
+  const nextTargets = nextDeployment?.targets ?? {};
+  const nextStatuses = Object.values(nextTargets);
+  const readyCount = nextStatuses.filter(target => target.status === 'ready' || target.status === 'displayed').length;
+  const readinessText = data.fullFrame?.enabled && data.fullFrame.preparingOnMac
+    ? ' · Full Frame: converting clip on Mac'
+    : data.fullFrame?.enabled && nextDeployment?.phase === 'preparing'
+      ? ` · Full Frame: ${readyCount}/${nextStatuses.length} phones ready for next clip`
+      : data.fullFrame?.enabled && nextDeployment?.phase === 'scheduled'
+        ? ` · Full Frame: ${readyCount}/${nextStatuses.length} ready, start scheduled`
+        : '';
   $('matrix-status').textContent = virtualDraft
     ? 'LOCAL DRAFT · Phones are unchanged. Choose Show Live Wall to return to controller state.'
-    : 'LIVE CONTROLLER STATE · 3s refresh. Offline phones may differ.';
+    : `LIVE CONTROLLER STATE · 3s refresh. Offline phones may differ.${readinessText}`;
   // Keep running web renderers alive across telemetry polls.
-  for (const { slot, index, labels } of canvases) {
+  for (const { slot, index, labels, readiness } of canvases) {
     const device = devices.find(d => d._id === slot?.deviceId);
     const lines = deviceLines(device, index);
     labels.forEach((label, i) => { label.textContent = i === 0 ? `R${Math.floor(index / state.layout.columns) + 1} C${index % state.layout.columns + 1}` : lines[i]; });
     const card = labels[0].parentElement;
     card.setAttribute('aria-label', lines.filter(Boolean).join('. '));
     card.dataset.connection = device ? device.connected ? 'online' : 'offline' : 'empty';
+    const target = slot && nextTargets[slot.deviceId];
+    readiness.textContent = virtualDraft || !data.fullFrame?.enabled || !target || !['preparing','scheduled'].includes(nextDeployment?.phase)
+      ? '' : target.status === 'ready' || target.status === 'displayed' ? 'READY' : target.status === 'error' ? 'ERROR' : 'LOADING';
+    readiness.dataset.status = target?.status ?? '';
   }
   $("pending").replaceChildren();
   for (const d of devices.filter((d) => !d.paired)) {
@@ -510,8 +525,11 @@ function render() {
     const previewNote = document.createElement('p');
     previewNote.className = 'preview-note';
     card.append(previewNote);
+    const readiness = document.createElement('span');
+    readiness.className = 'full-frame-readiness';
+    card.append(readiness);
     $("wall").append(card);
-    canvases.push({ canvas, slot, index, labels, artwork: art, previewNote });
+    canvases.push({ canvas, slot, index, labels, artwork: art, previewNote, readiness });
   }
 }
 let lastFrame = 0;

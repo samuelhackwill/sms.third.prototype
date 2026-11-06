@@ -27,6 +27,9 @@
 #matrix-panel #wall article[data-connection="offline"]::before { content: 'OFFLINE'; position: absolute; z-index: 2; top: 38%; left: 3px; right: 3px; padding: 5px 1px; background: var(--accent); color: #fff; text-align: center; font: bold clamp(8px,1vw,12px)/1.2 system-ui,sans-serif; letter-spacing: .04em; pointer-events: none; }
 #matrix-panel #wall article.inspected { border-color: var(--ink); box-shadow: 0 0 0 1px var(--ink); }
 #matrix-panel #wall article[data-connection="empty"] { cursor: default; }
+.full-frame-readiness:not(:empty) { position: absolute; z-index: 3; left: 6px; top: 6px; padding: 2px 4px; background: #704c00; color: #fff; font: bold 9px/1.2 system-ui,sans-serif; pointer-events: none; }
+.full-frame-readiness[data-status="ready"], .full-frame-readiness[data-status="displayed"] { background: #176347; }
+.full-frame-readiness[data-status="error"] { background: #a42328; }
 #phone-details { margin: 16px 0; border-top: 1px solid var(--line); padding-top: 12px; }
 #phone-details h3 { font: bold 13px/1.5 Menlo, monospace; margin: 0 0 8px; }
 #phone-details p { font: 11px/1.5 Menlo, monospace; overflow-wrap: anywhere; }
