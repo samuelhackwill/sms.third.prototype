@@ -17,6 +17,7 @@ import { testTextDefinition } from './test-text.mjs';
 import { LiveTicker,liveRows } from './live-ticker.mjs';
 import { TendaReader } from './tenda-reader.mjs';
 import { KissingWall } from './kissing-wall.mjs';
+import { localOperatorConnection } from './local-network.mjs';
 import { releaseHash } from './scenes.mjs';
 import { requestInstallationReset } from './reset.mjs';
 import {
@@ -427,8 +428,8 @@ export async function createController({
       throw new Error("expected-revision-required");
     let state = structuredClone(previous);
     if(input.action==='remote.shutdown'){
-      if(!['127.0.0.1','::1','::ffff:127.0.0.1'].includes(req.raw.socket.remoteAddress))
-        throw new Error('shutdown-requires-private-https-proxy');
+      if(!localOperatorConnection(req.raw.socket.remoteAddress))
+        throw new Error('shutdown-requires-local-connection');
       if(shutdownPending)return {ok:true,shuttingDown:true};
       const permission=spawnSync('/usr/bin/sudo',['-n','-l','/sbin/shutdown','-h','now'],{encoding:'utf8',timeout:3000});
       if(permission.status!==0)throw new Error('shutdown-permission-unavailable');

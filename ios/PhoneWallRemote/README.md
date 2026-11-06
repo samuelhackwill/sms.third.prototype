@@ -10,6 +10,6 @@ The app has three main controls:
 
 It refreshes the controller every five seconds and lists paired, connected phones whose latest power report is less than a minute old and says they are unplugged. Phones without a current power report are counted separately.
 
-On first launch, tap Connection and enter the Mac mini's private HTTPS Tailscale Serve URL and the Phone Wall operator key. The URL is saved in app preferences and the key in the iPhone Keychain. The code contains no operator key. The control iPhone must be on the same tailnet, with a Tailscale access grant to the Mac mini on TCP 443. The server must also be updated with the `remote.night` and `remote.day` actions in `server/phone-wall/app.mjs` before either button can work.
+On first launch, tap Connection and enter `sms-ingestor.local` (or simply `sms-ingestor`) and the Phone Wall operator key. The app uses `http://sms-ingestor.local:3100` on the installation LAN. Approve the iPhone's Local Network permission prompt. A private HTTPS Tailscale Serve URL also remains supported when both devices are on the same tailnet. The URL is saved in app preferences and the key in the iPhone Keychain. The code contains no operator key. LAN HTTP sends the operator key without transport encryption, so keep the installation Wi-Fi private and trusted.
 
 The packaged Mac mini keeps its operator key at `/Library/Application Support/PhoneWall/operator.key`. Keep it private; this app uses the same full-control credential as the dashboard.

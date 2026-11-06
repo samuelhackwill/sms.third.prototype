@@ -13,7 +13,7 @@ private enum RemoteError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidURL: return "Enter the private HTTPS address of the Mac mini."
+        case .invalidURL: return "Enter the Mac mini's .local name or a private HTTPS address."
         case .missingKey: return "Enter the Phone Wall operator key."
         case .invalidResponse: return "The controller returned an unexpected response."
         case .server(let message): return message
@@ -95,7 +95,7 @@ private struct UnpluggedPhone: Identifiable {
 @MainActor
 private final class RemoteModel: ObservableObject {
     @Published var controllerURL = UserDefaults.standard.string(forKey: "controllerURL")
-        ?? "https://sms-ingestors-mac-mini.tail2420ce.ts.net"
+        ?? "http://sms-ingestor.local:3100"
     @Published var unplugged: [UnpluggedPhone] = []
     @Published var mode = "Unknown"
     @Published var connection = "Waiting for controller"
@@ -105,14 +105,36 @@ private final class RemoteModel: ObservableObject {
 
     var hasKey: Bool { !(OperatorKey.load() ?? "").isEmpty }
 
-    func saveConfiguration(address: String, key: String) throws {
+    private func localHost(_ host: String) -> Bool {
+        if host == "localhost" || host.hasSuffix(".local") { return true }
+        let parts = host.split(separator: ".").compactMap { UInt8($0) }
+        guard parts.count == 4 else { return false }
+        return parts[0] == 10 || parts[0] == 172 && (16...31).contains(parts[1]) ||
+            parts[0] == 192 && parts[1] == 168 || parts[0] == 169 && parts[1] == 254
+    }
+
+    private func normalizedAddress(_ address: String) throws -> URL {
         let cleaned = address.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard var parts = URLComponents(string: cleaned),
-              parts.scheme == "https", parts.host != nil else { throw RemoteError.invalidURL }
+        let supplied = cleaned.contains("://") ? cleaned : "http://\(cleaned)"
+        guard var parts = URLComponents(string: supplied),
+              let host = parts.host?.lowercased(), !host.isEmpty,
+              parts.user == nil, parts.password == nil else { throw RemoteError.invalidURL }
+        if !cleaned.contains("://") && !host.contains(".") && host != "localhost" {
+            parts.host = host + ".local"
+        }
+        guard parts.scheme == "https" || parts.scheme == "http" && localHost(parts.host ?? "") else {
+            throw RemoteError.invalidURL
+        }
+        if parts.scheme == "http" && parts.port == nil { parts.port = 3100 }
         parts.path = ""
         parts.query = nil
         parts.fragment = nil
         guard let base = parts.url else { throw RemoteError.invalidURL }
+        return base
+    }
+
+    func saveConfiguration(address: String, key: String) throws {
+        let base = try normalizedAddress(address)
         let trimmedKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedKey.isEmpty else { throw RemoteError.missingKey }
         try OperatorKey.save(trimmedKey)
@@ -122,7 +144,7 @@ private final class RemoteModel: ObservableObject {
 
     private func request(action: String? = nil) async throws -> Data {
         guard let key = OperatorKey.load(), !key.isEmpty else { throw RemoteError.missingKey }
-        guard let base = URL(string: controllerURL), base.scheme == "https" else { throw RemoteError.invalidURL }
+        let base = try normalizedAddress(controllerURL)
         var request = URLRequest(url: base.appendingPathComponent("phone-wall/api"))
         request.timeoutInterval = 12
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
@@ -198,10 +220,13 @@ private struct RemoteView: View {
     @State private var showingShutdownConfirmation = false
 
     var body: some View {
-        NavigationStack {
-            VStack(alignment: .leading, spacing: 22) {
-                Text(model.mode)
-                    .font(.title2.weight(.semibold))
+        VStack(alignment: .leading, spacing: 22) {
+                HStack {
+                    Spacer()
+                    Button { showingSettings = true } label: {
+                        Image(systemName: "gearshape").accessibilityLabel("Connection")
+                    }
+                }
                 Button {
                     Task { await model.activate("remote.night") }
                 } label: {
@@ -261,14 +286,6 @@ private struct RemoteView: View {
                 Spacer(minLength: 0)
             }
             .padding()
-            .navigationTitle("Phone Wall")
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button { showingSettings = true } label: {
-                        Image(systemName: "gearshape").accessibilityLabel("Connection")
-                    }
-                }
-            }
             .sheet(isPresented: $showingSettings) {
                 SettingsView(model: model)
             }
@@ -284,7 +301,6 @@ private struct RemoteView: View {
                 if !model.hasKey { showingSettings = true }
                 await model.poll()
             }
-        }
     }
 }
 
@@ -299,7 +315,7 @@ private struct SettingsView: View {
         NavigationStack {
             Form {
                 Section("Controller") {
-                    TextField("HTTPS address", text: $address)
+                    TextField("Mac mini name or URL", text: $address)
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
                         .autocorrectionDisabled()
@@ -308,7 +324,7 @@ private struct SettingsView: View {
                         .autocorrectionDisabled()
                 }
                 Section {
-                    Text("The iPhone must be connected to the same Tailscale network as the Mac mini. The operator key stays in this iPhone's Keychain.")
+                    Text("On the installation Wi-Fi, use sms-ingestor.local or sms-ingestor. The operator key stays in this iPhone's Keychain. Private HTTPS still works away from the installation.")
                 }
                 if let error {
                     Section { Text(error).foregroundStyle(.red) }
