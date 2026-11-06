@@ -13,9 +13,9 @@ private enum RemoteError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidURL: return "Enter the Mac mini's .local name or a private HTTPS address."
-        case .missingKey: return "Enter the Phone Wall operator key."
-        case .invalidResponse: return "The controller returned an unexpected response."
+        case .invalidURL: return "Saisissez le nom .local du Mac mini ou une adresse HTTPS privée."
+        case .missingKey: return "Saisissez le code opérateur du mur."
+        case .invalidResponse: return "Le contrôleur a renvoyé une réponse inattendue."
         case .server(let message): return message
         }
     }
@@ -52,16 +52,26 @@ private enum OperatorKey {
             item[kSecValueData as String] = Data(key.utf8)
             item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
             guard SecItemAdd(item as CFDictionary, nil) == errSecSuccess else {
-                throw RemoteError.server("Could not save the operator key on this iPhone.")
+                throw RemoteError.server("Impossible d’enregistrer le code opérateur sur cet iPhone.")
             }
         } else if status != errSecSuccess {
-            throw RemoteError.server("Could not update the operator key on this iPhone.")
+            throw RemoteError.server("Impossible de modifier le code opérateur sur cet iPhone.")
         }
     }
 }
 
 private struct APIError: Decodable { let error: String }
 private struct Action: Encodable { let action: String }
+private struct CuratedToggleAction: Encodable { let action = "curated.toggle"; let id: String }
+private struct CuratedResponse: Decodable { let messages: [CuratedMessage] }
+private struct CuratedToggleResponse: Decodable { let selected: Bool }
+private struct CuratedMessage: Decodable, Identifiable {
+    let id: String
+    let text: String
+    let selected: Int
+    let source: String
+    let sender: String?
+}
 private struct RemoteSnapshot: Decodable {
     struct Slot: Decodable { let deviceId: String; let slotIndex: Int }
     struct Layout: Decodable { let rows: Int; let columns: Int; let slots: [Slot] }
@@ -92,8 +102,11 @@ private struct RemoteSnapshot: Decodable {
 private final class RemoteModel: ObservableObject {
     @Published var controllerURL = UserDefaults.standard.string(forKey: "controllerURL")
         ?? "http://sms-ingestor.local:3100"
-    @Published var connection = "Waiting for controller"
+    @Published var connection = "En attente du contrôleur"
     @Published var snapshot: RemoteSnapshot?
+    @Published var curatedMessages: [CuratedMessage] = []
+    @Published var curatedStatus = "Chargement des messages…"
+    @Published var curatedBusyId: String?
     @Published var isBusy = false
     @Published var shuttingDown = false
     private var shutdownStartedAt: Date?
@@ -137,24 +150,58 @@ private final class RemoteModel: ObservableObject {
         UserDefaults.standard.set(controllerURL, forKey: "controllerURL")
     }
 
-    private func request(action: String? = nil) async throws -> Data {
+    private func request(path: String, body: Data? = nil) async throws -> Data {
         guard let key = OperatorKey.load(), !key.isEmpty else { throw RemoteError.missingKey }
         let base = try normalizedAddress(controllerURL)
-        var request = URLRequest(url: base.appendingPathComponent(action == nil ? "phone-wall/remote/status" : "phone-wall/api"))
+        var request = URLRequest(url: base.appendingPathComponent(path))
         request.timeoutInterval = 12
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-        if let action {
+        if let body {
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try JSONEncoder().encode(Action(action: action))
+            request.httpBody = body
         }
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let response = response as? HTTPURLResponse else { throw RemoteError.invalidResponse }
         guard (200..<300).contains(response.statusCode) else {
             let message = (try? JSONDecoder().decode(APIError.self, from: data))?.error
-            throw RemoteError.server(message ?? "Controller error \(response.statusCode).")
+            throw RemoteError.server(message.map { "Le contrôleur a refusé la demande (\($0))." } ?? "Erreur du contrôleur \(response.statusCode).")
         }
         return data
+    }
+
+    private func request(action: String? = nil) async throws -> Data {
+        if let action { return try await request(path: "phone-wall/api", body: JSONEncoder().encode(Action(action: action))) }
+        return try await request(path: "phone-wall/remote/status")
+    }
+
+    func loadCurated() async {
+        guard hasKey else { curatedStatus = "Configurez d’abord la connexion."; return }
+        curatedStatus = "Chargement des messages…"
+        do {
+            let response = try JSONDecoder().decode(CuratedResponse.self, from: await request(path: "phone-wall/curated"))
+            curatedMessages = response.messages
+            curatedStatus = "\(response.messages.filter { $0.selected == 1 }.count) message(s) retenu(s) sur \(response.messages.count)"
+        } catch {
+            curatedStatus = "Chargement impossible : \(error.localizedDescription)"
+        }
+    }
+
+    func toggleCurated(_ id: String) async {
+        guard curatedBusyId == nil else { return }
+        curatedBusyId = id
+        defer { curatedBusyId = nil }
+        do {
+            let body = try JSONEncoder().encode(CuratedToggleAction(id: id))
+            let result = try JSONDecoder().decode(CuratedToggleResponse.self, from: await request(path: "phone-wall/api", body: body))
+            if let index = curatedMessages.firstIndex(where: { $0.id == id }) {
+                let previous = curatedMessages[index]
+                curatedMessages[index] = CuratedMessage(id: previous.id, text: previous.text, selected: result.selected ? 1 : 0, source: previous.source, sender: previous.sender)
+            }
+            curatedStatus = "\(curatedMessages.filter { $0.selected == 1 }.count) message(s) retenu(s) sur \(curatedMessages.count)"
+        } catch {
+            curatedStatus = "Modification impossible : \(error.localizedDescription)"
+        }
     }
 
     func refresh() async {
@@ -162,18 +209,18 @@ private final class RemoteModel: ObservableObject {
             if let shutdownStartedAt, Date().timeIntervalSince(shutdownStartedAt) < 15 { return }
             shuttingDown = false
             shutdownStartedAt = nil
-            connection = "Waiting for Mac mini to come back online…"
+            connection = "En attente du redémarrage du Mac mini…"
         }
         guard hasKey else {
-            connection = "Set up the controller connection"
+            connection = "Configurez la connexion au contrôleur"
             return
         }
         do {
             snapshot = try JSONDecoder().decode(RemoteSnapshot.self, from: await request())
-            connection = "Connected · updated \(Date().formatted(date: .omitted, time: .shortened))"
+            connection = "Connecté · mis à jour à \(Date().formatted(date: .omitted, time: .shortened))"
         } catch {
             snapshot = nil
-            connection = "Cannot reach controller: \(error.localizedDescription)"
+            connection = "Contrôleur inaccessible : \(error.localizedDescription)"
         }
     }
 
@@ -186,12 +233,12 @@ private final class RemoteModel: ObservableObject {
             if action == "remote.shutdown" {
                 shuttingDown = true
                 shutdownStartedAt = Date()
-                connection = "Mac mini shutting down. Wait until its power light is off before unplugging."
+                connection = "Arrêt du Mac mini en cours. Attendez l’extinction du voyant avant de débrancher."
             } else {
                 await refresh()
             }
         } catch {
-            connection = "Action failed: \(error.localizedDescription)"
+            connection = "Action impossible : \(error.localizedDescription)"
         }
     }
 
@@ -209,20 +256,21 @@ private struct RemoteView: View {
     @State private var showingShutdownConfirmation = false
 
     var body: some View {
+        TabView {
         ScrollView {
         VStack(alignment: .leading, spacing: 22) {
                 HStack {
-                    Text("CPU \(model.snapshot?.system.controllerCpuPercent.map { "\(Int($0.rounded()))%" } ?? "—")")
+                    Text("Processeur \(model.snapshot?.system.controllerCpuPercent.map { "\(Int($0.rounded())) %" } ?? "—")")
                         .font(.footnote.monospacedDigit())
                     Spacer()
                     Button { showingSettings = true } label: {
-                        Image(systemName: "gearshape").accessibilityLabel("Connection")
+                        Image(systemName: "gearshape").accessibilityLabel("Connexion")
                     }
                 }
                 Button {
                     Task { await model.activate("remote.night") }
                 } label: {
-                    Label("Night mode", systemImage: "moon.fill")
+                    Label("Mode nuit", systemImage: "moon.fill")
                         .frame(maxWidth: .infinity, minHeight: 58)
                 }
                 .buttonStyle(.borderedProminent)
@@ -232,7 +280,7 @@ private struct RemoteView: View {
                 Button {
                     Task { await model.activate("remote.day") }
                 } label: {
-                    Label("Day mode", systemImage: "sun.max.fill")
+                    Label("Mode jour", systemImage: "sun.max.fill")
                         .frame(maxWidth: .infinity, minHeight: 58)
                 }
                 .buttonStyle(.borderedProminent)
@@ -242,7 +290,7 @@ private struct RemoteView: View {
                 Button(role: .destructive) {
                     showingShutdownConfirmation = true
                 } label: {
-                    Label("Shut down installation", systemImage: "power")
+                    Label("Éteindre l’installation", systemImage: "power")
                         .frame(maxWidth: .infinity, minHeight: 58)
                 }
                 .buttonStyle(.bordered)
@@ -254,9 +302,9 @@ private struct RemoteView: View {
 
                 if let snapshot = model.snapshot {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Phone matrix")
+                        Text("Matrice des téléphones")
                             .font(.headline)
-                        Text(snapshot.unplugged.isEmpty ? "All paired phones are connected" : "\(snapshot.unplugged.count) unplugged phone\(snapshot.unplugged.count == 1 ? "" : "s")")
+                        Text(snapshot.unplugged.isEmpty ? "Tous les téléphones appairés sont connectés" : "\(snapshot.unplugged.count) téléphone\(snapshot.unplugged.count == 1 ? "" : "s") hors ligne")
                             .font(.subheadline)
                             .foregroundColor(snapshot.unplugged.isEmpty ? .secondary : .red)
                         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 5), count: max(1, snapshot.state.layout.columns)), spacing: 5) {
@@ -270,13 +318,13 @@ private struct RemoteView: View {
                                     .background(device == nil ? Color.gray.opacity(0.2) : device!.connected ? Color.green.opacity(0.25) : Color.red.opacity(0.8))
                                     .foregroundColor(device?.connected == false ? .white : .primary)
                                     .clipShape(RoundedRectangle(cornerRadius: 5))
-                                    .accessibilityLabel("Row \(row), column \(column): \(device == nil ? "empty" : device!.connected ? "connected" : "unplugged")")
+                                    .accessibilityLabel("Ligne \(row), colonne \(column) : \(device == nil ? "vide" : device!.connected ? "connecté" : "hors ligne")")
                             }
                         }
                         ForEach(snapshot.unplugged.map { $0.0 }, id: \.self) { index in
                             let row = index / max(1, snapshot.state.layout.columns) + 1
                             let column = index % max(1, snapshot.state.layout.columns) + 1
-                            Text("R\(row) C\(column) · unplugged\(snapshot.device(at: index)?.lastError.map { " · \($0)" } ?? "")")
+                            Text("L\(row) C\(column) · hors ligne\(snapshot.device(at: index)?.lastError.map { " · \($0)" } ?? "")")
                                 .font(.footnote)
                                 .foregroundStyle(.red)
                         }
@@ -287,21 +335,99 @@ private struct RemoteView: View {
             }
             .padding()
         }
+        .tabItem { Label("Contrôles", systemImage: "switch.2") }
+        CuratedMessagesView(model: model)
+            .tabItem { Label("Messages", systemImage: "text.bubble") }
+        }
             .sheet(isPresented: $showingSettings) {
                 SettingsView(model: model)
             }
-            .alert("Shut down the Mac mini?", isPresented: $showingShutdownConfirmation) {
-                Button("Cancel", role: .cancel) {}
-                Button("Enter Night mode and shut down", role: .destructive) {
+            .alert("Éteindre le Mac mini ?", isPresented: $showingShutdownConfirmation) {
+                Button("Annuler", role: .cancel) {}
+                Button("Passer en mode nuit et éteindre", role: .destructive) {
                     Task { await model.activate("remote.shutdown") }
                 }
             } message: {
-                Text("The phones will enter Night mode first. Wait for the Mac mini's power light to go off before unplugging it. Press its power button after reconnecting power.")
+                Text("Les téléphones passeront d’abord en mode nuit. Attendez l’extinction du voyant du Mac mini avant de le débrancher. Appuyez sur son bouton d’alimentation après l’avoir rebranché.")
             }
             .task {
                 if !model.hasKey { showingSettings = true }
                 await model.poll()
             }
+    }
+}
+
+private struct CuratedMessagesView: View {
+    @ObservedObject var model: RemoteModel
+    @State private var search = ""
+    @State private var selectedOnly = false
+
+    private var visibleMessages: [CuratedMessage] {
+        model.curatedMessages.filter { message in
+            (!selectedOnly || message.selected == 1) &&
+            (search.isEmpty || message.text.localizedStandardContains(search) || (message.sender?.localizedStandardContains(search) ?? false))
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Touchez un message pour l’inclure dans la sélection du mode Curated. Touchez-le de nouveau pour l’en retirer.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    TextField("Rechercher un message", text: $search)
+                        .textFieldStyle(.roundedBorder)
+                    Picker("Afficher", selection: $selectedOnly) {
+                        Text("Tous").tag(false)
+                        Text("Retenus").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    Text(model.curatedStatus)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    if visibleMessages.isEmpty && model.curatedStatus != "Chargement des messages…" {
+                        Text(model.curatedMessages.isEmpty ? "Aucun message disponible." : "Aucun message ne correspond à ce filtre.")
+                            .foregroundStyle(.secondary)
+                    }
+                    LazyVStack(spacing: 8) {
+                        ForEach(visibleMessages) { message in
+                            Button {
+                                Task { await model.toggleCurated(message.id) }
+                            } label: {
+                                HStack(alignment: .top, spacing: 10) {
+                                    Image(systemName: message.selected == 1 ? "checkmark.circle.fill" : "circle")
+                                        .foregroundColor(message.selected == 1 ? .green : .secondary)
+                                    VStack(alignment: .leading, spacing: 5) {
+                                        Text(message.source == "sms" ? "SMS\(message.sender.map { " · \($0)" } ?? "")" : "Archive Messages")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        Text(message.text)
+                                            .foregroundColor(.primary)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+                                }
+                                .padding(12)
+                                .background(message.selected == 1 ? Color.green.opacity(0.12) : Color.gray.opacity(0.1))
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(model.curatedBusyId != nil)
+                            .accessibilityLabel("\(message.selected == 1 ? "Retenu" : "Non retenu") : \(message.text)")
+                        }
+                    }
+                }
+                .padding()
+            }
+            .refreshable { await model.loadCurated() }
+            .navigationTitle("Messages Curated")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Actualiser") { Task { await model.loadCurated() } }
+                }
+            }
+            .task { await model.loadCurated() }
+        }
     }
 }
 
@@ -315,26 +441,26 @@ private struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Controller") {
-                    TextField("Mac mini name or URL", text: $address)
+                Section("Contrôleur") {
+                    TextField("Nom ou adresse du Mac mini", text: $address)
                         .textInputAutocapitalization(.never)
                         .keyboardType(.URL)
                         .autocorrectionDisabled()
-                    SecureField("Operator key", text: $key)
+                    SecureField("Code opérateur", text: $key)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                 }
                 Section {
-                    Text("On the installation Wi-Fi, use sms-ingestor.local or sms-ingestor. The operator key stays in this iPhone's Keychain. Private HTTPS still works away from the installation.")
+                    Text("Sur le Wi-Fi de l’installation, utilisez sms-ingestor.local ou sms-ingestor. Le code opérateur est conservé dans le trousseau de cet iPhone. Une adresse HTTPS privée fonctionne aussi à distance.")
                 }
                 if let error {
                     Section { Text(error).foregroundStyle(.red) }
                 }
             }
-            .navigationTitle("Connection")
+            .navigationTitle("Connexion")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
+                    Button("Enregistrer") {
                         do {
                             try model.saveConfiguration(address: address, key: key)
                             dismiss()
