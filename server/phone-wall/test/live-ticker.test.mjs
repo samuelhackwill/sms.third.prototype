@@ -54,6 +54,34 @@ test('offline rows do not block other rows; pause/restart/timeouts preserve unfi
   const restarted=new LiveTicker(store);assert.equal(restarted.status().queued,2);assert.equal(restarted.enabled,true);
   restarted.tick(new Set(ids),false);assert.equal(restarted.runs().length,0);
 });
+test('a five-phone row runs with one ready phone and requeues if a target drops out',async t=>{
+  const {ticker,store,ids,ingest}=await fixture(t,5);
+  const state=store.current();state.layout.rows=1;state.layout.columns=5;
+  state.layout.slots=ids.map((deviceId,slotIndex)=>({deviceId,slotIndex,geometry:{x:slotIndex*375,y:0,width:375,height:667}}));
+  store.commit(state,state.revision);
+  ticker.start();ingest([{rowId:1,id:'one-ready',text:'Keep moving'}]);
+  ticker.tick(new Set(ids),true,1000);
+  const first=ticker.runs()[0];assert.equal(first.targets.length,5);
+  ticker.tick(new Set([ids[0]]),true,1100);
+  const resumed=ticker.runs()[0];
+  assert.notEqual(resumed.id,first.id);
+  assert.deepEqual(resumed.targets,[ids[0]]);
+  assert.equal(resumed.band.targets.length,5);
+  ticker.acknowledge(ids[0],{type:'ticker.ready',runId:resumed.id,width:500},1200);
+  assert.equal(ticker.runs()[0].phase,'playing');
+});
+test('a returning phone joins the persistent curated first row',async t=>{
+  const {ticker,store,ids}=await fixture(t,5);
+  const state=store.current();state.layout.rows=1;state.layout.columns=5;
+  state.layout.slots=ids.map((deviceId,slotIndex)=>({deviceId,slotIndex,geometry:{x:slotIndex*375,y:0,width:375,height:667}}));
+  store.commit(state,state.revision);
+  ticker.startCurated(['1234567890','Unused']);
+  ticker.tick(new Set([ids[0]]),true,1000);
+  const first=ticker.runs()[0];assert.deepEqual(first.targets,[ids[0]]);
+  ticker.tick(new Set([ids[0],ids[1]]),true,1100);
+  assert.notEqual(ticker.runs()[0].id,first.id);
+  assert.deepEqual(ticker.runs()[0].targets,[ids[0],ids[1]]);
+});
 test('reader polls without an operator start and a restart resumes message playback',async t=>{
   const {ticker,store,ingest}=await fixture(t);
   assert.equal(ticker.enabled,true);

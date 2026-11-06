@@ -89,7 +89,7 @@ export async function createController({
   let transitionRequest=null,transitionError=null;
   const transitionStatus=state=>{
     const connected=state.layout.slots.filter(slot=>sessions.has(slot.deviceId));
-    const available=connected.length>0&&connected.every(slot=>{
+    const available=connected.some(slot=>{
       const art=releases.snapshot(slot.deviceId);
       return !art.pending&&store.device(slot.deviceId)?.capabilities?.liveTicker===1&&art.active?.release.definition.artworkId==='live-ticker';
     });
@@ -106,7 +106,6 @@ export async function createController({
   const cycleDefaults={enabled:false,curatedDurationSec:180,kissingMetric:'duration',kissingDurationSec:180,kissTarget:10,phase:null,phaseStartedAt:0,kisses:0,drainTargets:[],drainStartedAt:0,transitionId:null,error:null};
   const savedCycle=store.db.prepare('SELECT data FROM mode_cycle WHERE id=1').get();
   let cycle={...cycleDefaults,...(savedCycle?JSON.parse(savedCycle.data):{})};
-  const cycleBootAt=Date.now();
   const saveCycle=()=>store.db.prepare('INSERT INTO mode_cycle(id,data) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET data=excluded.data').run(JSON.stringify(cycle));
   const playingKisses=new Map();
   if(cycle.enabled){
@@ -170,7 +169,7 @@ export async function createController({
       definition.artworkVersion=releaseHash({parameters:definition.parameters,elements:definition.elements,canvas:definition.canvas,layout:state.layout,...(ticker.playbackMode==='barthes'?{startRevision:state.revision}:{})});
       desiredTickerVersion=definition.artworkVersion;
       const urgentRows=liveRows(state.layout);
-      const nextUrgentRow=urgentRows.find(row=>!ticker.isCuratedPriorityRow(row.row)&&!tickerState.active.some(run=>run.row===row.row)&&row.targets.every(id=>sessions.has(id)&&store.device(id)?.capabilities?.liveTicker===1));
+      const nextUrgentRow=urgentRows.find(row=>!ticker.isCuratedPriorityRow(row.row)&&!tickerState.active.some(run=>run.row===row.row)&&row.targets.some(id=>sessions.has(id)&&store.device(id)?.capabilities?.liveTicker===1));
       const targetIds=transitionRequest?transitionRequest.targets:ticker.enabled&&allowed&&['barthes','curated'].includes(ticker.playbackMode)?state.layout.slots.map(slot=>slot.deviceId):tickerState.routerQueued?nextUrgentRow?.targets??[]:urgent?tickerState.active.filter(run=>run.source==='router').flatMap(run=>run.targets):state.layout.slots.map(slot=>slot.deviceId);
       for(const id of targetIds){
         if(tickerState.active.some(run=>run.source==='router'&&run.targets.includes(id)))continue;
@@ -199,7 +198,7 @@ export async function createController({
         if(transitionRequest.owner==='cycle'){cycle.error='Transition artwork did not become ready in time.';stopCycle();}
         transitionRequest=null;transitionError='Phone artwork did not become ready in time.';
       }
-      else if(transitionRequest.targets.every(id=>ready.has(id))){
+      else if(transitionRequest.targets.some(id=>ready.has(id))){
         if(transitionRequest.owner==='cycle'&&cycle.phase==='preparing-curated'){
           kissing.configure({enabled:false});broadcast();
         }
@@ -241,11 +240,8 @@ export async function createController({
     if(!cycle.enabled)return;
     const state=store.current();
     if(state.mode!=='exhibition'||pairing.status().active){cycle.error='Cycle stopped because exhibition mode or pairing changed.';stopCycle();return;}
-    if(state.layout.slots.some(slot=>!sessions.has(slot.deviceId))){
-      if(Date.now()-cycleBootAt<30000)return;
-      cycle.error='Cycle stopped because a phone disconnected.';stopCycle();return;
-    }
-    if(state.layout.slots.some(slot=>store.device(slot.deviceId)?.capabilities?.kissingDrain!==1)){
+    if(!state.layout.slots.some(slot=>sessions.has(slot.deviceId)))return;
+    if(state.layout.slots.some(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.kissingDrain!==1)){
       cycle.error='Cycle stopped because a phone needs app 2.4.5 for clip finishing.';stopCycle();return;
     }
     if(cycle.phase==='curated'&&now-cycle.phaseStartedAt>=cycle.curatedDurationSec*1000){
@@ -256,10 +252,10 @@ export async function createController({
       cycle.phase='preparing-kissing';cycle.transitionId=requestTransition('cycle');saveCycle();
     }else if(cycle.phase==='kissing'&&(cycle.kissingMetric==='count'?cycle.kisses>=cycle.kissTarget:now-cycle.phaseStartedAt>=cycle.kissingDurationSec*1000)){
       cycle.phase='draining-kissing';cycle.phaseStartedAt=now;cycle.drainStartedAt=Date.now();
-      cycle.drainTargets=state.layout.slots.map(slot=>slot.deviceId);saveCycle();broadcast();
+      cycle.drainTargets=state.layout.slots.filter(slot=>sessions.has(slot.deviceId)).map(slot=>slot.deviceId);saveCycle();broadcast();
     }else if(cycle.phase==='draining-kissing'&&cycle.drainTargets.every(id=>{
       const status=store.device(id)?.kissingStatus;
-      return status?.status==='drained'&&status.at>=cycle.drainStartedAt;
+      return !sessions.has(id)||status?.status==='drained'&&status.at>=cycle.drainStartedAt;
     })){
       cycle.phase='preparing-curated';cycle.transitionId=requestTransition('cycle');saveCycle();
     }else if(cycle.phase==='transition-to-kissing'&&ticker.transition&&now>=ticker.transition.startAtServerMs+ticker.transition.durationMs){
@@ -466,9 +462,9 @@ export async function createController({
       if(cycle.enabled)throw new Error('cycle-already-running');
       if(pairing.status().active)throw new Error('stop-pairing-before-cycle');
       if(liveRows(state.layout).length<2)throw new Error('two-rows-required-for-cycle');
-      if(!state.layout.slots.every(slot=>sessions.has(slot.deviceId)))throw new Error('all-phones-must-be-online-for-cycle');
+      if(!state.layout.slots.some(slot=>sessions.has(slot.deviceId)))throw new Error('no-connected-phones-for-cycle');
       if(!kissing.clips().length)throw new Error('no-kissing-clips-cached');
-      if(state.layout.slots.some(slot=>store.device(slot.deviceId)?.capabilities?.kissingDrain!==1||store.device(slot.deviceId)?.capabilities?.liveTicker!==1))throw new Error('phone-update-required-for-cycle-drain');
+      if(state.layout.slots.some(slot=>sessions.has(slot.deviceId)&&(store.device(slot.deviceId)?.capabilities?.kissingDrain!==1||store.device(slot.deviceId)?.capabilities?.liveTicker!==1)))throw new Error('phone-update-required-for-cycle-drain');
       kissing.configure({enabled:false});ticker.startCurated();liveAttempts.clear();cacheRecovery.clear();
       store.commit({...state,mode:'exhibition',schedule:null,overrides:{}},previous.revision);
       store.db.prepare('DELETE FROM previews').run();

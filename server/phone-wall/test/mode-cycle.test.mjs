@@ -72,8 +72,14 @@ test('cycle switches through web transition and counts each completed kiss once'
   await action({action:'audio.volume',volume:0.37});
   await until(()=>clients.every(client=>client.state?.audioVolume===0.37));
   assert.equal((await status()).state.audioVolume,0.37);
+  clients[1].stop();
+  await until(()=>!server.sessions.has(clients[1].identity.deviceId));
+  server.cycleTick();
+  assert.equal((await status()).cycle.enabled,true);
   await action({action:'remote.night'});
   assert.equal((await status()).cycle.enabled,false);
   assert.equal((await status()).state.mode,'night');
   assert.equal((await status()).state.nightBrightness,0);
+  await action({action:'cycle.start',settings});
+  assert.equal((await status()).cycle.enabled,true);
 });

@@ -314,37 +314,37 @@ export class LiveTicker {
     const state=this.store.current(),rows=liveRows(state.layout);let changed=false;
     for(const run of this.runs()){
       const row=rows.find(row=>row.row===run.row);
-      if(!row||JSON.stringify(row)!==JSON.stringify(run.band)||run.targets.some(id=>!ready.has(id))||now>=run.deadline||['router','curated'].includes(run.source)&&this.isCuratedPriorityRow(run.row)||(run.source!=='router'&&(!this.enabled||!allowed))){
+      if(!row||JSON.stringify(row)!==JSON.stringify(run.band)||run.targets.some(id=>!ready.has(id))||run.effect==='flash'&&row.targets.some(id=>ready.has(id)&&!run.targets.includes(id))||now>=run.deadline||['router','curated'].includes(run.source)&&this.isCuratedPriorityRow(run.row)||(run.source!=='router'&&(!this.enabled||!allowed))){
         this.db.prepare("UPDATE ticker_messages SET status='queued',run=NULL WHERE seq=?").run(run.seq);changed=true;
       }
     }
     let active=this.runs(),busy=new Set(active.map(run=>run.row));
-    for(const band of rows.filter(row=>canStart&&!this.isCuratedPriorityRow(row.row)&&!busy.has(row.row)&&row.targets.every(id=>ready.has(id)))){
+    for(const band of rows.filter(row=>canStart&&!this.isCuratedPriorityRow(row.row)&&!busy.has(row.row)&&row.targets.some(id=>ready.has(id)))){
       const urgent=this.db.prepare("SELECT seq,external_id FROM ticker_messages WHERE source='router' AND status='queued' ORDER BY seq LIMIT 1").get();
       if(!urgent)break;
-      this.save({seq:urgent.seq,id:randomUUID(),row:band.row,band,targets:band.targets,ready:{},done:[],phase:'preparing',effect:this.playbackMode==='curated'?'sms-sweep':undefined,backgroundColor:routerBackground(urgent.external_id),speed:this.playbackMode==='curated'?this.speedFor('curated'):state.testTextSpeed??240,startAtServerMs:null,deadline:now+30000},'preparing');
+      this.save({seq:urgent.seq,id:randomUUID(),row:band.row,band,targets:band.targets.filter(id=>ready.has(id)),ready:{},done:[],phase:'preparing',effect:this.playbackMode==='curated'?'sms-sweep':undefined,backgroundColor:routerBackground(urgent.external_id),speed:this.playbackMode==='curated'?this.speedFor('curated'):state.testTextSpeed??240,startAtServerMs:null,deadline:now+30000},'preparing');
       changed=true;active=this.runs();busy=new Set(active.map(run=>run.row));
     }
     if(this.enabled&&canStart&&this.playbackMode==='curated'&&this.curatedInjectionEnabled){
-      for(const band of rows.filter(row=>!this.isCuratedPriorityRow(row.row)&&!busy.has(row.row)&&row.targets.every(id=>ready.has(id)))){
+      for(const band of rows.filter(row=>!this.isCuratedPriorityRow(row.row)&&!busy.has(row.row)&&row.targets.some(id=>ready.has(id)))){
         const message=this.db.prepare("SELECT seq,color_seed AS colorSeed FROM ticker_messages WHERE source='curated' AND status='queued' ORDER BY seq LIMIT 1").get();
         if(!message)break;
-        this.save({seq:message.seq,id:randomUUID(),row:band.row,band,targets:band.targets,ready:{},done:[],phase:'preparing',effect:this.archiveReplayEnabled?'sms-sweep':undefined,backgroundColor:this.archiveReplayEnabled?routerBackground(`tenda:${message.colorSeed??'0000'}`):undefined,speed:this.speedFor('curated'),startAtServerMs:null,deadline:now+30000},'preparing');
+        this.save({seq:message.seq,id:randomUUID(),row:band.row,band,targets:band.targets.filter(id=>ready.has(id)),ready:{},done:[],phase:'preparing',effect:this.archiveReplayEnabled?'sms-sweep':undefined,backgroundColor:this.archiveReplayEnabled?routerBackground(`tenda:${message.colorSeed??'0000'}`):undefined,speed:this.speedFor('curated'),startAtServerMs:null,deadline:now+30000},'preparing');
         changed=true;active=this.runs();busy=new Set(active.map(run=>run.row));
       }
     }
     for(const band of rows){
-      if(busy.has(band.row)||!band.targets.every(id=>ready.has(id)))continue;
+      if(busy.has(band.row)||!band.targets.some(id=>ready.has(id)))continue;
       if(this.playbackMode==='curated'){
         if(band.row>1||band.row===1&&!this.curatedSecondEnabled||!this.enabled||!canStart)continue;
         const message=this.db.prepare("SELECT seq FROM ticker_messages WHERE source='custom' AND target_row=? AND status='queued' ORDER BY seq LIMIT 1").get(band.row);
         if(!message)continue;
-        this.save({seq:message.seq,id:randomUUID(),row:band.row,band,targets:band.targets,ready:{},done:[],phase:'preparing',effect:band.row===0?'flash':undefined,speed:this.speedFor('curated'),startAtServerMs:null,deadline:now+30000},'preparing');
+        this.save({seq:message.seq,id:randomUUID(),row:band.row,band,targets:band.targets.filter(id=>ready.has(id)),ready:{},done:[],phase:'preparing',effect:band.row===0?'flash':undefined,speed:this.speedFor('curated'),startAtServerMs:null,deadline:now+30000},'preparing');
         busy.add(band.row);changed=true;continue;
       }
       const message=this.db.prepare("SELECT seq,source FROM ticker_messages WHERE status='queued' AND ((source='router' AND ?) OR (source=? AND ?)) ORDER BY CASE WHEN source='router' THEN 0 ELSE 1 END,seq LIMIT 1").get(canStart?1:0,this.playbackMode,this.enabled&&canStart?1:0);
       if(!message)break;
-      this.save({seq:message.seq,id:randomUUID(),row:band.row,band,targets:band.targets,ready:{},done:[],phase:'preparing',speed:message.source==='barthes'?this.speedFor('barthes'):state.testTextSpeed??240,startAtServerMs:null,deadline:now+30000},'preparing');
+      this.save({seq:message.seq,id:randomUUID(),row:band.row,band,targets:band.targets.filter(id=>ready.has(id)),ready:{},done:[],phase:'preparing',speed:message.source==='barthes'?this.speedFor('barthes'):state.testTextSpeed??240,startAtServerMs:null,deadline:now+30000},'preparing');
       busy.add(band.row);changed=true;
     }
     if(changed)this.refillBarthes();

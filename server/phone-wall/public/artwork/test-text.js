@@ -63,7 +63,7 @@
   let transition = state.ticker?.transition || null;
   const incomingStyle = () => parameters.curatedMode && run?.effect === 'sms-sweep';
   function sweepTiming(row, elapsed) {
-    const count = run.targets.length;
+    const count = run.band.targets.length;
     const column = Math.max(0, Math.min(count - 1,
       Math.floor((viewport.x + viewport.width / 2 - row.left) / (row.right - row.left) * count)));
     const fromRight = count - 1 - column;
@@ -109,11 +109,11 @@
         }
       }
       let digitPair = null;
-      if (parameters.live && run?.effect === 'flash' && run.targets?.length) {
+      if (parameters.live && run?.effect === 'flash' && run.band.targets.length) {
         const digits = text.replace(/\D/g, '');
-        if (digits.length >= run.targets.length * 2) {
-          const column = Math.max(0, Math.min(run.targets.length - 1,
-            Math.floor((viewport.x + viewport.width / 2 - row.left) / (row.right - row.left) * run.targets.length)));
+        if (digits.length >= run.band.targets.length * 2) {
+          const column = Math.max(0, Math.min(run.band.targets.length - 1,
+            Math.floor((viewport.x + viewport.width / 2 - row.left) / (row.right - row.left) * run.band.targets.length)));
           const pair = digits.slice(column * 2, column * 2 + 2);
           context.font = `100px ${digitFont}`;
           const measured = context.measureText(pair);

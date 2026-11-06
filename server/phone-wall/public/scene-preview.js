@@ -175,7 +175,7 @@ export function drawLiveText(c, definition, geometry, run, now) {
       text: run.text,
       speed: run.speed,
       effect: run.effect,
-      phoneCount: run.targets.length,
+      phoneCount: run.band.targets.length,
       rows: [{...run.band, delayMs: 0}],
     },
   };
