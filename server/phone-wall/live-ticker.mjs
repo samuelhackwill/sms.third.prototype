@@ -15,7 +15,18 @@ const randomSpeed=(min,max)=>min+Math.floor(Math.random()*(max-min+1));
 export function routerBackground(externalId){
   const sender=String(externalId).replace(/^(?:tenda|archive):/,'').split(':')[0];
   const seed=Number(sender.replace(/\D/g,'').slice(-4).padStart(4,'0'));
-  return `hsl(${seed*137%360}, ${45+seed%16}%, ${14+Math.floor(seed/16)%8}%)`;
+  const hue=seed*137%360,saturation=72+seed%12;
+  let lightness=40+Math.floor(seed/12)%5;
+  const luminance=()=>{
+    const s=saturation/100,l=lightness/100,a=s*Math.min(l,1-l);
+    const channel=n=>{
+      const k=(n+hue/30)%12,value=l-a*Math.max(-1,Math.min(k-3,9-k,1));
+      return value<=0.04045?value/12.92:((value+0.055)/1.055)**2.4;
+    };
+    return 0.2126*channel(0)+0.7152*channel(8)+0.0722*channel(4);
+  };
+  while(lightness>20&&luminance()>0.18)lightness--;
+  return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
 }
 export function displayMessage(text) {
   if(typeof text!=='string')throw new Error('invalid-message-text');

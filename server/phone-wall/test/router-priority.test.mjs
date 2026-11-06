@@ -20,7 +20,7 @@ test('SMS background depends on the sender’s last four digits and stays dark',
   assert.notEqual(routerBackground('tenda:0612345678:one'),routerBackground('tenda:0612345679:one'));
   for(const suffix of ['0000','5678','9999']){
     const color=routerBackground(`tenda:06${suffix}:one`);
-    assert.match(color,/^hsl\(\d{1,3}, \d{2}%, (1\d|2[01])%\)$/);
+    assert.match(color,/^hsl\(\d{1,3}, (7\d|8[0-3])%, ([2-3]\d|4[0-4])%\)$/);
   }
 });
 

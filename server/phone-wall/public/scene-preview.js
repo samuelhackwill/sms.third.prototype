@@ -21,8 +21,8 @@ const emojiPattern = /[\u00A9\u00AE\u203C\u2049\u2122\u2139\u{1F000}-\u{1FAFF}\u
 const segmenter = Intl.Segmenter ? new Intl.Segmenter('und', {granularity:'grapheme'}) : null;
 const emojiCache = new Map();
 const segments = value => segmenter ? [...segmenter.segment(value)].map(part => part.segment) : Array.from(value);
-function tintedEmoji(ctx, glyph, color, backgroundColor) {
-  const key = `${ctx.font}|${glyph}|${backgroundColor || color}`;
+function tintedEmoji(ctx, glyph, color, multiply) {
+  const key = `${ctx.font}|${glyph}|${multiply ? 'multiply' : color}`;
   if (emojiCache.has(key)) return emojiCache.get(key);
   const measured = ctx.measureText(glyph), size = parseFloat(ctx.font) || 100;
   const left = Math.ceil(Math.max(0, measured.actualBoundingBoxLeft || 0)) + 4;
@@ -31,23 +31,15 @@ function tintedEmoji(ctx, glyph, color, backgroundColor) {
   const height = top + Math.ceil(Math.max(measured.actualBoundingBoxDescent || 0, size * 0.25)) + 4;
   const tile = document.createElement('canvas'); tile.width = width; tile.height = height;
   const ink = tile.getContext('2d'); ink.font = ctx.font; ink.textBaseline = 'alphabetic';
-  const hue = /^hsl\(\s*([\d.]+)/i.exec(backgroundColor || '')?.[1];
-  let tint;
-  if (hue !== undefined) {
-    ink.fillStyle = `hsl(${hue}, 85%, 75%)`;
-    ink.fillRect(0, 0, 1, 1);
-    tint = ink.getImageData(0, 0, 1, 1).data.slice(0, 3);
-    ink.clearRect(0, 0, 1, 1);
-  }
   ink.fillText(glyph, left, top);
-  if (tint) {
+  if (multiply) {
     const image = ink.getImageData(0, 0, width, height);
     for (let i = 0; i < image.data.length; i += 4) {
       if (!image.data[i + 3]) continue;
       const luminance = (0.2126 * image.data[i] + 0.7152 * image.data[i + 1] + 0.0722 * image.data[i + 2]) / 255;
-      const shade = 0.68 + 0.32 * luminance;
-      for (let channel = 0; channel < 3; channel++) image.data[i + channel] = Math.round(tint[channel] * shade);
-      image.data[i + 3] = Math.min(255, Math.round(image.data[i + 3] * 1.4));
+      const shade = Math.round(255 * (0.18 + 0.52 * luminance));
+      image.data[i] = image.data[i + 1] = image.data[i + 2] = shade;
+      image.data[i + 3] = Math.min(255, Math.round(image.data[i + 3] * 1.25));
     }
     ink.putImageData(image, 0, 0);
   } else {
@@ -58,14 +50,16 @@ function tintedEmoji(ctx, glyph, color, backgroundColor) {
   emojiCache.set(key, result);
   return result;
 }
-function drawColoredText(ctx, value, x, baseline, textColor, backgroundColor = null) {
+function drawColoredText(ctx, value, x, baseline, textColor, multiplyEmoji = false) {
   let cursor = x, plain = '';
   const flush = () => {if (!plain) return; ctx.fillStyle = textColor; ctx.fillText(plain, cursor, baseline); cursor += ctx.measureText(plain).width; plain = '';};
   for (const part of segments(value)) {
     if (!emojiPattern.test(part)) {plain += part; continue;}
     flush();
-    const glyph = tintedEmoji(ctx, part, textColor, backgroundColor);
+    const glyph = tintedEmoji(ctx, part, textColor, multiplyEmoji);
+    if (multiplyEmoji) { ctx.save(); ctx.globalCompositeOperation = 'multiply'; }
     ctx.drawImage(glyph.tile, cursor - glyph.left, baseline - glyph.top);
+    if (multiplyEmoji) ctx.restore();
     cursor += glyph.advance;
   }
   flush();
@@ -161,7 +155,7 @@ function drawTestText(c, definition, g, elapsed) {
     visible = true;
     c.save(); c.beginPath(); c.rect(row.left, row.top, row.right - row.left, row.height); c.clip();
     c.font = row.font;
-    drawColoredText(c, cached.text, x, row.baseline, p.color, sweep ? definition.background : null);
+    drawColoredText(c, cached.text, x, row.baseline, p.color, !!sweep);
     c.restore();
   }
   c.restore();
