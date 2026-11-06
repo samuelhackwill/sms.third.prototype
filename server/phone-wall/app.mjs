@@ -497,6 +497,10 @@ export async function createController({
       ticker.startBarthes();liveAttempts.clear();cacheRecovery.clear();broadcast();tickerBroadcast();tickerTick();
       return {fullFrame:fullFrame.status()};
     }
+    if(input.action==='full-frame.settings'){
+      fullFrame.configure(input.settings??{});
+      return {fullFrame:fullFrame.status()};
+    }
     if(cycle.enabled&&['kissing.start','kissing.stop','curated.start','curated.stop','barthes.start','barthes.stop','remote.day','remote.night','live.start','mode','schedule','scene','configure','rollback','pairing.start','test.text','release.deploy','preview'].includes(input.action))stopCycle();
     if(fullFrame.state.enabled&&['kissing.start','curated.start','barthes.start','remote.day','remote.night','live.start','mode','schedule','scene','configure','rollback','pairing.start','test.text','release.deploy','preview'].includes(input.action))fullFrame.stop();
     if(input.action==='transition.settings')return {settings:ticker.setTransitionSettings(input.settings??{})};
