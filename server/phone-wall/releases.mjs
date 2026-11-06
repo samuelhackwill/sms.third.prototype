@@ -258,7 +258,7 @@ export class Releases {
   }
   cancel(id) {
     const d = this.deployment(id);
-    if (d.phase !== "preparing")
+    if (!["preparing", "scheduled"].includes(d.phase))
       throw new Error("deployment-already-committed");
     this.fail(d, "operator-cancelled", "cancelled");
   }

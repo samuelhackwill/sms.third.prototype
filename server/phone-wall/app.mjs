@@ -17,6 +17,7 @@ import { testTextDefinition } from './test-text.mjs';
 import { LiveTicker,liveRows } from './live-ticker.mjs';
 import { TendaReader } from './tenda-reader.mjs';
 import { KissingWall } from './kissing-wall.mjs';
+import { FullFrameClips } from './full-frame-clips.mjs';
 import { localOperatorConnection } from './local-network.mjs';
 import { releaseHash } from './scenes.mjs';
 import { requestInstallationReset } from './reset.mjs';
@@ -43,6 +44,7 @@ export async function createController({
   adminToken,
   logger = false,
   kissingOptions = {},
+  fullFrameOptions = {},
   requestReset,
   machineBootId,
 } = {}) {
@@ -103,6 +105,7 @@ export async function createController({
   const cacheRecovery=new Set();
   const kissing=new KissingWall(store,mediaDir,{...kissingOptions,onChange:()=>broadcast()});
   await kissing.initialize();
+  const fullFrame=new FullFrameClips({store,releases,kissing,mediaDir,sessions,...fullFrameOptions});
   store.db.exec("CREATE TABLE IF NOT EXISTS mode_cycle(id INTEGER PRIMARY KEY CHECK(id=1),data TEXT NOT NULL)");
   const cycleDefaults={enabled:false,curatedDurationSec:180,kissingMetric:'duration',kissingDurationSec:180,kissTarget:10,phase:null,phaseStartedAt:0,kisses:0,drainTargets:[],drainStartedAt:0,transitionId:null,error:null};
   const savedCycle=store.db.prepare('SELECT data FROM mode_cycle WHERE id=1').get();
@@ -155,12 +158,13 @@ export async function createController({
   const broadcast = () => {
     for (const id of sessions.keys()) snapshot(id);
   };
+  const fullFrameTick=()=>{for(const id of fullFrame.tick())snapshot(id);};
   const pairingState=(id)=>{const ws=sessions.get(id);if(ws)send(ws,'pairing.state',pairing.status(id));};
   const broadcastPairing=()=>{for(const id of sessions.keys())pairingState(id);};
   const tickerBroadcast=()=>{for(const [id,ws] of sessions){snapshot(id);send(ws,'ticker.snapshot',ticker.snapshot(id));}};
   const pauseTicker=()=>{ticker.pause();tickerBroadcast();};
   function tickerTick(){
-    const state=store.current(),allowed=state.mode==='exhibition'&&!pairing.status().active&&(!kissing.settings.enabled||cycle.enabled&&cycle.phase==='preparing-curated');
+    const state=store.current(),allowed=state.mode==='exhibition'&&!pairing.status().active&&!fullFrame.state.enabled&&(!kissing.settings.enabled||cycle.enabled&&cycle.phase==='preparing-curated');
     const tickerState=ticker.dispatchState();
     const urgent=tickerState.routerQueued||tickerState.active.some(run=>run.source==='router');
     let desiredTickerVersion=null;
@@ -346,6 +350,7 @@ export async function createController({
       audioUpgradeRequired:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.audioVolume!==1).map(slot=>slot.deviceId),
       pairing:pairing.status(),
       kissing:{...kissing.status(),upgradeRequired:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.kissingWall!==1).map(slot=>slot.deviceId)},
+      fullFrame:fullFrame.status(),
       ticker:{...ticker.status(),router:routerStatus,upgradeRequired:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.liveTicker!==1).map(slot=>slot.deviceId),alertUpgradeRequired:state.layout.slots.filter(slot=>sessions.has(slot.deviceId)&&store.device(slot.deviceId)?.capabilities?.liveAlert!==1).map(slot=>slot.deviceId)},
       transition:transitionStatus(state),
       cycle:cycleStatus(),
@@ -434,6 +439,7 @@ export async function createController({
       const permission=spawnSync('/usr/bin/sudo',['-n','-l','/sbin/shutdown','-h','now'],{encoding:'utf8',timeout:3000});
       if(permission.status!==0)throw new Error('shutdown-permission-unavailable');
       if(cycle.enabled)stopCycle();
+      if(fullFrame.state.enabled)fullFrame.stop();
       if(pairing.status().active){pairing.stop();broadcastPairing();}
       state=structuredClone(store.current());
       state.mode='night';state.nightBrightness=0;state.schedule=null;state.overrides={};
@@ -466,6 +472,7 @@ export async function createController({
       if(!state.layout.slots.some(slot=>sessions.has(slot.deviceId)))throw new Error('no-connected-phones-for-cycle');
       if(!kissing.clips().length)throw new Error('no-kissing-clips-cached');
       if(state.layout.slots.some(slot=>sessions.has(slot.deviceId)&&(store.device(slot.deviceId)?.capabilities?.kissingDrain!==1||store.device(slot.deviceId)?.capabilities?.liveTicker!==1)))throw new Error('phone-update-required-for-cycle-drain');
+      if(fullFrame.state.enabled)fullFrame.stop();
       kissing.configure({enabled:false});ticker.startCurated();liveAttempts.clear();cacheRecovery.clear();
       store.commit({...state,mode:'exhibition',schedule:null,overrides:{}},previous.revision);
       store.db.prepare('DELETE FROM previews').run();
@@ -473,11 +480,29 @@ export async function createController({
       broadcast();tickerBroadcast();tickerTick();return {cycle:cycleStatus()};
     }
     if(input.action==='cycle.stop'){stopCycle();return {cycle:cycleStatus()};}
+    if(input.action==='full-frame.start'){
+      if(fullFrame.state.enabled)throw new Error('full-frame-already-running');
+      if(pairing.status().active)throw new Error('stop-pairing-before-full-frame-clips');
+      if(!kissing.clips().length)throw new Error('no-kissing-clips-cached');
+      if(!state.layout.slots.some(slot=>sessions.has(slot.deviceId)))throw new Error('no-paired-phones-online');
+      if(cycle.enabled)stopCycle();
+      kissing.configure({enabled:false});pauseTicker();ticker.requeue(false);liveAttempts.clear();cacheRecovery.clear();
+      store.commit({...state,mode:'exhibition',schedule:null,overrides:{}},previous.revision);
+      store.db.prepare('DELETE FROM previews').run();broadcast();
+      for(const id of fullFrame.start())snapshot(id);
+      return {fullFrame:fullFrame.status()};
+    }
+    if(input.action==='full-frame.stop'){
+      if(fullFrame.state.enabled)fullFrame.stop();
+      ticker.startBarthes();liveAttempts.clear();cacheRecovery.clear();broadcast();tickerBroadcast();tickerTick();
+      return {fullFrame:fullFrame.status()};
+    }
     if(cycle.enabled&&['kissing.start','kissing.stop','curated.start','curated.stop','barthes.start','barthes.stop','remote.day','remote.night','live.start','mode','schedule','scene','configure','rollback','pairing.start','test.text','release.deploy','preview'].includes(input.action))stopCycle();
+    if(fullFrame.state.enabled&&['kissing.start','curated.start','barthes.start','remote.day','remote.night','live.start','mode','schedule','scene','configure','rollback','pairing.start','test.text','release.deploy','preview'].includes(input.action))fullFrame.stop();
     if(input.action==='transition.settings')return {settings:ticker.setTransitionSettings(input.settings??{})};
     if(input.action==='transition.sms'){
       if(cycle.enabled)throw new Error('stop-cycle-before-manual-transition');
-      if(pairing.status().active||state.mode!=='exhibition'||kissing.settings.enabled)throw new Error('transition-requires-exhibition-mode');
+      if(pairing.status().active||state.mode!=='exhibition'||kissing.settings.enabled||fullFrame.state.enabled)throw new Error('transition-requires-exhibition-mode');
       if(!transitionStatus(state).available)throw new Error('live-text-artwork-required-for-transition');
       return {id:requestTransition()};
     }
@@ -1053,7 +1078,7 @@ export async function createController({
     }
   }, 100);
   const tickerTimer = setInterval(() => {
-    try { tickerTick();cycleTick(); }
+    try { tickerTick();cycleTick();fullFrameTick(); }
     catch (error) { if(cycle.enabled){cycle.error=error.message;stopCycle();}app.log.error({error},"ticker-tick-failed"); }
   }, 500);
   const cpuTimer = setInterval(() => {
@@ -1096,5 +1121,5 @@ export async function createController({
   app.addHook("onClose", async () => {
     store.close();
   });
-  return { app, store, sessions, releases, ticker, kissing, cycleTick };
+  return { app, store, sessions, releases, ticker, kissing, fullFrame, cycleTick };
 }

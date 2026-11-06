@@ -260,6 +260,10 @@ function render() {
   }
   $('kissing-status').textContent=kissing?.upgradeRequired?.length?`Install phone app 2.4 on ${kissing.upgradeRequired.length} connected phones to enable video.`:
     `${kissing?.enabled?(state.mode==='exhibition'&&!pairing?.active?'PLAYING INDEPENDENTLY · SOUND ON':'PAUSED (night / pairing)'):'STOPPED'} · ${kissing?.clips??0} clips cached on Mac${kissing?.busy?' · caching available clips':''}${kissing?.lastError?' · '+kissing.lastError:''}`;
+  const fullFrame=data.fullFrame;
+  $('full-frame-start').disabled=!fullFrame||fullFrame.enabled||!fullFrame.clips||!!pairing?.active;
+  $('full-frame-stop').disabled=!fullFrame?.enabled;
+  $('full-frame-status').textContent=fullFrame?.enabled?`${fullFrame.phase==='playing'?'PLAYING ACROSS MATRIX'+(fullFrame.next?' · preparing next clip':''):'PREPARING CLIP'} · ${fullFrame.clips} clips cached${fullFrame.error?' · '+fullFrame.error:''}`:`STOPPED · ${fullFrame?.clips??0} clips cached`;
   renderPhoneDetails();
   renderErrors();
   $('debug-toggle').checked=!!state.debugEnabled;
@@ -866,6 +870,8 @@ function kissingSettings(){return {trim:$('kissing-trim').checked,trimStartOffse
 $('kissing-start').onclick=run(async()=>{await api({action:'kissing.start',settings:kissingSettings()});virtualDraft=null;});
 $('kissing-stop').onclick=run(()=>api({action:'kissing.stop'}));
 $('kissing-apply').onclick=run(async()=>{await api({action:'kissing.settings',settings:kissingSettings()});kissingEdited=false;});
+$('full-frame-start').onclick=run(async()=>{await api({action:'full-frame.start'});virtualDraft=null;});
+$('full-frame-stop').onclick=run(()=>api({action:'full-frame.stop'}));
 $('send-test-text').onclick=run(async()=>{
   sendingTest=true;testDeployment=null;$('send-test-text').disabled=true;
   $('test-text-status').textContent='Sending test…';

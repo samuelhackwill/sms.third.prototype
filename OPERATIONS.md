@@ -26,7 +26,11 @@ Push a server update to `phone-wall-runtime-2`; run the Mac pull-and-restart com
 
 Install phone app **2.4.3 (build 10)** once, then use **Control > Kissing Wall > Start Kissing Wall**. Each phone plays its own random clip, with sound enabled. Set speaker volume using each phone's volume buttons; a clip with no audio track is naturally silent. The Mac initially downloads clips from the original kissing API and shares verified files locally. The pool grows gradually, so the first clip may repeat until more arrive. Internet is required to obtain new clips, not to replay cached ones.
 
-Optional **Play only the kiss** uses the API kiss timestamps and the before/after padding. Fade and trim settings apply to the next clip without an IPA update. Night Mode, Blackout and pairing pause video/audio; Resume continues it. Stop Kissing Wall returns to the previous artwork. Starting test text, live messages or another published artwork exits kissing mode. The phone error log below the matrix shows reported video errors. Enable Phone Debug Display to see app version, connection state and the latest error code on phones running app 2.4.3 or newer. Synchronized video batches are not implemented in this port.
+Optional **Play only the kiss** uses the API kiss timestamps and the before/after padding. Fade and trim settings apply to the next clip without an IPA update. Night Mode, Blackout and pairing pause video/audio; Resume continues it. Stop Kissing Wall returns to the previous artwork. Starting test text, live messages or another published artwork exits kissing mode. The phone error log below the matrix shows reported video errors. Enable Phone Debug Display to see app version, connection state and the latest error code on phones running app 2.4.3 or newer.
+
+## Full Frame Clips
+
+Use **Control > Full Frame Clips > Start** on the desktop dashboard to play one cached kissing clip across the entire phone matrix. Each connected phone displays its portion of the same muted video. The controller prepares the next clip near the end of the current one; if preparation is late, the current clip loops until the next is ready. **Stop** returns to Roland Barthes Mode. Incoming SMS continue to be archived and queued while this mode is active, then resume display when it stops. The mode uses the existing video artwork runtime, so it does not require a new phone app build. Clip metadata is read locally with `ffprobe` on the Mac mini.
 
 ## Live Incoming Messages
 
