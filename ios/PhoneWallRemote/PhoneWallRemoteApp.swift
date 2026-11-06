@@ -87,7 +87,7 @@ private final class RemoteModel: ObservableObject {
         guard var parts = URLComponents(string: supplied),
               let host = parts.host?.lowercased(), !host.isEmpty,
               parts.user == nil, parts.password == nil else { throw RemoteError.invalidURL }
-        if !cleaned.contains("://") && !host.contains(".") && host != "localhost" {
+        if !host.contains(".") && host != "localhost" {
             parts.host = host + ".local"
         }
         guard parts.scheme == "https" || parts.scheme == "http" && localHost(parts.host ?? "") else {
