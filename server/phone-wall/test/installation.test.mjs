@@ -36,6 +36,10 @@ test('daemon upgrade preserves credentials and port, removing the old hostname c
     assert.equal(readFileSync(upgraded.keyFile,'utf8'),key);
     assert.equal(JSON.parse(readFileSync(upgraded.configFile,'utf8')).advertisedHost,undefined);
     assert.equal(JSON.parse(readFileSync(upgraded.configFile,'utf8')).serviceName,'Phone Wall');
+    const passphrase='four-ordinary-words-with-a-private-ending';
+    writeFileSync(installed.keyFile,passphrase+'\n');
+    await configureInstallation(options);
+    assert.equal(configuration({PHONE_WALL_CONFIG_FILE:installed.configFile}).adminToken,passphrase);
     writeFileSync(installed.keyFile,'corrupt');
     await assert.rejects(configureInstallation(options),/refusing to replace/);
     assert.equal(readFileSync(installed.keyFile,'utf8'),'corrupt');

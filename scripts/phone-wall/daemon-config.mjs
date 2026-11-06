@@ -25,7 +25,7 @@ export async function configureInstallation({root='/Library/Application Support/
   let port;for(const candidate of [...new Set(choices)])if(await available(candidate)){port=candidate;break;}
   if(!port)throw new Error('No available Phone Wall port (3100–3110). Existing services have not been stopped.');
   if(!existsSync(keyFile))writeFileSync(keyFile,randomBytes(32).toString('hex')+'\n',{mode:0o640,flag:'wx'});
-  if(!/^[a-f0-9]{64}$/.test(readFileSync(keyFile,'utf8').trim()))throw new Error('Existing operator key is invalid; refusing to replace it.');
+  if(!/^[\x21-\x7e]{32,128}$/.test(readFileSync(keyFile,'utf8').trim()))throw new Error('Existing operator key is invalid; refusing to replace it. Use 32–128 printable ASCII characters without spaces.');
   const config={port,bindAddress:'0.0.0.0',dataDir:join(root,'data'),adminTokenFile:keyFile,mdns:true,serviceName:'Phone Wall'};
   writeFileSync(configFile,JSON.stringify(config,null,2)+'\n',{mode:0o644});chmodSync(configFile,0o644);
   const plist=join(daemonDir,serviceLabel+'.plist');regularFile(plist);writeFileSync(plist,daemonPlist(root,configFile,logDir),{mode:0o644});chmodSync(plist,0o644);

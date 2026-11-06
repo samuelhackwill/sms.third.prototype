@@ -940,7 +940,7 @@ $("upload-code").onclick = run(() =>
   upload($("code").value, "text/javascript"),
 );
 const launchKey=new URLSearchParams(location.hash.slice(1)).get('operatorKey');
-if(launchKey!==null){history.replaceState(null,'',location.pathname+location.search);if(/^[a-f0-9]{64}$/.test(launchKey)){token=launchKey;api().then(()=>sessionStorage.setItem('phoneWallOperatorKey',token)).catch(error=>status(error.message));}}
+if(launchKey!==null){history.replaceState(null,'',location.pathname+location.search);if(/^[\x21-\x7e]{32,128}$/.test(launchKey)){token=launchKey;api().then(()=>sessionStorage.setItem('phoneWallOperatorKey',token)).catch(error=>status(error.message));}}
 else if(token)api().catch(error=>status(error.message));
 setInterval(async () => {
   if (!token) return;
